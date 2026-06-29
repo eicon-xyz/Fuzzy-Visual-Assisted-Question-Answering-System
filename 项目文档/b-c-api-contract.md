@@ -367,7 +367,6 @@ config_updated_signal.emit(config_dict)
   "confidence_threshold": 80,
   "llm_api_endpoint": "https://api.openai.com/v1",
   "llm_model": "gpt-4o",
-  "template_similarity_threshold": 90,
   "token_limit": 8000,
   "config_pull_interval_min": 30,
   "audit_batch_size": 10,

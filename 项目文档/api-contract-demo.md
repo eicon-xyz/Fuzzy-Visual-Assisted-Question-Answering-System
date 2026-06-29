@@ -609,7 +609,7 @@ curl -X POST http://localhost:8000/api/demo/step \
 
 1. **认证简化**：用固定 `X-Demo-Key` 替代 JWT/HMAC，生产阶段再替换。
 2. **数据库存储简化**：`task` 状态用内存 dict 保存，服务重启后重置。
-3. **模板匹配简化**：Demo 不走 `/api/templates/match`，后端直接调 LLM 生成步骤。
+3. **步骤生成简化**：Demo 阶段后端直接调 LLM 生成步骤，不走预置蓝图匹配。
 4. **指纹校验简化**：`fingerprint` 字段后端仅记录，不做严格匹配，避免 Demo 时频繁挂起。
 5. **图片大小限制**：建议单张截图 Base64 后不超过 2MB，超出可压缩或改传 URL。
 
@@ -621,4 +621,4 @@ Demo 完成后，如需对齐完整架构，请参考：
 
 - 完整 API 规格：《HAJIMI 详细设计文档》第八部分「接口详细设计」
 - 认证方案：JWT Access Token（2h）+ Refresh Token（7d）+ HMAC-SHA256 签名
-- 正式端点：`/api/templates/match`、`/api/audit/report`、`/api/config/pull`、`/api/admin/*`
+- 正式端点：`/api/audit/report`、`/api/config/pull`、`/api/admin/*`

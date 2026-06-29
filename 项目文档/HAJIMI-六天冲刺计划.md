@@ -10,7 +10,7 @@
 ## 依赖关系速查
 
 ```
-A: FastAPI框架 ──→ DB Schema ──→ 意图理解API ──→ 蓝图规划API ──→ 模板匹配API
+A: FastAPI框架 ──→ DB Schema ──→ 意图理解API ──→ 蓝图规划API
                     │                              │
                     └──────────────┬───────────────┘
                                    ▼
@@ -51,7 +51,7 @@ B: 屏幕捕获 ──→ UI解析器 ──→ SoM标注 ──→ 桌面挂件
 | **09:00–09:15** | 站会 |
 | **09:15–12:00** | **意图理解服务 INTENT**：实现 `intent_service.py`：① `jieba` 分词 + 词性标注 → 提取动词+名词 ② 微调后的 `BERT-base-chinese` 九大意图域分类 ③ 5 种指代消解策略框架（显式/空间/鼠标/语义/上下文） ④ 综合置信度计算公式。接 `/api/demo/process` 接收 query → 返回 intent JSON | **SoM 标注生成 SOM**：输入 PARSER 的元素列表 + 截图 → OpenCV 绘制彩色边界框 + `~N` 标签 → 输出 `annotated_image` bytes + `Map{~N: {bbox, center}}`。自测：对截图生成标注图，肉眼确认编号清晰 | **审计代理 AuditAgent**：创建 `audit_agent.py`：① 本地 SQLite `audit_queue` 表（WAL 模式）② `enqueue(AuditRecord)` 写入方法 ③ 隐私脱敏函数（窗口标题正则替换、文件路径仅保留扩展名、密码字段 → `[REDACTED]`）④ 批量上报触发器（累积 10 条或 5 分钟） |
 | **12:00–13:30** | 午休 |
-| **13:30–15:30** | **蓝图规划服务 PLANNER**：实现 `planner_service.py`：① 复杂度评分路由 `route(query) -> L2/L3`（`score = 0.3*len + 8*n_verb + 10*cross`）② L3：构造 LLM Prompt（SoM 图 + 意图 + 约束模板）→ 调用 GPT-4V API → 解析返回的 Constant Steps ③ 蓝图状态机骨架（7 状态 + 指纹比对逻辑 `Jaccard >= 0.8`）。接 `/api/demo/step` → `advance/rollback/skip/terminate` | **桌面挂件主 UI（上）**：用 PyQt5 实现三栏布局骨架：① 左侧 5 按钮列（QPushButton + QSS 样式）② 中栏对话区（QScrollArea + 聊天气泡 QLabel）③ 右侧详情面板（QWidget 可滑出）。信号槽框架：定义 `asr_start/stop`、`tts_enqueue`、`audit_submit` 等 PyQt Signal | **配置拉取 ConfigPoller**：实现 `config_poller.py`：① 定时器（默认 30min）轮询 `GET /api/config/pull` ② 支持 ETag 条件请求 ③ 检测到新版本 → emit `config_updated` 信号。自测：对 A 的 Mock 端点定时拉取 |
+| **13:30–15:30** | **蓝图规划服务 PLANNER**：实现 `planner_service.py`：① 复杂度评分路由 `route(query) -> L2/L3`（`score = 0.3*len + 8*n_verb + 10*cross`）② L3：构造 LLM Prompt（SoM 图 + 意图 + 约束）→ 调用 GPT-4V API → 解析返回的 Constant Steps ③ 蓝图状态机骨架（7 状态 + 指纹比对逻辑 `Jaccard >= 0.8`）。接 `/api/demo/step` → `advance/rollback/skip/terminate` | **桌面挂件主 UI（上）**：用 PyQt5 实现三栏布局骨架：① 左侧 5 按钮列（QPushButton + QSS 样式）② 中栏对话区（QScrollArea + 聊天气泡 QLabel）③ 右侧详情面板（QWidget 可滑出）。信号槽框架：定义 `asr_start/stop`、`tts_enqueue`、`audit_submit` 等 PyQt Signal | **配置拉取 ConfigPoller**：实现 `config_poller.py`：① 定时器（默认 30min）轮询 `GET /api/config/pull` ② 支持 ETag 条件请求 ③ 检测到新版本 → emit `config_updated` 信号。自测：对 A 的 Mock 端点定时拉取 |
 | **15:30–17:30** | **LLM API 封装**：`llm_client.py`：GPT-4V / Qwen-VL-Max 统一适配层（API Key 配置、请求重试、超时 30s、流式输出预留）。自测：发送一张截图 + "这是谁的桌面？" → 验证响应 | **桌面挂件主 UI（下）**：③ 步骤卡片列表（步骤序号 + 动作描述 + 状态色标）④ 底部输入栏（QLineEdit + 发送按钮 + 麦克风按钮）⑤ 状态指示器（就绪/解析中/执行中/挂起）+ 执行控制栏（上一步/下一步按钮）。QSS 毛玻璃效果（`rgba + backdrop-blur` 模拟） | **Web 管理面板（上）**：Vue3 + Element-Plus 脚手架初始化（`npm create vue@latest`）。搭建左侧导航 + 路由框架（5 页面占位）。实现登录页（居中卡片 + JWT 登录逻辑）和总览页骨架（5 个 KPI 卡片 + 2 饼图区域 + 2 折线图区域，ECharts 引入但暂用静态数据） |
 | **17:30–17:45** | 同步 |
 
@@ -67,7 +67,7 @@ B: 屏幕捕获 ──→ UI解析器 ──→ SoM标注 ──→ 桌面挂件
 | 时段 | A | B | C |
 |------|---|---|---|
 | **09:00–09:15** | 站会（重点：B 与 C 的语音信号联调、A 与 B 的 /process 联调） |
-| **09:15–12:00** | **模板匹配接口**：`template_service.py`：① 关键词哈希索引（预加载 t_templates 表）② 余弦相似度匹配（query → `jieba` 分词 → TF-IDF → cosine_sim > 0.9）③ `/api/templates/match` 端点。自测：已知关键词命中对应模板 | **屏幕覆盖层 ANNO**：全屏 `QWidget` 透明窗口（`StaysOnTopHint + Tool + WA_TransparentForMouseEvents`）：① `draw_arrow(from, to)` 红色箭头 ② `draw_highlight(bbox)` 红色虚线框 ③ `draw_label(pos, text)` 白底红字编号标签。与 SoM 坐标联动自测 | **B-C 语音信号联调**：上午与 B 对接 PyQt5 信号接口：① 绑定 B 的 `mic_button.pressed/released` → C 的 `asr_start/stop` ② 绑定 C 的 `asr_result` → B 的输入框 ③ 绑定 B 的 `tts_enqueue` → C 的 TTS 队列。联调测试：按下 B 的麦克风按钮 → C 录音转文字 → B 输入框出现文字 |
+| **09:15–12:00** | **服务端 API 扩展**：扩展 Server API：① 配置热部署接口 `/api/admin/config/current` + `/api/admin/config/deploy` ② 审计日志批量接收 `/api/audit/report` + 反馈 `/api/audit/feedback` ③ 管理员统计接口。自测：Postman 批量发包验证 | **屏幕覆盖层 ANNO**：全屏 `QWidget` 透明窗口（`StaysOnTopHint + Tool + WA_TransparentForMouseEvents`）：① `draw_arrow(from, to)` 红色箭头 ② `draw_highlight(bbox)` 红色虚线框 ③ `draw_label(pos, text)` 白底红字编号标签。与 SoM 坐标联动自测 | **B-C 语音信号联调**：上午与 B 对接 PyQt5 信号接口：① 绑定 B 的 `mic_button.pressed/released` → C 的 `asr_start/stop` ② 绑定 C 的 `asr_result` → B 的输入框 ③ 绑定 B 的 `tts_enqueue` → C 的 TTS 队列。联调测试：按下 B 的麦克风按钮 → C 录音转文字 → B 输入框出现文字 |
 | **12:00–13:30** | 午休 |
 | **13:30–15:30** | **A-B 联调 /process**：B 调用 `POST /api/demo/process`（传截图 + 用户问题）→ A 返回 steps + annotations → B 在挂件显示步骤 + 在覆盖层绘制标注。联调验证：全过程 < 10 秒 | **A-B 联调 /step**：B 用户点"下一步" → 调用 `POST /api/demo/step` → A 推进蓝图 → B 更新步骤高亮 + 覆盖层标注。联调验证步骤推进 + 挂起（模拟指纹不匹配） | **审计代理 HTTP 上报**：对接 A 的 `POST /api/audit/report`。C 模拟 B 发射 `audit_submit` 信号 → AuditAgent 接收 → 脱敏 → 写入本地 SQLite → 批量 POST。验证：断网情况下队列积压 + 联网后自动补传 |
 | **15:30–17:30** | **主动澄清逻辑**：完成 `/api/demo/clarify` 端点的真实逻辑（不再 Mock）。综合置信度 < 80% → 生成探测性问题（二选一）→ 用户回答 → 追加锚点 → 更新意图 | **挂件完成度打磨**：步骤状态动画（completed 灰色+绿勾 / active 蓝色高亮 / pending 半透明）、TTS 声波动画（喇叭图标 CSS animation）、对话区自动滚动到底部、输入框 focus 快捷键 | **Web 管理面板（中）**：实现失败归因页：① 失败类型柱状图（ECharts）② 失败趋势折线图 ③ 失败列表（Element-Plus Table + 分页）④ 右侧详情滑出面板（含 LLM 快照折叠区）。对接 A 的 `/api/admin/failures/*` 端点（若 A 尚未就绪则继续 Mock） |
@@ -85,7 +85,7 @@ B: 屏幕捕获 ──→ UI解析器 ──→ SoM标注 ──→ 桌面挂件
 | 时段 | A | B | C |
 |------|---|---|---|
 | **09:00–09:15** | 站会 |
-| **09:15–12:00** | **红线检测模块**：`redline_service.py`：关键词规则 + 正则（自动点击/抢票/扫描硬盘/系统命令注入等）。检测到 → 返回标准拒答话术，不进入意图理解。接入 `/api/demo/process` 的最前端（在意图理解之前执行） | **L2 快路径实现**：不依赖 LLM，走本地规则：① OCR 识别（PaddleOCR 轻量版）② 元素匹配（关键词+类型）→ 生成简易步骤 ③ 若命中模板则直接用模板步骤。自测：简单指令（"打开记事本"）< 3 秒返回 | **Web 管理面板（下）**：实现数据流监控页：① 桑基图/流向图（ECharts Graph）② 接口 QPS+成功率双轴图 ③ 客户端版本饼图。实现系统配置页：① 10 项表单（滑块/文本框/下拉）② JSON 编辑器（路由规则 TextArea + 格式化/校验按钮）③ 热部署二次确认弹窗。实现健康监控页：① 资源卡片 ② 组件状态指示灯 ③ 告警列表 |
+| **09:15–12:00** | **红线检测模块**：`redline_service.py`：关键词规则 + 正则（自动点击/抢票/扫描硬盘/系统命令注入等）。检测到 → 返回标准拒答话术，不进入意图理解。接入 `/api/demo/process` 的最前端（在意图理解之前执行） | **L2 快路径实现**：不依赖 LLM，走本地规则：① OCR 识别（PaddleOCR 轻量版）② 元素匹配（关键词+类型）→ 生成简易步骤。自测：简单指令（"打开记事本"）< 3 秒返回 | **Web 管理面板（下）**：实现数据流监控页：① 桑基图/流向图（ECharts Graph）② 接口 QPS+成功率双轴图 ③ 客户端版本饼图。实现系统配置页：① 10 项表单（滑块/文本框/下拉）② JSON 编辑器（路由规则 TextArea + 格式化/校验按钮）③ 热部署二次确认弹窗。实现健康监控页：① 资源卡片 ② 组件状态指示灯 ③ 告警列表 |
 | **12:00–13:30** | 午休 |
 | **13:30–15:30** | **数据库查询优化**：为高频查询添加索引（`task_id`、`timestamp`、`intent_category`）；编写 admin stats 视图/查询（总览 KPI、趋势聚合、TOP N）；实现 `/api/admin/stats/*` 系列端点 | **适老增强模块**：实现大字模式（`font-size + 4px` 全局缩放）、慢语速默认值（`tts_speed = 0.85`）、一步一确认模式（每个步骤完成后等待用户手动确认才推进）。与 C 的语音设置联动 | **Admin API 全面对接**：管理面板全部图表从前端 Mock 数据切换为真实 API 调用。对接 A 的全部 `/api/admin/*` 端点（stats/top-tasks/redline/failures/flow/monitor/config）。端到端验证：管理面板修改配置 → 热部署 → B 的挂件配置更新 |
 | **15:30–17:30** | **错误处理 + 日志**：统一异常中间件（`try/except` → 标准 ErrorResponse JSON）；结构化日志（`structlog`，含 `task_id` 追踪）；各端点边界条件测试（空 query、超长截图、无效 task_id） | **挂件折叠/最小化/拖拽**：① 折叠为圆形气泡（52px）② 最小化为按钮列（仅 54px 宽）③ 标题栏拖拽移动 ④ 右下角 resize 手柄 ⑤ 置顶切换。全部状态切换动画平滑 | **管理面板管理员功能**：JWT 刷新 Token 机制（2h access + 7d refresh）；告警标记已读/全部已读；CSV 导出（失败记录异步生成下载链接）；配置热部署操作日志 |
@@ -140,7 +140,7 @@ B: 屏幕捕获 ──→ UI解析器 ──→ SoM标注 ──→ 桌面挂件
 
 | 成员 | Day 1 | Day 2 | Day 3 | Day 4 | Day 5 | Day 6 |
 |------|-------|-------|-------|-------|-------|-------|
-| **A** | 框架+DB | 意图+蓝图+LLM | 模板+联调+澄清 | 红线+查询+错误处理 | 测试+Bug修复+性能 | Bug清零+文档+验收 |
+| **A** | 框架+DB | 意图+蓝图+LLM | 服务端API+联调+澄清 | 红线+查询+错误处理 | 测试+Bug修复+性能 | Bug清零+文档+验收 |
 | **B** | GUI骨架+截图+解析器 | SoM+挂件UI | 覆盖层+联调 | L2+适老+交互 | 测试+Bug修复 | UI打磨+打包+验收 |
 | **C** | 语音环境+ASR+TTS | 审计+配置+Web骨架 | B-C联调+审计上报+Web中 | Web下+Admin对接 | 测试+Bug修复 | 数据+演示+复盘 |
 
@@ -167,7 +167,6 @@ B: 屏幕捕获 ──→ UI解析器 ──→ SoM标注 ──→ 桌面挂件
 | `POST /api/demo/report` | Day 1 PM | Day 3 PM | C（审计上报） |
 | `GET /api/config/pull` | Day 2 AM | Day 4 PM | C（配置拉取） |
 | `GET /api/admin/*` | Day 3 PM | Day 4 PM | C（管理面板） |
-| `POST /api/templates/match` | Day 3 AM | Day 3 AM | B（L2 匹配） |
 | B-C Qt 信号接口 | Day 1 PM（定义） | Day 3 AM（联调） | B ↔ C |
 
 ---

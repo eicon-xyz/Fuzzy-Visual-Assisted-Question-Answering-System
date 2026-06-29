@@ -165,7 +165,6 @@ If-None-Match: "a1b2c3d4e5f6"
     "confidence_threshold": 80,
     "llm_api_endpoint": "https://api.openai.com/v1",
     "llm_model": "gpt-4o",
-    "template_similarity_threshold": 90,
     "max_blueprint_steps": 15,
     "token_limit": 8000,
     "config_pull_interval_min": 30,
@@ -702,7 +701,6 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
 - [ ] 管理面板：登录 → 获取 JWT → 调用全部 admin 接口 → 渲染图表
 - [ ] 管理面板：失败归因页下钻交互（点击柱状图过滤 + 无限滚动）
 - [ ] 管理面板：系统配置页修改 + 热部署 → 确认 `/api/config/pull` 拉取到新版本
-- [ ] 管理面板：模板审核发布 → 确认状态变更
 
 ### 联调共同检查
 
