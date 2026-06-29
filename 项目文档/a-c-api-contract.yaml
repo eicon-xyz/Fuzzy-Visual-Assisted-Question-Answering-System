@@ -1,0 +1,1437 @@
+openapi: 3.0.3
+info:
+  title: HAJIMI A–C Interface Contract
+  description: |
+    A（后端/AI 核心 FastAPI）与 C（集成/管理端/语音）之间的 HTTP REST 接口契约。
+
+    **角色说明**：
+    - **A**：FastAPI 服务端，提供全部 HTTP API
+    - **C**：HTTP 客户端，包含三个调用方：
+      - **审计代理**（AuditAgent）：批量上报审计日志
+      - **配置轮询器**（ConfigPoller）：定时拉取最新配置
+      - **Web 管理面板**（Vue3 + Element-Plus）：管理员通过浏览器访问，
+        调用全部 `/api/admin/*` 接口
+
+    **覆盖接口**：23 个端点（审计 2 + 配置 3 + 管理控制台 13 + 模板 3 + 系统 2）
+
+    参考文档：
+    - 《HAJIMI 管理控制台设计文档 V2.1》§五 数据接口定义
+    - 《HAJIMI 设计文档 V2.0》§7.6 Web 管理控制台
+    - 《HAJIMI 分工 V1》成员 C 职责
+    - 《算法与项目流程说明文档》§4.3.3 审计上报子流程
+  version: 1.0.0
+  contact:
+    name: HAJIMI Team
+
+servers:
+  - url: http://localhost:8000
+    description: A 的 FastAPI 服务端（本地开发环境）
+
+########################################################################
+# 安全方案
+########################################################################
+security:
+  - DemoKeyAuth: []
+
+components:
+  securitySchemes:
+    DemoKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Demo-Key
+      description: |
+        Demo 阶段固定值为 `hajimi-demo-2026`。
+        适用于 `/api/audit/*` 和 `/api/config/*` 端点。
+      x-applies-to: ["/api/audit/", "/api/config/", "/api/health"]
+
+    AdminJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Web 管理面板登录后获取的 JWT Access Token（有效期 2 小时）。
+        适用于全部 `/api/admin/*` 和 `/api/templates/*` 端点。
+        Token 通过 `POST /api/auth/login` 获取。
+      x-applies-to: ["/api/admin/", "/api/templates/"]
+
+  ######################################################################
+  # 数据模型
+  ######################################################################
+  schemas:
+
+    # ──────────────────── 审计 ────────────────────
+    AuditRecord:
+      type: object
+      required:
+        - task_id
+        - query
+        - intent_category
+        - complexity_score
+        - route
+        - total_steps
+        - completed_steps
+        - result
+        - duration_ms
+        - timestamp
+      properties:
+        task_id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        query:
+          type: string
+          description: 脱敏后的用户提问
+          example: "怎么安装微信"
+        intent_category:
+          type: string
+          enum:
+            - operation_guide
+            - element_cognition
+            - error_diagnosis
+            - ui_navigation
+            - content_cognition
+            - file_management
+            - proactive_alert
+            - tutorial_generation
+            - emotion_comfort
+          example: "operation_guide"
+        complexity_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 35
+        route:
+          type: string
+          enum: [L2, L3]
+          example: "L3"
+        total_steps:
+          type: integer
+          minimum: 1
+          example: 3
+        completed_steps:
+          type: integer
+          minimum: 0
+          example: 3
+        result:
+          type: string
+          enum: [success, fail, cancel, redirect, rejected]
+          example: "success"
+        duration_ms:
+          type: integer
+          minimum: 0
+          example: 45200
+        feedback_type:
+          type: string
+          enum: [useful, useless, neutral]
+          nullable: true
+          example: "useful"
+        comment:
+          type: string
+          nullable: true
+          example: "指引很清晰"
+        fingerprint_mismatches:
+          type: integer
+          minimum: 0
+          default: 0
+          example: 0
+        redline_triggered:
+          type: boolean
+          default: false
+          example: false
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-06-29T14:32:15+08:00"
+
+    AuditReportRequest:
+      type: object
+      required:
+        - client_id
+        - batch
+      properties:
+        client_id:
+          type: string
+          description: 客户端唯一标识
+          example: "desktop-7f3a2b1c"
+        batch:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditRecord"
+          minItems: 1
+          maxItems: 100
+
+    AuditReportResponse:
+      type: object
+      required:
+        - received
+      properties:
+        received:
+          type: integer
+          example: 10
+        server_queue_depth:
+          type: integer
+          example: 45
+
+    FeedbackRequest:
+      type: object
+      required:
+        - task_id
+        - feedback_type
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        feedback_type:
+          type: string
+          enum: [useful, useless, neutral]
+        comment:
+          type: string
+          nullable: true
+
+    # ──────────────────── 配置 ────────────────────
+    RoutingRules:
+      type: object
+      required:
+        - length_weight
+        - verb_weight
+        - cross_app_bonus
+        - threshold_score
+      properties:
+        length_weight:
+          type: number
+          format: float
+          example: 0.3
+        verb_weight:
+          type: number
+          format: float
+          example: 0.4
+        cross_app_bonus:
+          type: integer
+          example: 10
+        threshold_score:
+          type: integer
+          example: 30
+        custom_keywords:
+          type: array
+          items:
+            type: string
+          example: ["安装", "配置", "设置"]
+
+    ServerConfig:
+      type: object
+      required:
+        - version
+        - confidence_threshold
+        - llm_api_endpoint
+        - llm_model
+        - template_similarity_threshold
+        - max_blueprint_steps
+        - token_limit
+        - config_pull_interval_min
+        - audit_batch_size
+        - offline_tts_engine
+        - routing_rules
+        - updated_at
+      properties:
+        version:
+          type: string
+          example: "v2.1.3"
+        confidence_threshold:
+          type: integer
+          minimum: 50
+          maximum: 100
+          example: 80
+        llm_api_endpoint:
+          type: string
+          format: uri
+          example: "https://api.openai.com/v1"
+        llm_model:
+          type: string
+          example: "gpt-4o"
+        template_similarity_threshold:
+          type: integer
+          minimum: 50
+          maximum: 100
+          example: 90
+        max_blueprint_steps:
+          type: integer
+          minimum: 1
+          maximum: 50
+          example: 15
+        token_limit:
+          type: integer
+          minimum: 1000
+          maximum: 32000
+          example: 8000
+        config_pull_interval_min:
+          type: integer
+          minimum: 5
+          example: 30
+        audit_batch_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+          example: 10
+        offline_tts_engine:
+          type: string
+          enum: [pyttsx3, vosk]
+          example: "pyttsx3"
+        routing_rules:
+          $ref: "#/components/schemas/RoutingRules"
+        updated_at:
+          type: string
+          format: date-time
+          example: "2026-06-29T12:00:00Z"
+
+    ConfigPullResponse:
+      type: object
+      required:
+        - has_update
+      properties:
+        has_update:
+          type: boolean
+          example: true
+        config:
+          $ref: "#/components/schemas/ServerConfig"
+
+    ConfigCurrentResponse:
+      type: object
+      required:
+        - config
+      properties:
+        config:
+          $ref: "#/components/schemas/ServerConfig"
+        deployed_at:
+          type: string
+          format: date-time
+          example: "2026-06-29T11:00:00Z"
+        deployed_by:
+          type: string
+          example: "admin@hajimi.local"
+
+    ConfigDeployRequest:
+      type: object
+      required:
+        - config
+      properties:
+        config:
+          type: object
+          description: 仅传要变更的字段（部分更新）
+          additionalProperties: true
+
+    ConfigDeployResponse:
+      type: object
+      required:
+        - deployed
+        - version
+      properties:
+        deployed:
+          type: boolean
+          example: true
+        version:
+          type: string
+          example: "v2.1.4"
+        affected_clients:
+          type: integer
+          example: 42
+        deployed_at:
+          type: string
+          format: date-time
+
+    # ──────────────────── 管理控制台 总览 ────────────────────
+    OverviewStats:
+      type: object
+      properties:
+        today_volume:
+          type: integer
+          example: 1247
+        volume_change_pct:
+          type: number
+          example: 12
+        online_clients:
+          type: integer
+          example: 42
+        overall_useful_rate:
+          type: number
+          example: 0.89
+        overall_fail_rate:
+          type: number
+          example: 0.032
+        monthly_api_cost_usd:
+          type: number
+          example: 96.50
+
+    TrendData:
+      type: object
+      properties:
+        metric:
+          type: string
+          enum: [volume, latency]
+          example: "volume"
+        granularity:
+          type: string
+          example: "1h"
+        data:
+          type: array
+          items:
+            type: object
+        peak:
+          type: object
+          nullable: true
+          properties:
+            hour:
+              type: string
+            value:
+              type: number
+        baselines:
+          type: object
+          nullable: true
+
+    FeedbackStats:
+      type: object
+      properties:
+        feedback_distribution:
+          type: object
+          properties:
+            useful:
+              type: integer
+            useless:
+              type: integer
+            neutral:
+              type: integer
+        route_distribution:
+          type: object
+          properties:
+            l2:
+              type: integer
+            l3:
+              type: integer
+        total_feedback_count:
+          type: integer
+
+    TopTask:
+      type: object
+      properties:
+        rank:
+          type: integer
+        name:
+          type: string
+        count:
+          type: integer
+        route_l2_pct:
+          type: number
+
+    RedlineEntry:
+      type: object
+      properties:
+        type:
+          type: string
+        count:
+          type: integer
+        last_triggered:
+          type: string
+          format: date-time
+
+    # ──────────────────── 管理控制台 失败归因 ────────────────────
+    FailureStats:
+      type: object
+      properties:
+        distribution:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              label:
+                type: string
+              count:
+                type: integer
+        trend:
+          type: array
+          items:
+            type: object
+        total:
+          type: integer
+
+    FailureItem:
+      type: object
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        task_name:
+          type: string
+        failed_step:
+          type: integer
+        failed_step_name:
+          type: string
+        error_summary:
+          type: string
+        error_type:
+          type: string
+        route:
+          type: string
+
+    FailureListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FailureItem"
+        next_cursor:
+          type: string
+          nullable: true
+        has_more:
+          type: boolean
+        total:
+          type: integer
+
+    FailureDetail:
+      type: object
+      properties:
+        task_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+        route:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        expected_fingerprint:
+          type: object
+        actual_fingerprint:
+          type: object
+        mismatch_fields:
+          type: array
+          items:
+            type: string
+        llm_input_snapshot:
+          type: object
+        llm_output_snapshot:
+          type: object
+
+    # ──────────────────── 管理控制台 数据流 ────────────────────
+    TopologyData:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            type: object
+        links:
+          type: array
+          items:
+            type: object
+            properties:
+              source:
+                type: string
+              target:
+                type: string
+              qps:
+                type: number
+              latency_ms:
+                type: number
+              status:
+                type: string
+                enum: [healthy, high_load, critical]
+
+    FlowMetrics:
+      type: object
+      properties:
+        api_path:
+          type: string
+        granularity:
+          type: string
+        data:
+          type: array
+          items:
+            type: object
+
+    VersionDistribution:
+      type: object
+      properties:
+        versions:
+          type: array
+          items:
+            type: object
+        total_clients:
+          type: integer
+        pull_interval_distribution:
+          type: array
+          items:
+            type: object
+
+    # ──────────────────── 管理控制台 健康 ────────────────────
+    HealthStatus:
+      type: object
+      properties:
+        resources:
+          type: object
+          properties:
+            cpu_pct:
+              type: number
+            memory_gb:
+              type: number
+            disk_free_gb:
+              type: number
+            uptime:
+              type: string
+            uptime_seconds:
+              type: integer
+        components:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              status:
+                type: string
+                enum: [healthy, degraded, down]
+              detail:
+                type: string
+
+    AlertItem:
+      type: object
+      properties:
+        id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [critical, warning, info]
+        message:
+          type: string
+        status:
+          type: string
+          enum: [unread, read]
+
+    AlertListResponse:
+      type: object
+      properties:
+        alerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlertItem"
+        total_unread:
+          type: integer
+        total:
+          type: integer
+
+    # ──────────────────── 模板 ────────────────────
+    TemplateItem:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        intent_category:
+          type: string
+        total_steps:
+          type: integer
+        avg_useful_rate:
+          type: number
+        use_count:
+          type: integer
+        status:
+          type: string
+          enum: [published, pending_review, archived]
+        version:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TemplateDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        intent_category:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        current_version:
+          type: string
+        steps:
+          type: array
+          items:
+            type: object
+        versions:
+          type: array
+          items:
+            type: object
+        stats:
+          type: object
+          properties:
+            use_count:
+              type: integer
+            success_rate:
+              type: number
+            avg_duration_ms:
+              type: integer
+
+    TemplateReviewRequest:
+      type: object
+      required:
+        - template_id
+        - action
+      properties:
+        template_id:
+          type: string
+        action:
+          type: string
+          enum: [publish, unpublish, reject, archive]
+        comment:
+          type: string
+
+    # ──────────────────── 认证 ────────────────────
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: "admin@hajimi.local"
+        password:
+          type: string
+          format: password
+
+    LoginResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          example: "bearer"
+        expires_in:
+          type: integer
+          example: 7200
+        refresh_token:
+          type: string
+
+    # ──────────────────── 通用 ────────────────────
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+        total_pages:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              example: "INVALID_REQUEST"
+            message:
+              type: string
+              example: "缺少必填字段"
+            details:
+              type: object
+              additionalProperties: true
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "ok"
+        version:
+          type: string
+          example: "1.0.0"
+        server_time:
+          type: string
+          format: date-time
+        uptime_seconds:
+          type: integer
+
+  ######################################################################
+  # 公共响应
+  ######################################################################
+  responses:
+    BadRequest:
+      description: 请求参数错误
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: 认证失败
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalError:
+      description: 服务端内部错误
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+########################################################################
+# 路径定义
+########################################################################
+paths:
+
+  # ===================================================================
+  # 审计
+  # ===================================================================
+  /api/audit/report:
+    post:
+      summary: 批量上报审计日志
+      description: |
+        C 的审计代理从本地 SQLite 队列取出脱敏数据后批量 POST。
+        触发条件：累积 ≥10 条 或 网络空闲 ≥5 分钟。
+      tags: [Audit]
+      security:
+        - DemoKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuditReportRequest"
+      responses:
+        "200":
+          description: 上报成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditReportResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/audit/feedback:
+    post:
+      summary: 上报用户反馈
+      description: 与审计日志解耦，可单独发送。任务结束后用户对指引质量评分。
+      tags: [Audit]
+      security:
+        - DemoKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackRequest"
+      responses:
+        "200":
+          description: 已收到
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+                    example: true
+
+  # ===================================================================
+  # 配置
+  # ===================================================================
+  /api/config/pull:
+    get:
+      summary: 客户端拉取最新配置
+      description: C 的配置轮询器定时调用。支持 ETag/If-None-Match 条件请求。
+      tags: [Config]
+      security:
+        - DemoKeyAuth: []
+      parameters:
+        - name: X-Client-Version
+          in: header
+          required: true
+          schema:
+            type: string
+          example: "v2.1.0"
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 有新配置可用
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigPullResponse"
+        "304":
+          description: 配置未变更（ETag 匹配）
+
+  /api/admin/config/current:
+    get:
+      summary: 获取当前全部配置
+      description: Web 管理面板「系统配置」页初始化调用。
+      tags: [Admin - Config]
+      security:
+        - AdminJWT: []
+      responses:
+        "200":
+          description: 当前配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigCurrentResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/admin/config/deploy:
+    post:
+      summary: 热部署配置
+      description: Web 管理面板管理员点击「热部署」后调用。部分更新，未传字段保持原值。
+      tags: [Admin - Config]
+      security:
+        - AdminJWT: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigDeployRequest"
+      responses:
+        "200":
+          description: 部署成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigDeployResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ===================================================================
+  # 管理控制台 — 总览
+  # ===================================================================
+  /api/admin/stats/overview:
+    get:
+      summary: 总览 KPI 卡片数据
+      tags: [Admin - Overview]
+      security: [{ AdminJWT: [] }]
+      parameters:
+        - name: range
+          in: query
+          schema:
+            type: string
+            enum: [1h, 24h, 7d, 30d]
+            default: "24h"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OverviewStats"
+
+  /api/admin/stats/trend:
+    get:
+      summary: 趋势图数据（事务量或响应时长）
+      tags: [Admin - Overview]
+      security: [{ AdminJWT: [] }]
+      parameters:
+        - name: metric
+          in: query
+          schema:
+            type: string
+            enum: [volume, latency]
+            default: "volume"
+        - name: range
+          in: query
+          schema:
+            type: string
+            default: "24h"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrendData"
+
+  /api/admin/stats/feedback:
+    get:
+      summary: 反馈分布 + L2/L3 占比
+      tags: [Admin - Overview]
+      security: [{ AdminJWT: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedbackStats"
+
+  /api/admin/stats/top-tasks:
+    get:
+      summary: 高频操作任务 TOP N
+      tags: [Admin - Overview]
+      security: [{ AdminJWT: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: range
+          in: query
+          schema:
+            type: string
+            default: "7d"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TopTask"
+
+  /api/admin/stats/redline:
+    get:
+      summary: 红线拦截统计 TOP N
+      tags: [Admin - Overview]
+      security: [{ AdminJWT: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 5
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  redlines:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RedlineEntry"
+
+  # ===================================================================
+  # 管理控制台 — 失败归因
+  # ===================================================================
+  /api/admin/failures/stats:
+    get:
+      summary: 失败类型分布 + 趋势
+      tags: [Admin - Failures]
+      security: [{ AdminJWT: [] }]
+      parameters:
+        - name: start
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: end
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [blueprint_mismatch, llm_timeout, parse_error, redline_blocked, user_abort]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FailureStats"
+
+  /api/admin/failures/list:
+    get:
+      summary: 失败详情列表（游标分页，无限滚动）
+      tags: [Admin - Failures]
+      security: [{ AdminJWT: [] }]
+      parameters:
+        - name: start
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: end
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FailureListResponse"
+
+  /api/admin/failures/detail/{task_id}:
+    get:
+      summary: 单条失败详情（含 LLM 输入/输出快照）
+      tags: [Admin - Failures]
+      security: [{ AdminJWT: [] }]
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FailureDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ===================================================================
+  # 管理控制台 — 数据流监控
+  # ===================================================================
+  /api/admin/flow/topology:
+    get:
+      summary: 数据流拓扑图实时数据
+      tags: [Admin - Flow]
+      security: [{ AdminJWT: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopologyData"
+
+  /api/admin/flow/metrics:
+    get:
+      summary: 接口 QPS/成功率时序数据
+      tags: [Admin - Flow]
+      security: [{ AdminJWT: [] }]
+      parameters:
+        - name: api_path
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "/api/audit/report"
+        - name: range
+          in: query
+          schema:
+            type: string
+            default: "1h"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlowMetrics"
+
+  /api/admin/flow/versions:
+    get:
+      summary: 客户端版本分布
+      tags: [Admin - Flow]
+      security: [{ AdminJWT: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionDistribution"
+
+  # ===================================================================
+  # 管理控制台 — 健康监控
+  # ===================================================================
+  /api/admin/monitor/health:
+    get:
+      summary: 组件健康状态 + 资源指标
+      tags: [Admin - Monitor]
+      security: [{ AdminJWT: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /api/admin/monitor/alerts:
+    get:
+      summary: 告警列表
+      tags: [Admin - Monitor]
+      security: [{ AdminJWT: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, unread, read]
+            default: "all"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertListResponse"
+
+  /api/admin/monitor/alerts/read-all:
+    post:
+      summary: 标记全部告警为已读
+      tags: [Admin - Monitor]
+      security: [{ AdminJWT: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  marked_read:
+                    type: integer
+                    example: 5
+
+  # ===================================================================
+  # 模板管理
+  # ===================================================================
+  /api/admin/templates/list:
+    get:
+      summary: 模板列表（含筛选 + 分页）
+      tags: [Admin - Templates]
+      security: [{ AdminJWT: [] }]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, published, pending_review, archived]
+            default: "all"
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: keyword
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TemplateItem"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+
+  /api/admin/templates/detail/{template_id}:
+    get:
+      summary: 模板详情（含步骤预览 + 版本历史）
+      tags: [Admin - Templates]
+      security: [{ AdminJWT: [] }]
+      parameters:
+        - name: template_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/admin/templates/review:
+    post:
+      summary: 审核模板（发布/下架/退回/归档）
+      tags: [Admin - Templates]
+      security: [{ AdminJWT: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TemplateReviewRequest"
+      responses:
+        "200":
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  template_id:
+                    type: string
+                  action:
+                    type: string
+                  new_status:
+                    type: string
+                  reviewed_at:
+                    type: string
+                    format: date-time
+
+  # ===================================================================
+  # 系统
+  # ===================================================================
+  /api/health:
+    get:
+      summary: 服务健康检查 + 心跳
+      description: C 在启动和每 5 分钟调用此接口检测 A 是否可达。无需认证。
+      tags: [System]
+      security: []
+      parameters:
+        - name: X-Client-ID
+          in: header
+          schema:
+            type: string
+          example: "desktop-7f3a2b1c"
+      responses:
+        "200":
+          description: 服务正常
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /api/auth/login:
+    post:
+      summary: 管理员登录
+      description: Web 管理面板登录，返回 JWT Access Token（2h）+ Refresh Token（7d）。
+      tags: [System]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: 用户名或密码错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+########################################################################
+# 标签
+########################################################################
+tags:
+  - name: Audit
+    description: 审计日志与用户反馈上报（C 审计代理 → A）
+  - name: Config
+    description: 客户端配置拉取（C 配置轮询器 → A）与管理面板配置管理
+  - name: Admin - Overview
+    description: 管理控制台总览页（KPI / 趋势 / 反馈 / 排行榜）
+  - name: Admin - Failures
+    description: 管理控制台失败归因分析（分布 / 列表 / 详情 / LLM 快照）
+  - name: Admin - Flow
+    description: 管理控制台数据流监控（拓扑 / QPS / 版本分布）
+  - name: Admin - Monitor
+    description: 管理控制台健康监控（组件状态 / 告警列表）
+  - name: Admin - Config
+    description: 管理控制台系统配置（查看 / 热部署）
+  - name: Admin - Templates
+    description: 管理控制台模板管理（列表 / 详情 / 审核发布）
+  - name: System
+    description: 健康检查与认证
