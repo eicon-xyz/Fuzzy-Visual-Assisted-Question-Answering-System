@@ -1,0 +1,108 @@
+D:\anaconda3\python.exe E:\Fuzzy-Visual-Assisted-Question-Answering-System\client\list_devices.py 
+
+╔══════════════════════════════════════════════════════════╗
+║  HAJIMI 音频设备列表                                     ║
+╚══════════════════════════════════════════════════════════╝
+════════════════════════════════════════════════════════════
+  🎤 麦克风设备 (ASR)
+════════════════════════════════════════════════════════════
+
+  设备 #0
+    名称: Microsoft 声音映射器 - Input
+    输入通道: 2
+    默认采样率: 44100 Hz
+
+  设备 #1 ★ 默认
+    名称: 麦克风 (tranScreen Audio)
+    输入通道: 2
+    默认采样率: 44100 Hz
+
+  设备 #2
+    名称: 鑰虫満 (Air5)
+    输入通道: 1
+    默认采样率: 44100 Hz
+
+  设备 #10
+    名称: 鑰虫満 (Air5)
+    输入通道: 1
+    默认采样率: 44100 Hz
+
+  设备 #20
+    名称: 鑰虫満 (Air5)
+    输入通道: 1
+    默认采样率: 16000 Hz
+
+  设备 #34
+    名称: 鑰虫満 (@System32\drivers\bthhfenum.sys,#2;%1 Hands-Free%0
+;(Air5))
+    输入通道: 1
+    默认采样率: 16000 Hz
+
+  共 19 个麦克风设备可用
+  ASRClient(microphone_index=1)  # 默认设备
+
+════════════════════════════════════════════════════════════
+  🔊 TTS 语音包
+════════════════════════════════════════════════════════════
+
+  语音 #0 ★ 中文
+    ID: HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Speech\Voices\Tokens\TTS_MS_ZH-CN_HUIHUI_11.0
+    名称: Microsoft Huihui Desktop - Chinese (Simplified)
+    语言: zh-CN
+    性别: Female
+  共 5 个语音包可用
+  TTSEngine(voice_id='<ID>')  # 指定语音
+
+════════════════════════════════════════════════════════════
+  🔊 音频输出设备
+════════════════════════════════════════════════════════════
+
+
+  设备 #5 ★ 默认
+    名称: 鑰虫満 (Air5)
+    输出通道: 2
+    默认采样率: 44100 Hz
+
+  设备 #13
+    名称: 鑰虫満 (Air5)
+    输出通道: 2
+    默认采样率: 44100 Hz
+
+  设备 #16
+    名称: 鑰虫満 (Air5)
+    输出通道: 2
+    默认采样率: 48000 Hz
+
+  设备 #33
+    名称: 鑰虫満 (@System32\drivers\bthhfenum.sys,#2;%1 Hands-Free%0
+;(Air5))
+    输出通道: 1
+    默认采样率: 16000 Hz
+
+  共 23 个输出设备可用
+  pyttsx3 通常使用系统默认输出设备
+
+════════════════════════════════════════════════════════════
+  快速配置示例
+════════════════════════════════════════════════════════════
+
+  # 使用默认设备
+  from client.voice.asr_client import ASRClient
+  asr = ASRClient()
+
+  # 指定麦克风设备（从上面列表中选择 index）
+  asr = ASRClient(microphone_index=1)
+
+  # 列出所有麦克风
+  for mic in ASRClient.list_microphones():
+      print(mic)
+
+  # 指定 TTS 语音包
+  from client.voice.tts_engine import TTSEngine
+  for v in TTSEngine.list_voices():
+      print(v)
+
+  tts = TTSEngine(voice_id=v['id'])  # 指定某个语音 ID
+
+
+进程已结束，退出代码为 0

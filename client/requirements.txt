@@ -1,0 +1,15 @@
+# HAJIMI Client — 角色 C 依赖
+# 安装: pip install -r client/requirements.txt
+
+# ──────────── 语音模块 ────────────
+SpeechRecognition>=3.10.0     # 语音识别库（Vosk/Google 后端）
+pyttsx3>=2.90                 # TTS 文字转语音（Windows SAPI5 / macOS NSSpeech / Linux eSpeak）
+vosk>=0.3.45                  # Vosk 离线语音识别引擎
+
+# ──────────── HTTP 客户端 ────────────
+httpx>=0.27.0                 # 异步 HTTP 客户端（审计上报 + 配置拉取）
+
+# ──────────── 可选依赖 ────────────
+# pyaudio>=0.2.14             # PyAudio（SpeechRecognition 录音后端，Windows 可省略）
+# azure-cognitiveservices-speech  # Azure TTS（云端高质量语音）
+# baidu-aip                    # 百度语音 API（中文识别优化）
