@@ -192,7 +192,7 @@
 | :--- | :--- | :--- | :--- |
 | 置信度阈值 | 滑块 (50~100) | 80% | 低于此值触发主动澄清 |
 | LLM API 端点 | 文本输入框 | `https://api.openai.com/v1` | 支持切换至 Azure/私有化 |
-| LLM 模型名称 | 下拉选择框 | `gpt-4-vision-preview` | 可选：gpt-4o / qwen-vl-max |
+| LLM 模型名称 | 下拉选择框 | `gpt-4o` | 可选：gpt-4o / qwen-vl-max |
 | 模板匹配相似度阈值 | 滑块 (50~100) | 90% | 低于此值视为未命中 |
 | 最大蓝图步骤数 | 数字输入框 | 15 | 防止无限循环 |
 | Token 超限阈值 | 数字输入框 | 8000 | 触发摘要压缩 |
@@ -205,7 +205,7 @@
 ```json
 {
   "length_weight": 0.3,
-  "verb_weight": 0.4,
+  "verb_weight": 8,
   "cross_app_bonus": 10,
   "threshold_score": 30,
   "custom_keywords": ["安装", "配置", "设置"]

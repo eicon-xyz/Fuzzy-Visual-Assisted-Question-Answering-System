@@ -138,7 +138,7 @@
   .pie { display: flex; align-items: center; gap: 20px; }
   .pie-ring {
     width: 100px; height: 100px; border-radius: 50%;
-    background: conic-gradient(#27ae60 0% 55%, #409EFF 55% 85%, #e67e22 85% 100%);
+    background: conic-gradient(#409EFF 0% 70%, #e67e22 70% 100%);
   }
   .pie-legend { font-size: 11px; }
   .pie-legend div { margin: 4px 0; display: flex; align-items: center; gap: 6px; }
@@ -323,9 +323,6 @@
 <!-- ===== 侧边导航 ===== -->
 <nav class="nav" id="sidebar">
   <div class="logo">HAJIMI Admin<span>智能桌面指引助手</span></div>
-  <a class="active" data-page="dashboard">仪表盘</a>
-  <a data-page="templates">模板审核<span class="badge">3</span></a>
-  <a data-page="failures">归因分析</a>
   <a data-page="config">系统配置</a>
   <a data-page="monitor">健康监控</a>
   <div style="margin-top:auto;padding:12px 20px;font-size:10px;color:#57697c;">
@@ -356,13 +353,12 @@
     </div>
     <div class="chart-row">
       <div class="chart-box">
-        <h4>L1 / L2 / L3 处理占比</h4>
+        <h4>L2 / L3 处理路径占比</h4>
         <div class="pie">
           <div class="pie-ring"></div>
           <div class="pie-legend">
-            <div><span class="swatch" style="background:#27ae60;"></span> L1 模板匹配 55% (686)</div>
-            <div><span class="swatch" style="background:#409EFF;"></span> L2 快速路径 30% (374)</div>
-            <div><span class="swatch" style="background:#e67e22;"></span> L3 慢路径 15% (187)</div>
+            <div><span class="swatch" style="background:#409EFF;"></span> L2 快路径 70% (872)</div>
+            <div><span class="swatch" style="background:#e67e22;"></span> L3 慢路径 30% (374)</div>
           </div>
         </div>
       </div>
@@ -401,68 +397,6 @@
     </div>
   </div>
 
-  <!-- ===== 模板审核列表 ===== -->
-  <div class="page" id="page-templates">
-    <div class="page-header">模板审核列表</div>
-    <div class="table-wrap">
-      <div class="table-toolbar">
-        <span class="filter-tag on">全部</span>
-        <span class="filter-tag">待审核 <b style="color:var(--orange)">3</b></span>
-        <span class="filter-tag">已发布</span>
-        <span class="filter-tag">已拒绝</span>
-        <input type="text" placeholder="搜索模板名称或关键词…" />
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>模板名称</th><th>触发关键词</th><th>版本</th><th>使用次数</th><th>有用率</th><th>状态</th><th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style="color:var(--text);font-weight:600;">安装微信</td>
-            <td>安装, 微信, 下载</td><td>v3</td><td>1,247</td><td>94%</td>
-            <td><span class="tag ok">已发布</span></td>
-            <td><span class="action-link" onclick="showModal('下架')">下架</span></td>
-          </tr>
-          <tr>
-            <td style="color:var(--text);font-weight:600;">设置打印机</td>
-            <td>打印机, 打印, 驱动</td><td>v1</td><td>632</td><td>89%</td>
-            <td><span class="tag wait">待审核</span></td>
-            <td><span class="action-link" onclick="showModal('审核')">审核</span></td>
-          </tr>
-          <tr>
-            <td style="color:var(--text);font-weight:600;">清理C盘</td>
-            <td>清理, C盘, 磁盘空间</td><td>v2</td><td>418</td><td>78%</td>
-            <td><span class="tag wait">待审核</span></td>
-            <td><span class="action-link" onclick="showModal('审核')">审核</span></td>
-          </tr>
-          <tr>
-            <td style="color:var(--text);font-weight:600;">连接WiFi</td>
-            <td>WiFi, 网络, 上网</td><td>v1</td><td>2,156</td><td>97%</td>
-            <td><span class="tag ok">已发布</span></td>
-            <td><span class="action-link" onclick="showModal('下架')">下架</span></td>
-          </tr>
-          <tr>
-            <td style="color:var(--text);font-weight:600;">Office 激活</td>
-            <td>Office, 激活, 密钥</td><td>v1</td><td>89</td><td>72%</td>
-            <td><span class="tag reject">已拒绝</span></td>
-            <td><span class="action-link">编辑</span></td>
-          </tr>
-          <tr>
-            <td style="color:var(--text);font-weight:600;">安装打印机驱动</td>
-            <td>打印机, 驱动, 安装</td><td>v1</td><td>0</td><td>-</td>
-            <td><span class="tag wait">待审核</span></td>
-            <td><span class="action-link" onclick="showModal('审核')">审核</span></td>
-          </tr>
-        </tbody>
-      </table>
-      <div class="pager">
-        <span>&lt;</span><span class="on">1</span><span>2</span><span>3</span><span>&gt;</span>
-        共 23 条
-      </div>
-    </div>
-  </div>
 
   <!-- ===== 失败归因分析 ===== -->
   <div class="page" id="page-failures">
@@ -682,7 +616,7 @@ document.querySelectorAll('.detail-row .dv').forEach(el => {
 });
 
 console.log('HAJIMI Admin Console ready.');
-console.log('  Pages: 仪表盘 | 模板审核 | 归因分析 | 系统配置 | 健康监控');
+console.log('  Pages: 总览 | 失败归因 | 数据流监控 | 系统配置 | 健康监控');
 console.log('  Login: click login or press Enter');
 </script>
 

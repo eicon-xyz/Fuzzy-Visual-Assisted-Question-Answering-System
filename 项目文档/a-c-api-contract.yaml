@@ -50,9 +50,9 @@ components:
       bearerFormat: JWT
       description: |
         Web 管理面板登录后获取的 JWT Access Token（有效期 2 小时）。
-        适用于全部 `/api/admin/*` 和 `/api/templates/*` 端点。
+        适用于全部 `/api/admin/*` 端点（模板匹配除外）。
         Token 通过 `POST /api/auth/login` 获取。
-      x-applies-to: ["/api/admin/", "/api/templates/"]
+      x-applies-to: ["/api/admin/"]
 
   ######################################################################
   # 数据模型
@@ -224,7 +224,7 @@ components:
         - confidence_threshold
         - llm_api_endpoint
         - llm_model
-        - template_similarity_threshold
+        
         - max_blueprint_steps
         - token_limit
         - config_pull_interval_min
@@ -248,11 +248,6 @@ components:
         llm_model:
           type: string
           example: "gpt-4o"
-        template_similarity_threshold:
-          type: integer
-          minimum: 50
-          maximum: 100
-          example: 90
         max_blueprint_steps:
           type: integer
           minimum: 1
@@ -629,82 +624,6 @@ components:
         total:
           type: integer
 
-    # ──────────────────── 模板 ────────────────────
-    TemplateItem:
-      type: object
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        intent_category:
-          type: string
-        total_steps:
-          type: integer
-        avg_useful_rate:
-          type: number
-        use_count:
-          type: integer
-        status:
-          type: string
-          enum: [published, pending_review, archived]
-        version:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-
-    TemplateDetail:
-      type: object
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        intent_category:
-          type: string
-        description:
-          type: string
-        status:
-          type: string
-        current_version:
-          type: string
-        steps:
-          type: array
-          items:
-            type: object
-        versions:
-          type: array
-          items:
-            type: object
-        stats:
-          type: object
-          properties:
-            use_count:
-              type: integer
-            success_rate:
-              type: number
-            avg_duration_ms:
-              type: integer
-
-    TemplateReviewRequest:
-      type: object
-      required:
-        - template_id
-        - action
-      properties:
-        template_id:
-          type: string
-        action:
-          type: string
-          enum: [publish, unpublish, reject, archive]
-        comment:
-          type: string
-
-    # ──────────────────── 认证 ────────────────────
     LoginRequest:
       type: object
       required:
@@ -1267,104 +1186,6 @@ paths:
                     example: 5
 
   # ===================================================================
-  # 模板管理
-  # ===================================================================
-  /api/admin/templates/list:
-    get:
-      summary: 模板列表（含筛选 + 分页）
-      tags: [Admin - Templates]
-      security: [{ AdminJWT: [] }]
-      parameters:
-        - name: status
-          in: query
-          schema:
-            type: string
-            enum: [all, published, pending_review, archived]
-            default: "all"
-        - name: category
-          in: query
-          schema:
-            type: string
-        - name: keyword
-          in: query
-          schema:
-            type: string
-        - name: page
-          in: query
-          schema:
-            type: integer
-            default: 1
-        - name: page_size
-          in: query
-          schema:
-            type: integer
-            default: 20
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/TemplateItem"
-                  pagination:
-                    $ref: "#/components/schemas/Pagination"
-
-  /api/admin/templates/detail/{template_id}:
-    get:
-      summary: 模板详情（含步骤预览 + 版本历史）
-      tags: [Admin - Templates]
-      security: [{ AdminJWT: [] }]
-      parameters:
-        - name: template_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TemplateDetail"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /api/admin/templates/review:
-    post:
-      summary: 审核模板（发布/下架/退回/归档）
-      tags: [Admin - Templates]
-      security: [{ AdminJWT: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/TemplateReviewRequest"
-      responses:
-        "200":
-          description: 操作成功
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  template_id:
-                    type: string
-                  action:
-                    type: string
-                  new_status:
-                    type: string
-                  reviewed_at:
-                    type: string
-                    format: date-time
-
-  # ===================================================================
   # 系统
   # ===================================================================
   /api/health:
@@ -1431,7 +1252,4 @@ tags:
     description: 管理控制台健康监控（组件状态 / 告警列表）
   - name: Admin - Config
     description: 管理控制台系统配置（查看 / 热部署）
-  - name: Admin - Templates
-    description: 管理控制台模板管理（列表 / 详情 / 审核发布）
-  - name: System
     description: 健康检查与认证

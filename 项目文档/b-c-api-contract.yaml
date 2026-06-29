@@ -400,7 +400,7 @@ components:
         - confidence_threshold
         - llm_api_endpoint
         - llm_model
-        - template_similarity_threshold
+        
         - max_blueprint_steps
         - token_limit
         - config_pull_interval_min
@@ -428,11 +428,6 @@ components:
           type: string
           description: LLM 模型名称
           example: "gpt-4o"
-        template_similarity_threshold:
-          type: integer
-          minimum: 50
-          maximum: 100
-          description: 模板匹配相似度阈值
           example: 90
         max_blueprint_steps:
           type: integer

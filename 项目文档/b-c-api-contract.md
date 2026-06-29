@@ -345,7 +345,6 @@ config_updated_signal.emit(config_dict)
 | `confidence_threshold` | int | ✅ | 置信度阈值 50~100 |
 | `llm_api_endpoint` | string | ✅ | LLM API 端点 URL |
 | `llm_model` | string | ✅ | LLM 模型名称 |
-| `template_similarity_threshold` | int | ✅ | 模板匹配相似度阈值 50~100 |
 | `max_blueprint_steps` | int | ✅ | 最大蓝图步骤数 |
 | `token_limit` | int | ✅ | Token 超限阈值 |
 | `config_pull_interval_min` | int | ✅ | 配置拉取间隔（分钟），最小 5 |
@@ -369,14 +368,13 @@ config_updated_signal.emit(config_dict)
   "llm_api_endpoint": "https://api.openai.com/v1",
   "llm_model": "gpt-4o",
   "template_similarity_threshold": 90,
-  "max_blueprint_steps": 15,
   "token_limit": 8000,
   "config_pull_interval_min": 30,
   "audit_batch_size": 10,
   "offline_tts_engine": "pyttsx3",
   "routing_rules": {
     "length_weight": 0.3,
-    "verb_weight": 0.4,
+    "verb_weight": 8,
     "cross_app_bonus": 10,
     "threshold_score": 30,
     "custom_keywords": ["安装", "配置", "设置"]
