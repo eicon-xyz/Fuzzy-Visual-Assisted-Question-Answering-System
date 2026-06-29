@@ -200,7 +200,7 @@ components:
           format: uuid
         result:
           type: string
-          enum: [success, fail, cancel, redirect]
+          enum: [success, fail, cancel, redirect, rejected]
           example: "success"
         feedback_type:
           type: string

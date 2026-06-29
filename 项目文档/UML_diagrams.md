@@ -18,7 +18,7 @@
 9. [图9 屏幕覆盖层标注示意图](#图9-屏幕覆盖层标注示意图)
 10. [图10-14 Web控制台界面](#图10-14-web控制台界面)
 11. [图15 蓝图状态机转换图](#图15-蓝图状态机转换图)
-12. [图16 三级速度保障流程图](#图16-三级速度保障流程图)
+12. [图16 二级速度保障流程图](#图16-二级速度保障流程图)
 13. [图17 意图理解三层消歧流程图](#图17-意图理解三层消歧流程图)
 14. [图18 数据库物理模型图](#图18-数据库物理模型图)
 15. [图19 客户端组件交互图](#图19-客户端组件交互图)
@@ -63,7 +63,7 @@ mindmap
         指代消解
         主动澄清
       稳定规划
-        三级速度保障
+        二级速度保障
         任务蓝图
         状态机监控
       多模态输出
@@ -87,7 +87,7 @@ mindmap
 
 ### 文字描述
 
-展示从用户提问到获得指引的完整系统交互时序，涵盖L1模板匹配（毫秒级）、L2快路径（<3秒）、L3慢路径（5~10秒）三条路径，以及异常挂起恢复、审计上报闭环。
+展示从用户提问到获得指引的完整系统交互时序，涵盖L2快路径（模板匹配辅助，<3秒）和L3慢路径（全视觉推理，5~10秒）两条路径，以及异常挂起恢复、审计上报闭环。
 
 ### Mermaid 代码
 
@@ -108,7 +108,7 @@ sequenceDiagram
         Client-->>Widget: 标准拒答/降级话术
         Widget-->>User: 显示安全提示
     else 通过红线检测
-        Note over Client,Server: === L1 模板匹配 ===
+        Note over Client,Server: === 模板匹配（服务端辅助查询）===
         Client->>Server: POST /api/templates/match
         alt 命中预置模板
             Server-->>Client: 返回预制蓝图 (≤500ms)
@@ -219,7 +219,7 @@ graph TB
         C21 --> C212["指代消解"]
         C21 --> C213["主动澄清"]
         
-        C22 --> C221["L1模板匹配 <500ms"]
+        C22 --> C221["模板匹配匹配 <500ms"]
         C22 --> C222["L2快路径 <3s"]
         C22 --> C223["L3慢路径 5-10s"]
         
@@ -278,9 +278,9 @@ erDiagram
         text user_query "原始问题"
         varchar intent_summary "意图摘要"
         enum reference_type "指代方式"
-        enum plan_type "L1/L2/L3"
+        enum plan_type "L2/L3"
         json blueprint_json "任务蓝图"
-        enum result "success/fail/cancel/redirect"
+        enum result "success/fail/cancel/redirect/rejected"
         int duration_ms "耗时(毫秒)"
         int clarification_count "澄清次数"
     }
@@ -357,7 +357,7 @@ graph TB
     subgraph ClientSide["HAJIMI Client"]
         direction TB
         
-        subgraph L1["感知层 (Perception)"]
+        subgraph PERCEPTION["感知层 (Perception)"]
             CAP["屏幕捕获<br/>mss / PIL"]
             PARSER["UI解析器<br/>OmniParser V2 / PaddleOCR"]
             SOM["SoM标注生成器<br/>元素映射表"]
@@ -366,7 +366,7 @@ graph TB
         
         subgraph L2["理解与规划层 (Brain)"]
             INTENT["意图理解<br/>三层消歧 + 九大分类"]
-            ROUTER["三级速度路由器<br/>L1/L2/L3"]
+            ROUTER["三级速度路由器<br/>L2/L3"]
             PLANNER["蓝图管理器<br/>状态机 + 指纹比对"]
             MEMORY["上下文记忆<br/>短期/蓝图/摘要"]
             INTENT --> ROUTER --> PLANNER
@@ -553,7 +553,7 @@ HAJIMI桌面挂件的UI布局示意图。
 状态指示器:
   - 在线: 绿色圆点(#4CAF50) + "HAJIMI 智能指引"
   - 模式标签: 圆角胶囊形背景
-    - L1模板: 绿色背景 "#模板匹配"
+    - 模板匹配: 绿色背景 "#模板匹配"
     - L2快速: 蓝色背景 "#快速响应"
     - L3深度: 紫色背景 "#深度推理"
 
@@ -675,7 +675,7 @@ Web管理控制台(Vue3 + Element-Plus)的5个核心页面布局描述。
 │  └──────┘ └──────┘ └──────┘ └──────┘        │
 │                                              │
 │  ┌─────────────────┐  ┌──────────────────┐   │
-│  │  L1/L2/L3比例   │  │  24h响应时长趋势 │   │
+│  │  L2/L3比例   │  │  24h响应时长趋势 │   │
 │  │    饼图         │  │    折线图         │   │
 │  └─────────────────┘  └──────────────────┘   │
 │                                              │
@@ -822,11 +822,11 @@ stateDiagram-v2
 
 ---
 
-## 图16 三级速度保障流程图
+## 图16 二级速度保障流程图
 
 ### 文字描述
 
-展示从用户问题输入到选择L1/L2/L3处理路径的完整决策流程。
+展示从用户问题输入到选择L2/L3处理路径的完整决策流程。模板匹配已从独立速度层降级为L2快路径的服务端辅助查询。
 
 ### Mermaid 代码
 
@@ -837,13 +837,7 @@ flowchart TD
     REDLINE -->|"触及红线<br/>(自动操作/隐私/动态)"| REJECT["返回标准拒答话术"]
     REJECT --> END1([流程终止])
     
-    REDLINE -->|通过| L1{"L1 模板匹配<br/>关键词哈希匹配<br/>相似度 >= 90%?"}
-    
-    L1 -->|"是 ✅"| L1_RESULT["直接返回预置蓝图<br/>constant_steps_json"]
-    L1_RESULT --> EXEC["进入执行层"]
-    L1_RESULT --> L1_TIME["⏱ 响应时间 < 500ms"]
-    
-    L1 -->|"否 ❌"| INTENT["进入意图理解模块<br/>结构化解析 + 指代消解 + 主动澄清"]
+    REDLINE -->|通过| INTENT["进入意图理解模块<br/>结构化解析 + 指代消解 + 主动澄清"]
     
     INTENT --> CONF{"置信度 >= 80%?"}
     CONF -->|"否 ❌"| CLARIFY["生成探测性问题<br/>反问用户确认"]
@@ -852,16 +846,19 @@ flowchart TD
     CONF -->|"是 ✅"| COMPLEX{"复杂度评分<br/>score < 30?"}
     
     COMPLEX -->|"是(简单指令) ✅"| L2["L2 快路径"]
-    L2 --> L2_STEPS["本地OCR + 规则匹配<br/>+ 轻量LLM(Qwen2-VL-2B)"]
-    L2_STEPS --> EXEC
-    L2_STEPS --> L2_TIME["⏱ 响应时间 < 3s"]
+    L2 --> L2_MATCH["服务端模板匹配<br/>POST /api/templates/match"]
+    L2_MATCH -->|命中| L2_RESULT["返回预置蓝图<br/>+ 本地OCR + 规则匹配"]
+    L2_MATCH -->|未命中| L2_LIGHT["轻量LLM推理<br/>Qwen2-VL-2B"]
+    L2_LIGHT --> L2_RESULT
+    L2_RESULT --> EXEC
+    L2_RESULT --> L2_TIME["⏱ 响应时间 < 3s"]
     
     COMPLEX -->|"否(复杂任务) ❌"| L3["L3 慢路径"]
     L3 --> L3_CAP["屏幕捕获<br/>mss/PIL.ImageGrab"]
     L3_CAP --> L3_PARSE["UI解析<br/>OmniParser V2"]
     L3_PARSE --> L3_SOM["SoM标注生成<br/>标注图 + 映射表"]
     L3_SOM --> L3_LLM["多模态LLM推理<br/>GPT-4V / Qwen-VL-Max"]
-    L3_LLM --> L3_BLUEPRINT["生成Constant Steps蓝图<br/>+ 锁定保存"]
+    L3_LLM --> L3_BLUEPRINT["生成蓝图步骤<br/>+ 锁定保存"]
     L3_BLUEPRINT --> EXEC
     L3_LLM --> L3_TIME["⏱ 响应时间 5~10s"]
     
@@ -876,7 +873,7 @@ flowchart TD
     DONE --> AUDIT["审计代理异步上报"]
     END2 --> AUDIT
     
-    style L1 fill:#e8f5e9,stroke:#4caf50
+    style PERCEPTION fill:#e8f5e9,stroke:#4caf50
     style L2 fill:#e3f2fd,stroke:#2196f3
     style L3 fill:#f3e5f5,stroke:#9c27b0
     style REJECT fill:#ffebee,stroke:#f44336
@@ -980,10 +977,10 @@ CREATE TABLE t_transactions (
                             '模糊描述', '上下文接力'
                         )),
     plan_type           VARCHAR(4)   NOT NULL
-                        CHECK (plan_type IN ('L1', 'L2', 'L3')),
+                        CHECK (plan_type IN ('L2', 'L3')),
     blueprint_json      JSONB,
     result              VARCHAR(16)  NOT NULL DEFAULT 'success'
-                        CHECK (result IN ('success', 'fail', 'cancel', 'redirect')),
+                        CHECK (result IN ('success', 'fail', 'cancel', 'redirect', 'rejected')),
     duration_ms         INTEGER      NOT NULL DEFAULT 0,
     clarification_count INTEGER      NOT NULL DEFAULT 0
 );
@@ -1060,7 +1057,7 @@ CREATE TABLE t_failures (
                     CHECK (failure_type IN (
                         'blueprint_mismatch', 'llm_timeout',
                         'parse_error', 'user_abort',
-                        'redline_block', 'other'
+                        'redline_blocked', 'other'
                     )),
     step_index      INTEGER,
     fingerprint_hash VARCHAR(128),
@@ -1072,7 +1069,7 @@ CREATE INDEX idx_fail_task_id ON t_failures(task_id);
 CREATE INDEX idx_fail_type ON t_failures(failure_type);
 
 -- 7. 系统配置表
-CREATE TABLE t_configs (
+CREATE TABLE t_system_configs (
     config_id       VARCHAR(64)  PRIMARY KEY,
     config_key      VARCHAR(128) NOT NULL UNIQUE,
     config_value    TEXT         NOT NULL,
@@ -1080,7 +1077,7 @@ CREATE TABLE t_configs (
     updated_by      VARCHAR(64)  REFERENCES t_users(user_id),
     updated_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_cfg_key ON t_configs(config_key);
+CREATE INDEX idx_cfg_key ON t_system_configs(config_key);
 ```
 
 ---
@@ -1146,7 +1143,7 @@ graph TB
     MAIN_CTRL -->|"事务日志"| SQLITE
     AUDIT_SVC -->|"批量读取"| SQLITE
     AUDIT_SVC -->|"POST上报"| SERVER_API
-    PLAN_CTRL -->|"L1匹配请求"| SERVER_API
+    PLAN_CTRL -->|"模板匹配请求"| SERVER_API
     SERVER_API -->|"预置模板"| PLAN_CTRL
     
     WIDGET -->|"语音输入"| ASR_API
@@ -1238,7 +1235,7 @@ graph TB
 | `【此处插入 图13 Web控制台失败归因详情界面】` | 图13 | 失败归因详情 | 16:9 |
 | `【此处插入 图14 Web控制台系统配置界面】` | 图14 | 系统配置页 | 16:9 |
 | `【此处插入 图15 蓝图状态机转换图】` | 图15 | 蓝图状态机转换图 | A4纵向 |
-| `【此处插入 图16 三级速度保障流程图】` | 图16 | 三级速度保障流程图 | A4纵向 |
+| `【此处插入 图16 二级速度保障流程图】` | 图16 | 二级速度保障流程图 | A4纵向 |
 | `【此处插入 图17 意图理解三层消歧流程图】` | 图17 | 意图理解三层消歧流程图 | A4纵向 |
 | `【此处插入 图18 数据库物理模型图】` | 图18 | 数据库物理模型图 | A4横向 |
 | `【此处插入 图19 客户端组件交互图】` | 图19 | 客户端组件交互图 | A4横向 |
