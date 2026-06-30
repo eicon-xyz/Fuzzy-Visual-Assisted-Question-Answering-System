@@ -233,6 +233,41 @@ class AuditAgent:
             self._emit_status("failed", 0, self.get_queue_depth(), str(e))
             return False
 
+    def send_feedback(
+        self,
+        task_id: str,
+        feedback_type: str,
+        comment: str = "",
+    ) -> bool:
+        """单独上报用户反馈（A-C 接口契约 §3.1 — POST /api/audit/feedback）
+
+        与批量审计日志解耦，可在任务结束后立即调用。
+        """
+        if not self._httpx_available:
+            return False
+
+        payload = {
+            "task_id": task_id,
+            "feedback_type": feedback_type,
+        }
+        if comment:
+            payload["comment"] = desensitize_text(comment)
+
+        try:
+            r = self._http.post(
+                f"{self._server_url}/api/audit/feedback",
+                headers={
+                    "X-Demo-Key": self._demo_key,
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            r.raise_for_status()
+            data = r.json()
+            return data.get("received", False)
+        except Exception:
+            return False
+
     def get_queue_depth(self) -> int:
         """获取本地队列深度"""
         try:
