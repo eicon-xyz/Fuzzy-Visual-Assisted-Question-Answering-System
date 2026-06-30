@@ -1,6 +1,59 @@
+# ==================== 项目特定 ====================
 opencode.json
+*.pid
 api_server.log
 backend_stderr.log
 backend_stdout.log
+
+# ==================== Python ====================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+*.so
+
+# ==================== 虚拟环境 ====================
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+
+# ==================== 环境变量 / 密钥 ====================
+.env
+.env.local
+*.env
+
+# ==================== IDE / 编辑器 ====================
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ==================== 操作系统 ====================
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ==================== 日志 ====================
 *.log
-*.pid
+
+# ==================== 数据库 ====================
+*.db
+*.db-shm
+*.db-wal
+
+# ==================== 临时文件 ====================
+*.tmp
+*.swp
+*.swo
+*~
