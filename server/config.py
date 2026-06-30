@@ -27,6 +27,12 @@ class Config:
     DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
     DEEPSEEK_TIMEOUT: int = int(os.getenv("DEEPSEEK_TIMEOUT", "30"))
 
+    # Local OmniParser V2 API (deployed at D:\ominprester)
+    OMNIPARSER_URL: str = os.getenv(
+        "OMNIPARSER_URL", "http://127.0.0.1:9800"
+    )
+    OMNIPARSER_TIMEOUT: int = int(os.getenv("OMNIPARSER_TIMEOUT", "30"))
+
     # Demo 简化开关
     USE_REAL_LLM: bool = os.getenv("USE_REAL_LLM", "true").lower() == "true"
     STRICT_FINGERPRINT: bool = (

@@ -18,6 +18,7 @@ from server.models.schemas import (
     ProcessResponse,
     Annotation,
 )
+from server.services.omniparser_client import parse_screenshot
 
 
 # ────────────────────────── Mock 场景数据 ──────────────────────────
@@ -284,7 +285,7 @@ def generate_steps(query: str) -> List[dict]:
     return fallbacks.get(scenario, fallbacks["default"])
 
 
-def process_query(query: str) -> ProcessResponse:
+def process_query(query: str, image_base64: Optional[str] = None) -> ProcessResponse:
     """
     处理用户查询，生成完整的 ProcessResponse
     """
@@ -301,9 +302,17 @@ def process_query(query: str) -> ProcessResponse:
         needs_clarification=confidence < 0.80,
     )
 
-    # 2. 选择 UI 元素
-    scenario = choose_scenario(query)
-    elements = SCENARIO_ELEMENTS[scenario].copy()
+    # 2. 选择 UI 元素：优先调用本地 OmniParser V2 解析真实截图
+    if image_base64:
+        parsed_elements = parse_screenshot(image_base64)
+        if parsed_elements:
+            elements = parsed_elements
+        else:
+            scenario = choose_scenario(query)
+            elements = SCENARIO_ELEMENTS[scenario].copy()
+    else:
+        scenario = choose_scenario(query)
+        elements = SCENARIO_ELEMENTS[scenario].copy()
 
     # 3. 生成步骤
     raw_steps = generate_steps(query)

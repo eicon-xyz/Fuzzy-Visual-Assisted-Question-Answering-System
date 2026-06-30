@@ -1,0 +1,6 @@
+opencode.json
+api_server.log
+backend_stderr.log
+backend_stdout.log
+*.log
+*.pid

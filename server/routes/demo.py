@@ -69,8 +69,8 @@ async def process(
     request: ProcessRequest,
     demo_key: str = Depends(verify_demo_key),
 ):
-    # 1. 调用 AI 服务生成响应
-    response = process_query(request.query)
+    # 1. 调用 AI 服务生成响应（传入截图供本地 OmniParser 解析）
+    response = process_query(request.query, request.image)
 
     # 2. 如果需要澄清，仍然保存任务状态，但返回需要澄清的意图
     # 3. 保存任务状态到内存
