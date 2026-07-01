@@ -91,6 +91,59 @@ components:
           description: 当前任务的操作步骤列表
           items:
             $ref: "#/components/schemas/Step"
+        reference_resolution:
+          type: array
+          items:
+            type: integer
+          minItems: 2
+          maxItems: 2
+          description: 截图参考分辨率 [width, height]，bbox 坐标系与此一致
+          example: [2560, 1440]
+        detection_meta:
+          type: object
+          description: 检测元数据（latency_ms, element_count, backend）
+          additionalProperties: true
+
+    InspectRequest:
+      type: object
+      required:
+        - image
+      properties:
+        image:
+          type: string
+          description: Base64 截图或 data URI
+        screen_width:
+          type: integer
+          minimum: 1
+        screen_height:
+          type: integer
+          minimum: 1
+
+    InspectResponse:
+      type: object
+      required:
+        - success
+        - ui_elements
+        - reference_resolution
+      properties:
+        success:
+          type: boolean
+        ui_elements:
+          type: array
+          items:
+            $ref: "#/components/schemas/UIElement"
+        annotated_image:
+          type: string
+          description: SoM 标注图 Base64
+        reference_resolution:
+          type: array
+          items:
+            type: integer
+          minItems: 2
+          maxItems: 2
+        detection_meta:
+          type: object
+          additionalProperties: true
 
     StepRequest:
       type: object
@@ -583,6 +636,35 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalError"
+
+  /api/demo/inspect:
+    post:
+      summary: 元素检测检验（无步骤生成）
+      description: |
+        仅对截图运行 UI 检测，返回全量 ui_elements 与 SoM 标注图，供 B 端检验模式验收。
+      tags:
+        - Demo Core
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InspectRequest"
+      responses:
+        "200":
+          description: 检测成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InspectResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: 未检测到 UI 元素
+        "502":
+          description: 检测器调用失败
 
   /api/demo/step:
     post:

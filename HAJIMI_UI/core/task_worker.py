@@ -1,7 +1,7 @@
 from PyQt5.QtCore import QThread, pyqtSignal
 
-from core.api_client import process as api_process
-from core.screen_utils import capture_screen, check_redline, compute_fingerprint, pil_to_data_uri
+from core.api_client import ApiError, process as api_process
+from core.screen_utils import capture_screen, check_redline, compute_fingerprint, get_screen_metrics, pil_to_data_uri
 
 
 class TaskWorkerThread(QThread):
@@ -59,7 +59,14 @@ class TaskWorkerThread(QThread):
                 return
 
             self.sig_progress.emit(100, "完成")
+            response["_screen_size"] = [sw, sh]
+            response["_screen_metrics"] = get_screen_metrics()
+            ref = response.get("reference_resolution")
+            if ref and len(ref) >= 2:
+                response["_ref_size"] = [int(ref[0]), int(ref[1])]
             self.sig_process_success.emit(response, fingerprint)
 
+        except ApiError as exc:
+            self.sig_process_error.emit(str(exc))
         except Exception as exc:
             self.sig_process_error.emit(str(exc))

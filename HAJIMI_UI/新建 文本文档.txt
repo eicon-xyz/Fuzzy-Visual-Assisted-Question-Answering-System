@@ -1,0 +1,11 @@
+cd /d E:\University\greed3-2\Shixun\HAJIMI_UI
+默认 A 端端口 → 8010
+绕过被污染的 :8001
+start_server.bat
+启动前 kill_port，去掉 --reload（单进程）
+start_all.bat
+先 stop_all，再启动三个窗口，并传递 HAJIMI_PORT=8010
+start_client.bat
+设置 HAJIMI_API_URL=http://127.0.0.1:8010
+设置页「启动服务」
+先停旧进程再启动

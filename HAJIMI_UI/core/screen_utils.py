@@ -1,7 +1,7 @@
 import base64
 import hashlib
 from io import BytesIO
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from PIL import Image, ImageGrab
 
@@ -15,6 +15,35 @@ REDLINE_KEYWORDS = [
     "扫描硬盘", "查看聊天记录", "找出所有照片",
     "跟踪动态", "监控屏幕", "辅助代刷", "抢票",
 ]
+
+
+def get_screen_metrics() -> Dict[str, Any]:
+    """主屏逻辑/物理分辨率与 DPR（用于截图坐标 → 覆盖层坐标）。"""
+    try:
+        from PyQt5.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app and app.primaryScreen():
+            screen = app.primaryScreen()
+            geo = screen.geometry()
+            dpr = float(screen.devicePixelRatio())
+            lw, lh = geo.width(), geo.height()
+            return {
+                "logical_w": lw,
+                "logical_h": lh,
+                "dpr": dpr,
+                "physical_w": int(round(lw * dpr)),
+                "physical_h": int(round(lh * dpr)),
+            }
+    except Exception:
+        pass
+    return {
+        "logical_w": 1920,
+        "logical_h": 1080,
+        "dpr": 1.0,
+        "physical_w": 1920,
+        "physical_h": 1080,
+    }
 
 
 def capture_screen() -> Optional[Image.Image]:

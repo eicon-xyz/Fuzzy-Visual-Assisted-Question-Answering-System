@@ -1,0 +1,540 @@
+/* HAJIMI native — aligned with ui/web/index.html (desktop-host) */
+
+QWidget#NativeShell {
+    background: transparent;
+    border: none;
+}
+
+QWidget#CompactShell {
+    background: transparent;
+    border: none;
+}
+
+QLabel#CompactMark {
+    background: rgba(90, 158, 196, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    color: #5a9ec4;
+    font-size: 15px;
+}
+
+QLineEdit#CompactInput {
+    background: transparent;
+    border: none;
+    color: #f1f5f9;
+    font-size: 13px;
+    padding: 0 4px;
+}
+
+QLabel#CompactHint {
+    color: #64748b;
+    font-size: 11px;
+    padding-right: 4px;
+}
+
+QLabel {
+    color: #f1f5f9;
+    font-size: 13px;
+    background: transparent;
+}
+
+QPushButton#SwitchTopBtn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 16px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    opacity: 0.25;
+}
+
+QPushButton#SwitchTopBtn:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.06);
+    color: #f1f5f9;
+}
+
+QPushButton#MediumResizeHandle {
+    background: transparent;
+    border: none;
+    padding: 6px 0 4px;
+}
+
+QPushButton#MediumResizeHandle:hover {
+    background: transparent;
+}
+
+QWidget#TopBar {
+    background: transparent;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+QLabel#TopTitle {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+QLabel#TopSub {
+    font-size: 11px;
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+QWidget#ModePills {
+    background: transparent;
+}
+
+QLabel#ModePill {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    padding: 3px 7px;
+    border-radius: 6px;
+    color: #64748b;
+}
+
+QLabel#ModePill[active="true"] {
+    color: #5a9ec4;
+    background: rgba(90, 158, 196, 0.10);
+    border: 1px solid rgba(90, 158, 196, 0.10);
+}
+
+QLabel#StatusBadge {
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+QLabel#StatusBadge[status="idle"] {
+    background: rgba(255, 255, 255, 0.06);
+    color: #94a3b8;
+}
+
+QLabel#StatusBadge[status="processing"] {
+    background: rgba(90, 158, 196, 0.2);
+    color: #5a9ec4;
+}
+
+QLabel#StatusBadge[status="executing"] {
+    background: rgba(46, 204, 113, 0.15);
+    color: #2ecc71;
+}
+
+QLabel#StatusBadge[status="suspended"] {
+    background: rgba(241, 196, 15, 0.15);
+    color: #f1c40f;
+}
+
+QScrollArea#MediumContent {
+    background: transparent;
+    border: none;
+}
+
+QWidget#GuideSteps {
+    margin-top: 12px;
+    background: transparent;
+}
+
+QWidget#InputDock {
+    background: transparent;
+}
+
+QWidget#NavBackdrop {
+    background: rgba(0, 0, 0, 0.45);
+}
+
+QWidget#NavDrawer {
+    background: rgba(15, 23, 42, 0.97);
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+QLabel#DrawerHead {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QFrame#DrawerSep {
+    background: rgba(90, 158, 196, 0.08);
+    max-height: 1px;
+}
+
+QPushButton#NavItem {
+    text-align: left;
+    padding: 9px 10px;
+    border: none;
+    border-radius: 10px;
+    color: #94a3b8;
+    background: transparent;
+    font-size: 12px;
+}
+
+QPushButton#NavItem:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #f1f5f9;
+}
+
+QPushButton#NavItem[active="true"] {
+    background: rgba(90, 158, 196, 0.15);
+    color: #5a9ec4;
+    border: 1px solid rgba(90, 158, 196, 0.15);
+}
+
+QPushButton#NavItemQuit {
+    text-align: left;
+    padding: 9px 10px;
+    border: none;
+    border-radius: 10px;
+    color: #f87171;
+    background: transparent;
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+QPushButton#NavItemQuit:hover {
+    background: rgba(231, 76, 60, 0.12);
+    color: #fca5a5;
+}
+
+QPushButton#MenuBtn {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+}
+
+QPushButton#MenuBtn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(90, 158, 196, 0.2);
+}
+
+QPushButton#MenuBtn[open="true"] {
+    background: rgba(90, 158, 196, 0.12);
+    border-color: rgba(90, 158, 196, 0.3);
+}
+
+QFrame#Card {
+    background: transparent;
+    border: none;
+}
+
+QLabel#CardTitle {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #64748b;
+    text-transform: uppercase;
+    padding-bottom: 12px;
+}
+
+QLabel#MetaRowLabel {
+    font-size: 11px;
+    color: #64748b;
+}
+
+QFrame#NotifRow {
+    background: transparent;
+    border: none;
+    margin-bottom: 8px;
+}
+
+QFrame#NotifRow[variant="warn"] {
+    background: rgba(241, 196, 15, 0.08);
+    border: 1px solid rgba(241, 196, 15, 0.12);
+    border-radius: 10px;
+}
+
+QLabel#NotifTitle {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QLabel#NotifSub {
+    font-size: 11px;
+    color: #94a3b8;
+}
+
+QWidget#SetRow {
+    border-bottom: 1px solid rgba(90, 158, 196, 0.06);
+}
+
+QLabel#SetRowLabel {
+    font-size: 12px;
+    font-weight: 500;
+}
+
+QFrame#ToggleSwitch {
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+QFrame#ToggleSwitch[on="true"] {
+    background: #5a9ec4;
+    border-color: rgba(90, 158, 196, 0.2);
+}
+
+QWidget#StepCard[stepStatus="active"] {
+    background: rgba(90, 158, 196, 0.12);
+    border: 1px solid #5a9ec4;
+    border-radius: 8px;
+}
+
+QWidget#StepCard[stepStatus="completed"] {
+    opacity: 0.85;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+}
+
+QWidget#StepCard[stepStatus="pending"] {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+}
+
+QLabel#StepCardNum[stepStatus="active"] {
+    background: #5a9ec4;
+    color: white;
+    border-radius: 10px;
+    font-weight: bold;
+    font-size: 11px;
+}
+
+QLabel#StepCardNum[stepStatus="completed"] {
+    background: #2ecc71;
+    color: white;
+    border-radius: 10px;
+    font-weight: bold;
+    font-size: 11px;
+}
+
+QLabel#StepCardNum[stepStatus="pending"] {
+    background: #64748b;
+    color: white;
+    border-radius: 10px;
+    font-weight: bold;
+    font-size: 11px;
+}
+
+QLabel#StepCardContent[stepStatus="active"] {
+    color: #f1f5f9;
+    font-weight: 500;
+    font-size: 13px;
+}
+
+QLabel#StepCardContent[stepStatus="completed"],
+QLabel#StepCardContent[stepStatus="pending"] {
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+QFrame#bubble-user {
+    background-color: #5a9ec4;
+    border-radius: 12px;
+    border-top-right-radius: 2px;
+}
+
+QFrame#bubble-system {
+    background-color: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+    border-top-left-radius: 2px;
+}
+
+QFrame#bubble-danger {
+    background-color: rgba(231, 76, 60, 0.15);
+    border: 1px solid rgba(231, 76, 60, 0.3);
+    border-radius: 12px;
+    border-top-left-radius: 2px;
+}
+
+QLabel#bubbleUserLabel {
+    color: #ffffff;
+    font-size: 14px;
+}
+
+QLabel#bubbleSystemLabel,
+QLabel#bubbleDangerLabel {
+    color: #f1f5f9;
+    font-size: 14px;
+}
+
+QWidget#ThinkingStrip {
+    background: transparent;
+}
+
+QProgressBar#ThinkingBar {
+    border: none;
+    background: rgba(90, 158, 196, 0.08);
+    max-height: 2px;
+}
+
+QProgressBar#ThinkingBar::chunk {
+    background: #5a9ec4;
+}
+
+QWidget#MediumStepControls {
+    background: transparent;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+QLabel#StepProgressLabel {
+    font-size: 12px;
+    color: #94a3b8;
+}
+
+QFrame#InputFloat {
+    background: transparent;
+    border: none;
+}
+
+QFrame#InputFloat QTextEdit#ChatInput {
+    background: transparent;
+    border: none;
+    color: #f1f5f9;
+    font-size: 13px;
+    padding: 0 2px;
+}
+
+QPushButton#SendBtnAccent {
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+}
+
+QPushButton#SendBtnAccent:hover {
+    background: rgba(90, 158, 196, 0.10);
+}
+
+QPushButton#IconBtnGhost {
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+}
+
+QPushButton#StepBtn {
+    padding: 5px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.06);
+    color: #f1f5f9;
+    font-size: 12px;
+}
+
+QPushButton#StepBtnPrimary {
+    padding: 5px 12px;
+    border-radius: 8px;
+    border: none;
+    background: #5a9ec4;
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QProgressBar#BlueprintProgress {
+    border: none;
+    background: rgba(90, 158, 196, 0.08);
+    border-radius: 3px;
+}
+
+QProgressBar#BlueprintProgress::chunk {
+    background: #5a9ec4;
+    border-radius: 3px;
+}
+
+QLabel#StageHint {
+    color: #94a3b8;
+    font-size: 11px;
+    padding: 2px 16px 4px 16px;
+}
+
+QWidget#PrepareBanner {
+    background: rgba(56, 189, 248, 0.12);
+    border-top: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+QPushButton#PrepareBannerBtn {
+    text-align: left;
+    border: none;
+    background: transparent;
+    color: #38bdf8;
+    font-size: 12px;
+    padding: 8px 12px;
+}
+
+QWidget#InspectBar {
+    background: rgba(0, 180, 220, 0.12);
+    border-top: 1px solid rgba(0, 200, 255, 0.35);
+}
+
+QLabel#InspectBarLabel {
+    color: #67e8f9;
+    font-size: 12px;
+}
+
+QLabel#SectionTitle {
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QLabel#HintText {
+    color: #64748b;
+    font-size: 11px;
+}
+
+QLabel#HintTextSmall {
+    color: #475569;
+    font-size: 10px;
+}
+
+QCheckBox {
+    color: #f1f5f9;
+}
+
+QPushButton#SendBtnAccent:disabled,
+QTextEdit#ChatInput:disabled,
+QLineEdit#CompactInput:disabled {
+    opacity: 0.55;
+}
+
+QFrame#DialogCard,
+QFrame#DialogCardPrepare,
+QFrame#DialogCardSuspension {
+    background: rgba(15, 23, 42, 0.98);
+    border-radius: 14px;
+}
+
+QFrame#DialogCard {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+QFrame#DialogCardPrepare {
+    border: 1px solid rgba(56, 189, 248, 0.45);
+}
+
+QFrame#DialogCardSuspension {
+    border: 1px solid rgba(241, 196, 15, 0.4);
+}
+
+QLabel#DialogTitlePrepare {
+    font-size: 15px;
+    font-weight: 600;
+    color: #38bdf8;
+}
+
+QLabel#DialogTitleSuspension {
+    font-size: 15px;
+    font-weight: 600;
+    color: #f1c40f;
+}
+
+QLabel#DialogBody {
+    color: #f1f5f9;
+    font-size: 13px;
+}
+
+QLabel#DialogSub {
+    color: #94a3b8;
+    font-size: 11px;
+}

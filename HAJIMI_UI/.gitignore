@@ -1,0 +1,4 @@
+ui/native/_baseline/
+__pycache__/
+*.pyc
+.env

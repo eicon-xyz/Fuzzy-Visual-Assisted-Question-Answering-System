@@ -2,4 +2,3 @@ Pillow>=9.0
 mss>=6.0
 opencv-python>=4.5
 PyQt5>=5.15
-PyQtWebEngine>=5.15
