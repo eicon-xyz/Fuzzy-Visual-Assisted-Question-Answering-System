@@ -1,0 +1,3 @@
+[submodule "HAJIMI_UI/OmniParser"]
+	path = HAJIMI_UI/OmniParser
+	url = https://github.com/microsoft/OmniParser.git
