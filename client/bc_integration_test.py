@@ -309,7 +309,7 @@ def test_config_flow(r: TestResults, signals: SimulatedBSignals,
         changed_config = config
 
     poller = ConfigPoller(
-        server_url="http://localhost:8000",
+        server_url="http://localhost:8010",
         interval_min=30,
         on_config_changed=on_changed,
     )
@@ -420,7 +420,7 @@ if __name__ == "__main__":
     # 初始化 C 控制器
     from client.integration.controller import VoiceIntegrationController
     controller = VoiceIntegrationController(
-        server_url="http://localhost:8000",
+        server_url="http://localhost:8010",
         demo_key="hajimi-demo-2026",
     )
     controller.start()

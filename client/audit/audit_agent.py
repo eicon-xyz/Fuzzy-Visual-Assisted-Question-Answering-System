@@ -152,7 +152,7 @@ class AuditAgent:
     # 默认配置
     DEFAULT_BATCH_SIZE = 10
     DEFAULT_FLUSH_INTERVAL = 300   # 5 分钟
-    DEFAULT_BASE_URL = "http://localhost:8000"
+    DEFAULT_BASE_URL = "http://localhost:8010"
     DEFAULT_DEMO_KEY = "hajimi-demo-2026"
     MAX_RETRIES = 3
     RETRY_DELAYS = [60, 300, 900, 3600]  # 1min, 5min, 15min, 1h
