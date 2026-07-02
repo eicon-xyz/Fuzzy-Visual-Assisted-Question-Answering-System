@@ -19,12 +19,20 @@ class Config:
     # Demo 认证
     DEMO_KEY: str = os.getenv("HAJIMI_DEMO_KEY", "hajimi-demo-2026")
 
-    # DeepSeek API
+    # LLM API (支持多模态的模型)
+    LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
+    LLM_BASE_URL: str = os.getenv(
+        "LLM_BASE_URL", "https://api.siliconflow.cn/v1"
+    )
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "Qwen/Qwen3.6-35B-A3B")
+    LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "60"))
+
+    # DeepSeek API (保留兼容)
     DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
     DEEPSEEK_BASE_URL: str = os.getenv(
         "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
     )
-    DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+    DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
     DEEPSEEK_TIMEOUT: int = int(os.getenv("DEEPSEEK_TIMEOUT", "30"))
 
     # Local OmniParser V2 API (deployed at D:\ominprester)

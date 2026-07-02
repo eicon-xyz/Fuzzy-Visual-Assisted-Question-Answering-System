@@ -4,11 +4,7 @@
 """
 from typing import List, Optional
 
-import httpx
-
-from server.config import settings
 from server.models.schemas import Step, UIElement
-from server.services.llm.client import parse_llm_steps
 from server.services.perception import serialize_elements
 from server.services.planning.annotation import build_annotation
 
@@ -54,38 +50,19 @@ def _serialize_steps_for_replan(steps: List[Step]) -> str:
 
 
 def _call_replan_llm(prompt: str, timeout: int = 30) -> Optional[List[dict]]:
-    """调用 DeepSeek API 进行重规划"""
-    if not settings.DEEPSEEK_API_KEY:
-        return None
+    """调用 LLM 进行重规划"""
+    from server.services.llm.client import call_deepseek
 
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(
-                f"{settings.DEEPSEEK_BASE_URL}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": settings.DEEPSEEK_MODEL,
-                    "messages": [
-                        {"role": "system", "content": prompt},
-                        {
-                            "role": "user",
-                            "content": "请为上述步骤补全 target_element_id。",
-                        },
-                    ],
-                    "temperature": 0.2,
-                    "max_tokens": 1200,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            content = data["choices"][0]["message"]["content"]
-            return parse_llm_steps(content)
-    except Exception as e:
-        print(f"[Replan Error] {e}")
-        return None
+    result = call_deepseek(
+        query="请为上述步骤补全 target_element_id。",
+        system_prompt=prompt,
+        temperature=0.2,
+        max_tokens=2000,
+        timeout=timeout,
+    )
+    if result and "steps" in result:
+        return result["steps"]
+    return None
 
 
 def replan_steps(

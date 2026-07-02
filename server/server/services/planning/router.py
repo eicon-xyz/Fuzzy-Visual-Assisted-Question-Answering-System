@@ -119,7 +119,9 @@ _MOCK_FALLBACKS = {
 
 
 def generate_steps(
-    query: str, elements: Optional[List[UIElement]] = None
+    query: str,
+    elements: Optional[List[UIElement]] = None,
+    annotated_image: Optional[str] = None,
 ) -> tuple[List[dict], Optional[dict]]:
     """
     生成操作步骤与约束条件，优先使用 LLM，失败 fallback 到 mock 数据
@@ -127,12 +129,17 @@ def generate_steps(
     Args:
         query: 用户原始查询
         elements: 当前屏幕 UI 元素列表
+        annotated_image: SoM 标注图 base64（可选，传入时 LLM 可看图识别元素）
 
     Returns:
         (步骤字典列表, 约束条件字典或 None)
     """
     if settings.USE_REAL_LLM:
-        llm_response = call_deepseek(query, elements=elements)
+        llm_response = call_deepseek(
+            query,
+            elements=elements,
+            image_base64=annotated_image,
+        )
         if llm_response:
             steps = llm_response.get("steps", [])
             constraints = llm_response.get("constraints")
@@ -235,7 +242,9 @@ def process_query(query: str, image_base64: Optional[str] = None) -> ProcessResp
     if not raw_steps:
         # L3 慢路径（或 L2 模板未命中降级）：调用 LLM
         route = "L3"
-        raw_steps, constraints = generate_steps(query, elements)
+        raw_steps, constraints = generate_steps(
+            query, elements, annotated_image=annotated_image
+        )
         if raw_steps is None:
             raw_steps = []
 
@@ -296,16 +305,12 @@ def process_query(query: str, image_base64: Optional[str] = None) -> ProcessResp
 
 _RELOCATE_PROMPT = """你是一个桌面操作指引助手。
 
-下方是当前屏幕截图中的所有 UI 元素，以及用户需要执行的一步操作。
+下方是当前屏幕截图中的所有 UI 元素。用户需要找到某个操作对应的元素。
 
 你的任务：从 UI 元素列表中选择**最匹配**用户操作的元素的 `element_id`。
 
 ## 当前屏幕 UI 元素
 {element_list}
-
-## 待匹配的操作步骤
-- 动作：{action}
-- 描述：{description}
 
 ## 输出格式
 严格按以下 JSON 返回，不要 markdown 代码块：
@@ -317,7 +322,7 @@ _RELOCATE_PROMPT = """你是一个桌面操作指引助手。
 规则：
 1. 如果当前屏幕有匹配的元素，返回该元素的 `element_id` 和置信度。
 2. 如果当前屏幕依然没有对应元素（如步骤是"等待下载完成"），`target_element_id` 为空字符串 `""`，`confidence` 为 0.0。
-3.优先选择 `text` 字段语义最接近的元素；其次看 `type` 匹配（button/input/icon）。
+3. 优先选择 `text` 字段语义最接近的元素；其次看 `type` 匹配（button/input/icon）。
 4. 置信度低于 0.60 时，`target_element_id` 应为空。"""
 
 
@@ -366,49 +371,22 @@ def relocate_step(
     # 1) 尝试 LLM 匹配
     if settings.USE_REAL_LLM:
         from server.services.perception import serialize_elements
-        from server.services.llm.client import call_deepseek as _call_llm
-
-        element_text = serialize_elements(elements)
-        prompt = _RELOCATE_PROMPT.format(
-            element_list=element_text,
-            action=step_action,
-            description=step_description,
+        relocate_prompt = _RELOCATE_PROMPT.format(element_list=serialize_elements(elements))
+        relocate_result = call_deepseek(
+            query=f"请为步骤「{step_description}」（动作：{step_action}）匹配最合适的元素",
+            elements=None,  # elements already embedded in formatted prompt
+            system_prompt=relocate_prompt,
+            temperature=0.1,
+            max_tokens=2000,
+            timeout=settings.LLM_TIMEOUT or settings.DEEPSEEK_TIMEOUT,
         )
-        # 用底层 HTTP 调用而非 call_deepseek（后者是步骤生成 prompt，不适合重定位）
-        import httpx
-        try:
-            with httpx.Client(timeout=settings.DEEPSEEK_TIMEOUT) as client:
-                response = client.post(
-                    f"{settings.DEEPSEEK_BASE_URL}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": settings.DEEPSEEK_MODEL,
-                        "messages": [
-                            {"role": "system", "content": prompt},
-                            {"role": "user", "content": f"请为步骤「{step_description}」匹配最合适的元素"},
-                        ],
-                        "temperature": 0.1,
-                        "max_tokens": 200,
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
-                content = data["choices"][0]["message"]["content"]
-
-                from server.services.llm.client import parse_llm_response
-                llm_result = parse_llm_response(content)
-                if llm_result:
-                    candidate_id = llm_result.get("target_element_id", "")
-                    if candidate_id:
-                        element_by_id = {e.element_id: e for e in elements}
-                        matched_element = element_by_id.get(candidate_id)
-                        if matched_element:
-                            target_id = candidate_id
-        except Exception as exc:
-            print(f"[Relocate LLM] matching failed: {exc}")
+        if relocate_result:
+            candidate_id = relocate_result.get("target_element_id", "")
+            if candidate_id:
+                element_by_id = {e.element_id: e for e in elements}
+                matched_element = element_by_id.get(candidate_id)
+                if matched_element:
+                    target_id = candidate_id
 
     # 2) Fallback: 文本关键词匹配
     if not matched_element:
