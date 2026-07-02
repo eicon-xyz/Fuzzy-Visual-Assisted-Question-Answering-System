@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer
 
-from ui.native.design_tokens import BUBBLE_MAX_RATIO, CONTENT_PAD_H
+from ui.native.layout_tokens import BUBBLE_MAX_RATIO, CONTENT_PAD_H
 
 
 class ChatBubble(QWidget):
@@ -19,7 +19,10 @@ class ChatBubble(QWidget):
 
     def __init__(self, text, msg_type="system", parent=None, full_width=False):
         super().__init__(parent)
+        self.setObjectName("ChatBubbleHost")
         self._full_width = full_width
+        self.setAutoFillBackground(False)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
 
         outer = QHBoxLayout(self)

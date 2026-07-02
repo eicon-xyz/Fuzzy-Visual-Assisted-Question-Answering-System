@@ -91,15 +91,55 @@ def stop_backend_services(
     }
 
 
-def _start_in_new_console(title: str, bat_path: Path) -> None:
+def _resolve_omni_py() -> str:
+    omni_py = os.environ.get("OMNI_PY", "")
+    if omni_py and Path(omni_py).is_file():
+        return omni_py
+    for candidate in (
+        Path(r"E:\CodingSoftwards\Anaconda\envs\omni\python.exe"),
+    ):
+        if candidate.is_file():
+            return str(candidate)
+    return sys.executable
+
+
+def _local_omni_device() -> str:
+    script = SCRIPTS / "detect_omni_device.py"
+    if not script.is_file():
+        return "cpu"
+    py = _resolve_omni_py()
+    try:
+        r = subprocess.run(
+            [py, str(script)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=str(ROOT),
+        )
+        device = (r.stdout or "").strip().lower()
+        return device if device in ("cpu", "cuda") else "cpu"
+    except Exception:
+        return "cpu"
+
+
+def _start_in_new_console(title: str, bat_path: Path, env_prefix: str = "") -> None:
     if not bat_path.is_file():
         raise FileNotFoundError(str(bat_path))
-    cmd = f'start "{title}" cmd /k "{bat_path}"'
+    cmd = f'{env_prefix}start "{title}" cmd /k "{bat_path}"'
     subprocess.Popen(cmd, shell=True, cwd=str(ROOT))
 
 
 def start_omniparser_window() -> None:
-    _start_in_new_console("HAJIMI-OmniParser", SCRIPTS / "start_omniparser.bat")
+    env_prefix = ""
+    try:
+        from core.user_settings import load_user_settings
+
+        if load_user_settings().get("deployment_mode") == "local":
+            if _local_omni_device() == "cpu":
+                env_prefix = "set OMNI_FORCE_CPU=1&& "
+    except Exception:
+        pass
+    _start_in_new_console("HAJIMI-OmniParser", SCRIPTS / "start_omniparser.bat", env_prefix)
 
 
 def start_a_end_window() -> None:

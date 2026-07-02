@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions
 
-if not defined OMNI_ROOT set "OMNI_ROOT=E:\Tools\OmniParser"
+call "%~dp0resolve_omni_root.bat"
 set "OMNI_SERVER=%OMNI_ROOT%\omnitool\omniparserserver"
 set "OMNI_HOST=127.0.0.1"
 if not defined OMNI_PORT set "OMNI_PORT=8002"
@@ -39,6 +39,7 @@ if not exist "%OMNI_ROOT%\weights\icon_detect\model.pt" (
 )
 
 cd /d "%~dp0.."
+set "OMNI_ROOT=%OMNI_ROOT%"
 "%OMNI_PY%" scripts\patch_omniparser.py
 "%OMNI_PY%" scripts\check_port.py %OMNI_HOST% %OMNI_PORT%
 if errorlevel 1 (
@@ -52,11 +53,22 @@ if errorlevel 1 (
 set "CUDA_VISIBLE_DEVICES="
 set "OMNIPARSER_MAX_SIDE=960"
 set "OMNIPARSER_BATCH_SIZE=8"
+
+set "OMNI_DEVICE=cpu"
+set "_OMNI_DEV_FILE=%TEMP%\hajimi_omni_device.txt"
+"%OMNI_PY%" "%~dp0detect_omni_device.py" 1>"%_OMNI_DEV_FILE%"
+if exist "%_OMNI_DEV_FILE%" set /p OMNI_DEVICE=<"%_OMNI_DEV_FILE%"
+if not defined OMNI_DEVICE set "OMNI_DEVICE=cpu"
+
 cd /d "%OMNI_SERVER%"
 
-echo [OmniParser] Starting http://%OMNI_HOST%:%OMNI_PORT% (CPU mode) ...
+if /i "%OMNI_DEVICE%"=="cpu" (
+    echo [OmniParser] CPU mode — parse ~2-4 min per screenshot.
+    echo [OmniParser] For campus GPU use: python scripts\b_group2_intranet_setup.py
+)
+echo [OmniParser] Starting http://%OMNI_HOST%:%OMNI_PORT% (%OMNI_DEVICE% mode) ...
 echo [OmniParser] Press Ctrl+C to stop.
-"%OMNI_PY%" -m omniparserserver --som_model_path ../../weights/icon_detect/model.pt --caption_model_name florence2 --caption_model_path ../../weights/icon_caption_florence --device cpu --BOX_TRESHOLD 0.05 --host %OMNI_HOST% --port %OMNI_PORT%
+"%OMNI_PY%" -m omniparserserver --som_model_path ../../weights/icon_detect/model.pt --caption_model_name florence2 --caption_model_path ../../weights/icon_caption_florence --device %OMNI_DEVICE% --BOX_TRESHOLD 0.05 --host %OMNI_HOST% --port %OMNI_PORT%
 
 endlocal
 exit /b %ERRORLEVEL%

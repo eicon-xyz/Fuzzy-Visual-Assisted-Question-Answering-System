@@ -9,7 +9,10 @@ from typing import Optional
 from PyQt5.QtWidgets import QApplication, QWidget
 
 from config import MEDIUM_WIDTH, MEDIUM_HEIGHT
-from ui.native.design_tokens import MEDIUM_MIN_W, MEDIUM_MIN_H
+from ui.native.layout_tokens import MEDIUM_MIN_W, MEDIUM_MIN_H
+
+# Previous default before 480×520 layout alignment
+_LEGACY_MEDIUM_SIZES = frozenset({(370, 540)})
 
 
 def _state_path() -> str:
@@ -26,6 +29,7 @@ class WindowState:
     x: Optional[int] = None
     y: Optional[int] = None
     last_mode: str = "medium"
+    migrated_from_legacy: bool = False
 
 
 def _screen_max() -> tuple[int, int]:
@@ -49,10 +53,13 @@ def load_window_state() -> Optional[WindowState]:
         return None
     try:
         data = json.loads(open(path, encoding="utf-8").read())
-        w, h = clamp_size(
-            data.get("medium_width", MEDIUM_WIDTH),
-            data.get("medium_height", MEDIUM_HEIGHT),
-        )
+        raw_w = int(data.get("medium_width", MEDIUM_WIDTH))
+        raw_h = int(data.get("medium_height", MEDIUM_HEIGHT))
+        migrated = (raw_w, raw_h) in _LEGACY_MEDIUM_SIZES
+        if migrated:
+            w, h = clamp_size(MEDIUM_WIDTH, MEDIUM_HEIGHT)
+        else:
+            w, h = clamp_size(raw_w, raw_h)
         x = data.get("x")
         y = data.get("y")
         mode = data.get("last_mode", "medium")
@@ -64,6 +71,7 @@ def load_window_state() -> Optional[WindowState]:
             x=int(x) if x is not None else None,
             y=int(y) if y is not None else None,
             last_mode=mode,
+            migrated_from_legacy=migrated,
         )
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return None

@@ -2,7 +2,6 @@
 HAJIMI Demo API 路由
 实现 api-contract-demo.md 中定义的全部端点
 """
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Header, status
 from typing import Optional
 
@@ -32,22 +31,10 @@ from server.services.llm_ai import (
     relocate_step_on_screen,
 )
 from server.services.image_utils import decode_image
-from server.services.ui_detector import DetectorError
+from server.services.ui_detector import DetectorError, get_detector_health_info
 
 
 router = APIRouter(prefix="/api/demo", tags=["Demo Core"])
-
-
-def _probe_omniparser() -> bool:
-    base_url = (settings.OMNIPARSER_LOCAL_URL or "").rstrip("/")
-    if not base_url:
-        return False
-    try:
-        with httpx.Client(timeout=3.0) as client:
-            resp = client.get(f"{base_url}/probe/")
-            return resp.status_code == 200
-    except Exception:
-        return False
 
 
 # ────────────────────────── 认证依赖 ──────────────────────────
@@ -79,14 +66,15 @@ def verify_demo_key(x_demo_key: Optional[str] = Header(None)) -> str:
     description="供前端启动时探测后端是否可用，无需认证。",
 )
 async def health_check():
-    omniparser_ready = None
-    if settings.DETECTOR_BACKEND == "local_omniparser":
-        omniparser_ready = _probe_omniparser()
+    det = get_detector_health_info()
     return HealthResponse(
         status="ok",
         version="1.0.0",
-        detector_backend=settings.DETECTOR_BACKEND,
-        omniparser_ready=omniparser_ready,
+        detector_backend=det.get("detector_backend"),
+        detector_active=det.get("detector_active"),
+        detector_device=det.get("detector_device"),
+        omniparser_url=det.get("omniparser_url"),
+        omniparser_ready=det.get("omniparser_ready"),
     )
 
 

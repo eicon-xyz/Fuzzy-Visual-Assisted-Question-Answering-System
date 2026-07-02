@@ -1,0 +1,62 @@
+/* Stitch placeholder — variant_b (accent #6b8cce) */
+/* HAJIMI native — shell chrome (NativeShell / CompactShell) */
+
+QWidget#NativeShell {
+    background-color: rgba(15, 23, 42, 0.89);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+}
+
+QWidget#CompactShell {
+    background-color: rgba(15, 23, 42, 0.89);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+}
+
+QLabel#CompactMark {
+    background: rgba(107, 140, 206, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    color: #6b8cce;
+    font-size: 15px;
+}
+
+QLineEdit#CompactInput {
+    background: transparent;
+    border: none;
+    color: #f1f5f9;
+    font-size: 13px;
+    padding: 0 4px;
+}
+
+QLabel#CompactHint {
+    color: #64748b;
+    font-size: 11px;
+    padding-right: 4px;
+}
+
+QPushButton#SwitchTopBtn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 16px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    opacity: 0.25;
+}
+
+QPushButton#SwitchTopBtn:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.06);
+    color: #f1f5f9;
+}
+
+QPushButton#MediumResizeHandle {
+    background: transparent;
+    border: none;
+    padding: 6px 0 4px;
+}
+
+QPushButton#MediumResizeHandle:hover {
+    background: transparent;
+}

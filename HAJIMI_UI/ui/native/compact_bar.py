@@ -5,11 +5,9 @@ from PyQt5.QtWidgets import (
     QLineEdit,
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QSize
-from PyQt5.QtGui import QPainter
 
 from config import COMPACT_WIDTH
-from ui.native.design_tokens import COMPACT_HEIGHT
-from ui.native.crystal_glass import paint_crystal_glass
+from ui.native.layout_tokens import COMPACT_HEIGHT
 
 
 class CompactBar(QWidget):
@@ -22,8 +20,7 @@ class CompactBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("CompactShell")
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setAutoFillBackground(False)
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.setFixedHeight(COMPACT_HEIGHT)
 
         layout = QHBoxLayout(self)
@@ -45,13 +42,6 @@ class CompactBar(QWidget):
         hint = QLabel("↵")
         hint.setObjectName("CompactHint")
         layout.addWidget(hint)
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        paint_crystal_glass(painter, self.width(), self.height(), compact=True)
-        painter.end()
-        super().paintEvent(event)
 
     def preferred_size(self) -> QSize:
         return QSize(self.width() or COMPACT_WIDTH, COMPACT_HEIGHT)

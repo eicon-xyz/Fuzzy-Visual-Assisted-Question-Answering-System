@@ -7,7 +7,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HTML = ROOT / "ui" / "web" / "index.html"
-TOKENS = ROOT / "ui" / "native" / "design_tokens.py"
+LAYOUT_TOKENS = ROOT / "ui" / "native" / "layout_tokens.py"
+VISUAL_TOKENS = ROOT / "ui" / "native" / "visual_tokens.py"
 
 VAR_MAP = {
     "--bg-primary": "BG_PRIMARY",
@@ -37,10 +38,11 @@ def parse_html_root() -> dict[str, str]:
 
 
 def parse_tokens_py() -> dict[str, str]:
-    text = TOKENS.read_text(encoding="utf-8")
     out: dict[str, str] = {}
-    for m in re.finditer(r"^([A-Z_]+)\s*=\s*([\"']?)([^\"'\n]+)\2", text, re.M):
-        out[m.group(1)] = m.group(3).strip()
+    for path in (LAYOUT_TOKENS, VISUAL_TOKENS):
+        text = path.read_text(encoding="utf-8")
+        for m in re.finditer(r"^([A-Z_]+)\s*=\s*([\"']?)([^\"'\n]+)\2", text, re.M):
+            out[m.group(1)] = m.group(3).strip()
     return out
 
 
@@ -66,7 +68,7 @@ def main() -> int:
         for e in errors:
             print(" ", e)
         return 1
-    print("OK: design_tokens.py aligned with index.html :root")
+    print("OK: layout_tokens.py + visual_tokens.py aligned with index.html :root")
     return 0
 
 

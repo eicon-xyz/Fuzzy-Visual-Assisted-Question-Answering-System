@@ -254,4 +254,7 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     detector_backend: Optional[str] = None
+    detector_active: Optional[str] = None
+    detector_device: Optional[str] = None
+    omniparser_url: Optional[str] = None
     omniparser_ready: Optional[bool] = None

@@ -3,6 +3,14 @@ import sys
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPalette, QColor
+
+from core.deployment_resolver import get_startup_hints
+from core.user_settings import apply_user_settings, load_user_settings
+
+_settings = load_user_settings()
+apply_user_settings(_settings)
+STARTUP_HINTS = get_startup_hints(_settings)
+
 from ui.main_widget import MainWidget
 
 
@@ -31,6 +39,6 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
     _apply_dark_palette(app)
-    widget = MainWidget()
+    widget = MainWidget(startup_hints=STARTUP_HINTS)
     widget.show()
     sys.exit(app.exec_())

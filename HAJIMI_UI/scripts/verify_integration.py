@@ -6,6 +6,7 @@ Usage:
   2. Terminal 2: python scripts/verify_integration.py
 """
 import sys
+import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -31,7 +32,7 @@ def test_process_via_client():
         data = process("怎么安装微信", TINY_PNG, screen_width=1920, screen_height=1080)
     except ApiError as exc:
         msg = str(exc)
-        if any(x in msg for x in ("422", "502", "未检测", "DETECTOR")):
+        if any(x in msg for x in ("422", "502", "未检测", "DETECTOR", "OmniParser 内部", "空白", "NO_ELEMENTS")):
             print(f"[process] SKIP ({msg}) — 1x1 测试图无法通过 OmniParser，请用真实截图联调")
             return None, None
         raise
@@ -50,7 +51,7 @@ def test_inspect_via_client():
         data = inspect(TINY_PNG, screen_width=1920, screen_height=1080)
     except ApiError as exc:
         msg = str(exc)
-        if any(x in msg for x in ("422", "502", "未检测", "DETECTOR")):
+        if any(x in msg for x in ("422", "502", "未检测", "DETECTOR", "OmniParser 内部", "空白", "NO_ELEMENTS")):
             print(f"[inspect] SKIP ({msg}) — 需真实截图或 ALLOW_DETECTOR_FALLBACK=1")
             return
         raise
@@ -81,8 +82,9 @@ def test_offline_no_silent_mock():
 
     import core.api_client as api_mod
 
-    old_url = api_mod.API_BASE_URL
-    api_mod.API_BASE_URL = "http://127.0.0.1:59999"
+    old_url = os.environ.get("HAJIMI_API_URL", "")
+    os.environ["HAJIMI_API_URL"] = "http://127.0.0.1:59999"
+    api_mod.reload_client_config()
     try:
         tiny_png = "data:image/png;base64,abc"
         try:
@@ -91,7 +93,11 @@ def test_offline_no_silent_mock():
         except ApiError as exc:
             print(f"[offline] OK ApiError: {exc}")
     finally:
-        api_mod.API_BASE_URL = old_url
+        if old_url:
+            os.environ["HAJIMI_API_URL"] = old_url
+        else:
+            os.environ.pop("HAJIMI_API_URL", None)
+        api_mod.reload_client_config()
 
 
 def main():

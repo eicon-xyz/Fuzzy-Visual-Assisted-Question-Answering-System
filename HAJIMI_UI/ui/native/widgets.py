@@ -8,11 +8,12 @@ from PyQt5.QtWidgets import (
     QFrame,
     QGraphicsOpacityEffect,
     QGraphicsDropShadowEffect,
+    QSizePolicy,
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, QRect
-from PyQt5.QtGui import QPainter, QPen, QColor
+from PyQt5.QtGui import QPainter, QPen, QColor, QPalette
 
-from ui.native.design_tokens import (
+from ui.native.layout_tokens import (
     DRAWER_WIDTH,
     ANIM_DRAWER_MS,
 )
@@ -28,13 +29,39 @@ def apply_shell_shadow(widget: QWidget):
     widget.setGraphicsEffect(fx)
 
 
+def make_widget_transparent(widget: QWidget) -> None:
+    """Strip default QWidget fill so shell glass shows through."""
+    widget.setAutoFillBackground(False)
+    widget.setAttribute(Qt.WA_TranslucentBackground, True)
+
+
+def make_scroll_area_transparent(scroll) -> None:
+    """Remove QScrollArea / viewport default opaque plate (the 'black box')."""
+    from PyQt5.QtWidgets import QScrollArea
+
+    if not isinstance(scroll, QScrollArea):
+        return
+    scroll.setAutoFillBackground(False)
+    scroll.setAttribute(Qt.WA_TranslucentBackground, True)
+    scroll.setFrameShape(QFrame.NoFrame)
+    vp = scroll.viewport()
+    vp.setAutoFillBackground(False)
+    vp.setAttribute(Qt.WA_TranslucentBackground, True)
+    transparent = QColor(0, 0, 0, 0)
+    pal = vp.palette()
+    pal.setColor(QPalette.Base, transparent)
+    pal.setColor(QPalette.Window, transparent)
+    vp.setPalette(pal)
+
+
 class MenuButton(QPushButton):
     """Hamburger menu — three lines, toggles to X when open."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("MenuBtn")
-        self.setFixedSize(34, 34)
+        self.setMinimumSize(34, 34)
+        self.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
         self._open = False
 
     def set_open(self, open_: bool):
@@ -179,14 +206,17 @@ class ResizeHandleBar(QPushButton):
 
     drag_step = pyqtSignal(int)
 
-    _BAR_W = 36
-    _BAR_H = 3
-    _BAR_W_HOVER = 44
+    _IDLE_W = 24
+    _IDLE_H = 3
+    _HOVER_W = 40
+    _HOVER_H = 4
+    _IDLE_ALPHA = 20
+    _HOVER_ALPHA = 56
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("MediumResizeHandle")
-        self.setFixedHeight(14)
+        self.setFixedHeight(10)
         self.setFlat(True)
         self.setCursor(Qt.SizeVerCursor)
         self.setToolTip("上下拖动调整高度")
@@ -195,19 +225,18 @@ class ResizeHandleBar(QPushButton):
         self._hovered = False
 
     def paintEvent(self, event):
-        super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        bar_w = self._BAR_W_HOVER if self._hovered or self._dragging else self._BAR_W
-        if self._hovered or self._dragging:
-            color = QColor(90, 158, 196, 102 if self._dragging else 77)
-        else:
-            color = QColor(255, 255, 255, 38)
+        active = self._hovered or self._dragging
+        bar_w = self._HOVER_W if active else self._IDLE_W
+        bar_h = self._HOVER_H if active else self._IDLE_H
+        alpha = self._HOVER_ALPHA if active else self._IDLE_ALPHA
         x = (self.width() - bar_w) // 2
-        y = (self.height() - self._BAR_H) // 2
+        y = (self.height() - bar_h) // 2
         painter.setPen(Qt.NoPen)
-        painter.setBrush(color)
-        painter.drawRoundedRect(x, y, bar_w, self._BAR_H, 2, 2)
+        painter.setBrush(QColor(255, 255, 255, alpha))
+        radius = bar_h / 2
+        painter.drawRoundedRect(int(x), int(y), int(bar_w), int(bar_h), radius, radius)
         painter.end()
 
     def enterEvent(self, event):

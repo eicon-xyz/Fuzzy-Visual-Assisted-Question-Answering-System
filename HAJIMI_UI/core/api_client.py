@@ -4,11 +4,10 @@ import urllib.error
 import urllib.request
 from typing import List, Optional
 
+import config
 from config import (
     ALLOW_MOCK_FALLBACK,
-    API_BASE_URL,
-    API_TIMEOUT,
-    DEMO_KEY,
+    DEPLOYMENT_MODE,
     HEALTH_TIMEOUT,
     INSPECT_TIMEOUT,
     PROCESS_TIMEOUT,
@@ -24,9 +23,26 @@ class ApiError(Exception):
     """A 端 API 调用失败（连接、认证或业务错误）"""
 
 
+def reload_client_config() -> None:
+    """user_settings.apply 后刷新本模块对 config 的引用。"""
+    config.reload_from_env()
+
+
+def _api_base_url() -> str:
+    return config.API_BASE_URL
+
+
+def _demo_key() -> str:
+    return config.DEMO_KEY
+
+
+def _api_timeout() -> int:
+    return config.API_TIMEOUT
+
+
 def _fetch_health() -> Optional[dict]:
     req = urllib.request.Request(
-        f"{API_BASE_URL}/api/demo/health",
+        f"{_api_base_url()}/api/demo/health",
         method="GET",
     )
     try:
@@ -56,7 +72,18 @@ def _check_detector_preflight() -> tuple[bool, str]:
 
     health = _fetch_health()
     if not health or health.get("status") != "ok":
+        if DEPLOYMENT_MODE == "intranet":
+            return (
+                False,
+                f"内网 A 端不可达 ({_api_base_url()})。请确认校园网/VPN 与地址是否正确。",
+            )
         return False, f"A 端未启动。请点击设置「启动 OmniParser + A 端」或运行: {START_ALL_HINT}"
+
+    if DEPLOYMENT_MODE == "intranet":
+        ready = health.get("omniparser_ready")
+        if ready is False:
+            return False, "远程 A 端报告 OmniParser 未就绪，请联系 A 端同学重启检测服务。"
+        return True, ""
 
     backend = health.get("detector_backend")
     if backend is None:
@@ -65,7 +92,7 @@ def _check_detector_preflight() -> tuple[bool, str]:
             "A 端未报告 detector_backend（端口上可能是旧版或多开实例）。"
             f"请先运行 scripts\\stop_all.bat，再 {START_ALL_HINT}",
         )
-    if backend == "local_omniparser":
+    if backend in ("local_omniparser", "auto"):
         ready = health.get("omniparser_ready")
         if ready is False:
             return (
@@ -73,7 +100,7 @@ def _check_detector_preflight() -> tuple[bool, str]:
                 "OmniParser 未就绪。请先运行 scripts\\start_omniparser.bat，"
                 "或设置页「启动 OmniParser + A 端」，等待「Omniparser initialized」。",
             )
-        if ready is None:
+        if ready is None and backend == "local_omniparser":
             return (
                 False,
                 "A 端未报告 OmniParser 状态（可能是旧版 A 端）。"
@@ -98,28 +125,50 @@ def check_process_preflight() -> tuple[bool, str]:
     return _check_detector_preflight()
 
 
+def _format_connection_label(health: dict) -> str:
+    base = _api_base_url()
+    device = health.get("detector_device")
+    if DEPLOYMENT_MODE == "intranet":
+        if device == "cuda":
+            return f"A 端已连接 (校园 GPU/cuda) {base}"
+        return f"A 端已连接 (内网) {base}"
+    if device == "cuda":
+        return f"A 端已连接 (GPU/cuda) {base}"
+    if device == "cpu":
+        return f"A 端已连接 (本地 CPU，约 2–4 分钟/帧) {base}"
+    if health.get("detector_active") == "replicate_omniparser":
+        return f"A 端已连接 (云端 Replicate) {base}"
+    return f"A 端已连接 ({base})"
+
+
 def get_api_status_message() -> tuple[str, str]:
     """返回 (消息文本, 类型) 供 UI 展示。"""
     if USE_MOCK_ONLY:
         return "当前为纯 Mock 模式（HAJIMI_MOCK_ONLY=1）", "system"
     health = _fetch_health()
     if health and health.get("status") == "ok":
-        msg = f"A 端已连接 ({API_BASE_URL})"
-        if health.get("detector_backend") == "local_omniparser":
-            if health.get("omniparser_ready") is False:
+        msg = _format_connection_label(health)
+        if DEPLOYMENT_MODE != "intranet":
+            backend = health.get("detector_backend")
+            if backend in ("local_omniparser", "auto"):
+                if health.get("omniparser_ready") is False:
+                    return (
+                        f"{msg}，但 OmniParser 未就绪 — 请设置页「启动 OmniParser + A 端」"
+                        f"或 {START_ALL_HINT}",
+                        "system danger",
+                    )
+            if backend is None:
                 return (
-                    f"{msg}，但 OmniParser 未就绪 — 请设置页「启动 OmniParser + A 端」"
-                    f"或 {START_ALL_HINT}",
+                    f"{msg}，但缺少 detector_backend（可能旧版 A 端或多开）。"
+                    f"请 scripts\\stop_all.bat 后 {START_ALL_HINT}",
                     "system danger",
                 )
-        backend = health.get("detector_backend")
-        if backend is None:
-            return (
-                f"{msg}，但缺少 detector_backend（可能旧版 A 端或多开）。"
-                f"请 scripts\\stop_all.bat 后 {START_ALL_HINT}",
-                "system danger",
-            )
         return msg, "system"
+    if DEPLOYMENT_MODE == "intranet":
+        return (
+            f"内网 A 端不可达 ({_api_base_url()})。请检查校园网/VPN 与系统设置中的地址。",
+            "system danger",
+        )
     if ALLOW_MOCK_FALLBACK:
         return (
             f"A 端未启动，将回退本地 Mock。启动命令: {SERVER_START_HINT}",
@@ -171,7 +220,8 @@ def _format_inspect_error_message(msg: str, timeout: int) -> str:
         if "HTTP 500" in msg or "Internal Server Error" in msg:
             return (
                 "OmniParser 内部错误（可能为空白屏无 UI 元素、内存不足或上一次解析尚未结束）。"
-                "请等待当前解析完成，或 scripts\\stop_all.bat 后重新启动 OmniParser，"
+                "RTX 50 系若误启 cuda 也会 500，请 scripts\\stop_all.bat 后重跑 "
+                "scripts\\start_omniparser.bat（应显示 cpu mode），"
                 "单独再试一次并等待 2–4 分钟。"
             )
         if "DETECTOR_FAILED" in msg or "OmniParser" in msg or "local OmniParser" in msg:
@@ -190,15 +240,15 @@ def _request_json(
     timeout: Optional[int] = None,
 ) -> dict:
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    headers = {"Content-Type": "application/json", "X-Demo-Key": DEMO_KEY}
+    headers = {"Content-Type": "application/json", "X-Demo-Key": _demo_key()}
     req = urllib.request.Request(
-        f"{API_BASE_URL}{path}",
+        f"{_api_base_url()}{path}",
         data=data,
         headers=headers,
         method=method,
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout or API_TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=timeout or _api_timeout()) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code == 401:
@@ -206,7 +256,7 @@ def _request_json(
         raise ApiError(f"A 端 HTTP {exc.code}: {_read_http_error(exc)}") from exc
     except (TimeoutError, urllib.error.URLError) as exc:
         if _is_timeout_error(exc):
-            raise ApiError(f"A 端请求超时（{timeout or API_TIMEOUT}s）") from exc
+            raise ApiError(f"A 端请求超时（{timeout or _api_timeout()}s）") from exc
         raise ApiError(
             f"A 端不可达 ({getattr(exc, 'reason', exc)})。请先运行: {SERVER_START_HINT}"
         ) from exc
@@ -310,8 +360,9 @@ def inspect(
     health = _fetch_health()
     if (
         health
-        and health.get("detector_backend") == "local_omniparser"
+        and health.get("detector_backend") in ("local_omniparser", "auto")
         and health.get("omniparser_ready") is False
+        and DEPLOYMENT_MODE != "intranet"
     ):
         raise ApiError(
             "OmniParser 未就绪。请先运行 scripts\\start_omniparser.bat，"

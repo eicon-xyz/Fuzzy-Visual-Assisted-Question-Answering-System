@@ -56,8 +56,26 @@ def patch_utils(utils_path: Path) -> bool:
     return True
 
 
+def _resolve_omni_root() -> Path:
+    """Match scripts/resolve_omni_root.bat: env > repo (server+weights) > E:\\Tools."""
+    env = os.environ.get("OMNI_ROOT")
+    if env:
+        return Path(env)
+    repo = Path(__file__).resolve().parent.parent / "OmniParser"
+    weights = repo / "weights" / "icon_detect" / "model.pt"
+    server = repo / "omnitool" / "omniparserserver"
+    if server.is_dir() and weights.is_file():
+        return repo
+    tools = Path(r"E:\Tools\OmniParser")
+    if (tools / "omnitool" / "omniparserserver").is_dir():
+        return tools
+    if server.is_dir():
+        return repo
+    return tools
+
+
 def main() -> int:
-    omni_root = Path(os.environ.get("OMNI_ROOT", r"E:\Tools\OmniParser"))
+    omni_root = _resolve_omni_root()
     utils_path = omni_root / "util" / "utils.py"
     if not utils_path.is_file():
         print(f"[patch] not found: {utils_path}", file=sys.stderr)

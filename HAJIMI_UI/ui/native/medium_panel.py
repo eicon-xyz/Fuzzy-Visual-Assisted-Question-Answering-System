@@ -13,27 +13,38 @@ from PyQt5.QtWidgets import (
     QSizePolicy,
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QEvent, QSize, QTimer
-from PyQt5.QtGui import QPainter
-
-from config import API_BASE_URL, STOP_SERVICES_ON_EXIT, MODE_PILLS_MIN_WIDTH
+from config import (
+    STOP_SERVICES_ON_EXIT,
+    MODE_PILLS_MIN_WIDTH,
+    MEDIUM_WIDTH,
+    MEDIUM_HEIGHT,
+)
+from core.user_settings import load_user_settings
+from ui.native.window_state import clamp_size, _screen_max
 from ui.chat_bubble import ChatBubble
 from ui.step_list import StepListWidget
-from ui.native.design_tokens import (
+from ui.native.layout_tokens import (
     DRAWER_WIDTH,
     CONTENT_PAD_H,
     CONTENT_PAD_V,
     CONTENT_PAD_BOTTOM,
     INPUT_DOCK_PAD,
 )
+from ui.native.layout.topbar_layout import build_topbar
 from ui.native.nav_icons import nav_icon, svg_icon, action_icon
-from ui.native.crystal_glass import paint_crystal_glass
 from ui.native.widgets import (
-    MenuButton,
     NavBackdrop,
     NotifRow,
     SetRow,
-    ResizeHandleBar,
     animate_drawer,
+    make_widget_transparent,
+    make_scroll_area_transparent,
+)
+from ui.native.settings_widgets import (
+    DeploymentModeGroup,
+    SettingsFieldRow,
+    SettingsEnterFilter,
+    UiAppearanceGroup,
 )
 
 
@@ -79,23 +90,27 @@ class MediumPanel(QWidget):
     prev_clicked = pyqtSignal()
     compact_requested = pyqtSignal()
     drag_requested = pyqtSignal()
-    height_resize_drag = pyqtSignal(int)
     inspect_requested = pyqtSignal()
     inspect_exit_requested = pyqtSignal()
     start_services_requested = pyqtSignal()
     stop_services_requested = pyqtSignal()
+    settings_saved = pyqtSignal(dict)
+    panel_resize_requested = pyqtSignal(int, int)
+    panel_restore_size = pyqtSignal()
     prepare_banner_clicked = pyqtSignal()
     quit_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("NativeShell")
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setAutoFillBackground(False)
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMouseTracking(True)
 
         self._drawer_visible = False
+        self._current_panel = "guide"
+        self._settings_scroll = None
+        self._settings_inner = None
 
         self._backdrop = NavBackdrop(self)
         self._backdrop.clicked.connect(self._close_drawer)
@@ -106,11 +121,8 @@ class MediumPanel(QWidget):
         main_col.setContentsMargins(0, 0, 0, 0)
         main_col.setSpacing(0)
 
-        self._resize_handle = ResizeHandleBar()
-        self._resize_handle.drag_step.connect(self.height_resize_drag.emit)
-        main_col.addWidget(self._resize_handle)
-
         self._topbar = self._build_topbar()
+        make_widget_transparent(self._topbar)
         main_col.addWidget(self._topbar)
 
         self._thinking_strip = QWidget()
@@ -136,10 +148,12 @@ class MediumPanel(QWidget):
         self._content_scroll.setWidgetResizable(True)
         self._content_scroll.setFrameShape(QFrame.NoFrame)
         self._content_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        make_scroll_area_transparent(self._content_scroll)
 
         content_wrap = QWidget()
         content_wrap.setObjectName("MediumContentWrap")
         content_wrap.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        make_widget_transparent(content_wrap)
         cw_layout = QVBoxLayout(content_wrap)
         cw_layout.setContentsMargins(
             CONTENT_PAD_H, CONTENT_PAD_V, CONTENT_PAD_H, CONTENT_PAD_BOTTOM
@@ -147,6 +161,8 @@ class MediumPanel(QWidget):
         cw_layout.setSpacing(0)
 
         self._pages = QStackedWidget()
+        self._pages.setObjectName("MediumPages")
+        make_widget_transparent(self._pages)
         self._pages.addWidget(self._build_guide_page())
         self._pages.addWidget(self._build_steps_page())
         self._pages.addWidget(self._build_blueprint_page())
@@ -169,15 +185,9 @@ class MediumPanel(QWidget):
         self._inspect_bar.hide()
         main_col.addWidget(self._inspect_bar)
 
-        main_col.addWidget(self._build_input_dock())
+        self._input_dock = self._build_input_dock()
+        main_col.addWidget(self._input_dock)
         self._switch_panel("guide")
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        paint_crystal_glass(painter, self.width(), self.height())
-        painter.end()
-        super().paintEvent(event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -262,53 +272,14 @@ class MediumPanel(QWidget):
         self.compact_requested.emit()
 
     def _build_topbar(self) -> QWidget:
-        bar = QWidget()
-        bar.setObjectName("TopBar")
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(CONTENT_PAD_H, 4, CONTENT_PAD_H, 10)
-        layout.setSpacing(12)
-
-        self._menu_btn = MenuButton()
+        result = build_topbar(self)
+        self._menu_btn = result.menu_btn
         self._menu_btn.clicked.connect(self._toggle_drawer)
-        layout.addWidget(self._menu_btn)
-
-        text_col = QVBoxLayout()
-        text_col.setSpacing(1)
-        title = QLabel("HAJIMI")
-        title.setObjectName("TopTitle")
-        title.setMinimumWidth(0)
-        title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self._panel_sub = QLabel("操作指引")
-        self._panel_sub.setObjectName("TopSub")
-        self._panel_sub.setMinimumWidth(0)
-        self._panel_sub.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        text_col.addWidget(title)
-        text_col.addWidget(self._panel_sub)
-        layout.addLayout(text_col, 1)
-
-        self._mode_pills = QWidget()
-        self._mode_pills.setObjectName("ModePills")
-        self._mode_pills.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        pl = QHBoxLayout(self._mode_pills)
-        pl.setContentsMargins(0, 0, 0, 0)
-        pl.setSpacing(4)
-        self._mode_pill_labels = []
-        for label, active in (("L1", False), ("L2", False), ("L3", True)):
-            pill = QLabel(label)
-            pill.setObjectName("ModePill")
-            pill.setProperty("active", "true" if active else "false")
-            pl.addWidget(pill)
-            self._mode_pill_labels.append(pill)
-        layout.addWidget(self._mode_pills, 0)
-        self._mode_pills.hide()
-
-        self._status_badge = QLabel("● 准备就绪")
-        self._status_badge.setObjectName("StatusBadge")
-        self._status_badge.setProperty("status", "idle")
-        self._status_badge.setMinimumWidth(0)
-        self._status_badge.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        layout.addWidget(self._status_badge, 0)
-        return bar
+        self._panel_sub = result.panel_sub
+        self._mode_pills = result.mode_pills
+        self._mode_pill_labels = result.mode_pill_labels
+        self._status_badge = result.status_badge
+        return result.bar
 
     def _page_layout(self) -> QVBoxLayout:
         page = QWidget()
@@ -319,6 +290,8 @@ class MediumPanel(QWidget):
 
     def _build_guide_page(self) -> QWidget:
         page = QWidget()
+        page.setObjectName("MediumPage")
+        make_widget_transparent(page)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
@@ -332,6 +305,7 @@ class MediumPanel(QWidget):
 
         self._chat_container = QWidget()
         self._chat_container.setObjectName("MediumChatContainer")
+        make_widget_transparent(self._chat_container)
         self._chat_layout = QVBoxLayout(self._chat_container)
         self._chat_layout.setContentsMargins(0, 0, 0, 0)
         self._chat_layout.setSpacing(12)
@@ -346,6 +320,8 @@ class MediumPanel(QWidget):
 
     def _build_steps_page(self) -> QWidget:
         page = QWidget()
+        page.setObjectName("MediumPage")
+        make_widget_transparent(page)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         card = QFrame()
@@ -363,6 +339,8 @@ class MediumPanel(QWidget):
 
     def _build_blueprint_page(self) -> QWidget:
         page = QWidget()
+        page.setObjectName("MediumPage")
+        make_widget_transparent(page)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         card = QFrame()
@@ -396,6 +374,8 @@ class MediumPanel(QWidget):
 
     def _build_notifications_page(self) -> QWidget:
         page = QWidget()
+        page.setObjectName("MediumPage")
+        make_widget_transparent(page)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         card = QFrame()
@@ -417,14 +397,20 @@ class MediumPanel(QWidget):
 
     def _build_settings_page(self) -> QWidget:
         page = QWidget()
+        page.setObjectName("MediumPage")
+        make_widget_transparent(page)
         outer = QVBoxLayout(page)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(14)
 
         scroll = QScrollArea()
+        scroll.setObjectName("SettingsScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        make_scroll_area_transparent(scroll)
         inner = QWidget()
+        inner.setObjectName("SettingsScrollInner")
+        make_widget_transparent(inner)
         il = QVBoxLayout(inner)
         il.setSpacing(14)
 
@@ -444,6 +430,70 @@ class MediumPanel(QWidget):
         ]:
             tl.addWidget(SetRow(label, on))
         il.addWidget(toggles)
+
+        self._deployment_mode = DeploymentModeGroup()
+        self._deployment_mode.mode_changed.connect(self._on_deployment_mode_changed)
+        il.addWidget(self._deployment_mode)
+
+        self._appearance_group = UiAppearanceGroup()
+        il.addWidget(self._appearance_group)
+
+        api_card = QFrame()
+        api_card.setObjectName("Card")
+        al = QVBoxLayout(api_card)
+        al.setContentsMargins(16, 16, 16, 16)
+        al.setSpacing(4)
+        api_title = QLabel("模型 API")
+        api_title.setObjectName("SectionTitle")
+        al.addWidget(api_title)
+
+        self._field_a_url = SettingsFieldRow("A 端地址", "http://127.0.0.1:8010")
+        self._field_demo_key = SettingsFieldRow("Demo Key", "hajimi-demo-2026")
+        self._field_llm_base = SettingsFieldRow("问答 API Base", "https://api.deepseek.com")
+        self._field_llm_key = SettingsFieldRow("问答 API Key", "", password=True)
+        self._field_llm_model = SettingsFieldRow("问答模型名", "deepseek-chat")
+        self._field_omni_url = SettingsFieldRow("OmniParser 地址", "http://127.0.0.1:8002")
+        self._field_omni_gpu = SettingsFieldRow(
+            "OmniParser GPU", "可选，SSH 隧道端口如 http://127.0.0.1:8002"
+        )
+        for row in (
+            self._field_a_url,
+            self._field_demo_key,
+            self._field_llm_base,
+            self._field_llm_key,
+            self._field_llm_model,
+            self._field_omni_url,
+            self._field_omni_gpu,
+        ):
+            al.addWidget(row)
+
+        save_row = QHBoxLayout()
+        self._save_settings_btn = QPushButton("保存并应用")
+        self._save_settings_btn.setObjectName("StepBtnPrimary")
+        self._save_settings_btn.clicked.connect(self._save_settings)
+        save_row.addWidget(self._save_settings_btn)
+        save_row.addStretch()
+        al.addLayout(save_row)
+
+        self._settings_feedback = QLabel("")
+        self._settings_feedback.setObjectName("HintTextSmall")
+        self._settings_feedback.setWordWrap(True)
+        al.addWidget(self._settings_feedback)
+
+        self._settings_inputs = [
+            self._field_a_url.input,
+            self._field_demo_key.input,
+            self._field_llm_base.input,
+            self._field_llm_key.input,
+            self._field_llm_model.input,
+            self._field_omni_url.input,
+            self._field_omni_gpu.input,
+        ]
+        self._settings_enter_filter = SettingsEnterFilter(self._save_settings)
+        for inp in self._settings_inputs:
+            inp.installEventFilter(self._settings_enter_filter)
+
+        il.addWidget(api_card)
 
         dev = QFrame()
         dev.setObjectName("Card")
@@ -482,25 +532,32 @@ class MediumPanel(QWidget):
         svc_title.setObjectName("SectionTitle")
         dl.addWidget(svc_title)
 
-        api_lbl = QLabel(f"A 端地址：{API_BASE_URL}")
-        api_lbl.setObjectName("HintText")
-        api_lbl.setWordWrap(True)
-        dl.addWidget(api_lbl)
+        self._api_lbl = QLabel("")
+        self._api_lbl.setObjectName("HintText")
+        self._api_lbl.setWordWrap(True)
+        dl.addWidget(self._api_lbl)
 
         svc_row = QHBoxLayout()
         self._start_services_btn = QPushButton("启动 OmniParser + A 端")
         self._start_services_btn.setObjectName("StepBtnPrimary")
         self._start_services_btn.clicked.connect(self.start_services_requested.emit)
         svc_row.addWidget(self._start_services_btn)
-        stop_btn = QPushButton("停止全部服务")
-        stop_btn.setObjectName("StepBtn")
-        stop_btn.clicked.connect(self.stop_services_requested.emit)
-        svc_row.addWidget(stop_btn)
+        self._stop_services_btn = QPushButton("停止全部服务")
+        self._stop_services_btn.setObjectName("StepBtn")
+        self._stop_services_btn.clicked.connect(self.stop_services_requested.emit)
+        svc_row.addWidget(self._stop_services_btn)
         dl.addLayout(svc_row)
 
         self._stop_on_exit_cb = QCheckBox("关闭窗口时停止 A 端与 OmniParser")
         self._stop_on_exit_cb.setChecked(STOP_SERVICES_ON_EXIT)
         dl.addWidget(self._stop_on_exit_cb)
+
+        self._local_svc_widgets = (
+            svc_title,
+            self._start_services_btn,
+            self._stop_services_btn,
+            self._stop_on_exit_cb,
+        )
 
         self._service_status = QLabel("")
         self._service_status.setObjectName("HintTextSmall")
@@ -511,7 +568,83 @@ class MediumPanel(QWidget):
         il.addStretch()
         scroll.setWidget(inner)
         outer.addWidget(scroll)
+        self._settings_scroll = scroll
+        self._settings_inner = inner
+        self.load_settings_form()
         return page
+
+    def load_settings_form(self) -> None:
+        data = load_user_settings()
+        self._deployment_mode.set_mode(data.get("deployment_mode", "local"))
+        self._appearance_group.set_appearance(data)
+        self._field_a_url.set_text(data.get("a_end_url", ""))
+        self._field_demo_key.set_text(data.get("demo_key", ""))
+        llm = data.get("llm") or {}
+        self._field_llm_base.set_text(llm.get("base_url", ""))
+        self._field_llm_key.set_text(llm.get("api_key", ""))
+        self._field_llm_model.set_text(llm.get("model", ""))
+        omni = data.get("omniparser") or {}
+        self._field_omni_url.set_text(omni.get("url", ""))
+        self._field_omni_gpu.set_text(omni.get("gpu_url", ""))
+        self._apply_deployment_mode_ui(data.get("deployment_mode", "local"))
+
+    def _collect_settings_data(self) -> dict:
+        mode = self._deployment_mode.current_mode()
+        a_url = self._field_a_url.text()
+        if mode == "intranet" and not a_url:
+            raise ValueError("内网 API 模式下 A 端地址为必填项")
+        appearance = self._appearance_group.current_appearance()
+        return {
+            "deployment_mode": mode,
+            **appearance,
+            "a_end_url": a_url or "http://127.0.0.1:8010",
+            "demo_key": self._field_demo_key.text() or "hajimi-demo-2026",
+            "llm": {
+                "base_url": self._field_llm_base.text(),
+                "api_key": self._field_llm_key.text(),
+                "model": self._field_llm_model.text() or "deepseek-chat",
+            },
+            "omniparser": {
+                "url": self._field_omni_url.text() or "http://127.0.0.1:8002",
+                "gpu_url": self._field_omni_gpu.text(),
+            },
+        }
+
+    def _save_settings(self) -> None:
+        try:
+            data = self._collect_settings_data()
+        except ValueError as exc:
+            self._settings_feedback.setText(str(exc))
+            return
+        self.settings_saved.emit(data)
+
+    def _on_deployment_mode_changed(self, mode: str) -> None:
+        self._apply_deployment_mode_ui(mode)
+
+    def _apply_deployment_mode_ui(self, mode: str) -> None:
+        intranet = mode == "intranet"
+        for w in self._local_svc_widgets:
+            w.setVisible(not intranet)
+        llm_fields = (
+            self._field_llm_base,
+            self._field_llm_key,
+            self._field_llm_model,
+            self._field_omni_url,
+            self._field_omni_gpu,
+        )
+        for row in llm_fields:
+            row.set_enabled(not intranet)
+        self._update_api_url_label()
+
+    def _update_api_url_label(self) -> None:
+        from config import API_BASE_URL
+
+        self._api_lbl.setText(f"A 端地址：{API_BASE_URL}")
+
+    def on_settings_applied(self, data: dict, success_msg: str = "") -> None:
+        self._settings_feedback.setText(success_msg or "已保存并应用")
+        self._apply_deployment_mode_ui(data.get("deployment_mode", "local"))
+        self._update_api_url_label()
 
     def _build_prepare_banner(self) -> QWidget:
         bar = QWidget()
@@ -559,13 +692,14 @@ class MediumPanel(QWidget):
     def _build_input_dock(self) -> QWidget:
         dock = QWidget()
         dock.setObjectName("InputDock")
+        make_widget_transparent(dock)
         dl = QVBoxLayout(dock)
         dl.setContentsMargins(INPUT_DOCK_PAD, 0, INPUT_DOCK_PAD, INPUT_DOCK_PAD)
 
         float_card = QFrame()
         float_card.setObjectName("InputFloat")
         fl = QHBoxLayout(float_card)
-        fl.setContentsMargins(12, 10, 10, 10)
+        fl.setContentsMargins(12, 8, 10, 8)
         fl.setSpacing(8)
         fl.setAlignment(Qt.AlignBottom)
 
@@ -626,6 +760,8 @@ class MediumPanel(QWidget):
         animate_drawer(self._drawer, self._backdrop, False, self)
 
     def _switch_panel(self, panel: str):
+        prev = self._current_panel
+        self._current_panel = panel
         index = NAV_KEYS.index(panel) if panel in NAV_KEYS else 0
         self._pages.setCurrentIndex(index)
         self._panel_sub.setText(PANEL_LABELS.get(panel, panel))
@@ -636,6 +772,51 @@ class MediumPanel(QWidget):
             btn.style().unpolish(btn)
             btn.style().polish(btn)
         self._update_mode_pill_highlight(panel)
+
+        if panel == "settings":
+            if self._settings_scroll is not None:
+                self._settings_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            QTimer.singleShot(0, self._emit_settings_size)
+        elif prev == "settings":
+            if self._settings_scroll is not None:
+                self._settings_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            self.panel_restore_size.emit()
+
+    def current_panel(self) -> str:
+        return self._current_panel
+
+    def _settings_chrome_size(self) -> tuple[int, int]:
+        main_margin_h = 20
+        main_margin_v = 26
+        panel_chrome_h = (
+self._topbar.sizeHint().height()
+            + self._input_dock.sizeHint().height()
+            + CONTENT_PAD_V
+            + CONTENT_PAD_BOTTOM
+        )
+        panel_chrome_w = CONTENT_PAD_H * 2
+        return main_margin_h + panel_chrome_w, main_margin_v + panel_chrome_h
+
+    def _compute_settings_window_size(self) -> tuple[int, int]:
+        if self._settings_inner is None:
+            return MEDIUM_WIDTH, MEDIUM_HEIGHT
+
+        self._settings_inner.adjustSize()
+        hint = self._settings_inner.sizeHint()
+        chrome_w, chrome_h = self._settings_chrome_size()
+
+        need_w = hint.width() + chrome_w
+        need_h = hint.height() + chrome_h
+
+        max_w, max_h = _screen_max()
+        target_w = max(MEDIUM_WIDTH, need_w)
+        ratio_h = int(target_w * MEDIUM_HEIGHT / MEDIUM_WIDTH)
+        target_h = max(need_h, ratio_h)
+        return clamp_size(target_w, target_h)
+
+    def _emit_settings_size(self):
+        w, h = self._compute_settings_window_size()
+        self.panel_resize_requested.emit(w, h)
 
     def _update_mode_pill_highlight(self, panel: str):
         level = PANEL_MODE_LEVEL.get(panel, 3)
@@ -664,7 +845,7 @@ class MediumPanel(QWidget):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             y = event.pos().y()
-            if y > self._resize_handle.height() and y <= 80:
+            if hasattr(self, "_topbar") and y <= self._topbar.height():
                 self.drag_requested.emit()
         super().mousePressEvent(event)
 
@@ -773,6 +954,7 @@ class MediumPanel(QWidget):
     def set_service_status(self, text: str):
         if text:
             self._service_status.setText(text)
+        self._update_api_url_label()
 
     def focus_input(self):
         self._input.setFocus()

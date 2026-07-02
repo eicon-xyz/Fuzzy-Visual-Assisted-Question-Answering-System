@@ -3,7 +3,7 @@ from PyQt5.QtCore import QByteArray, QSize, Qt
 from PyQt5.QtGui import QIcon, QPixmap, QPainter
 from PyQt5.QtSvg import QSvgRenderer
 
-from ui.native.design_tokens import ACCENT, TEXT_SECONDARY, TEXT_TERTIARY
+from ui.native.visual_tokens import ACCENT, TEXT_SECONDARY, TEXT_TERTIARY
 
 _NAV_SVGS = {
     "guide": (

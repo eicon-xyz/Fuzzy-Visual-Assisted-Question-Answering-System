@@ -8,7 +8,7 @@ import re
 import time
 from dataclasses import dataclass
 from io import BytesIO
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 
 import httpx
 from PIL import Image
@@ -47,8 +47,120 @@ class DetectorError(Exception):
     """检测器调用失败。"""
 
 
+_active_backend: Optional[str] = None
+_active_url: Optional[str] = None
+_active_device: Optional[str] = None
+
+
+def probe_omniparser_url(base_url: str) -> Tuple[bool, Optional[str]]:
+    """探测 omniparserserver /probe/，返回 (reachable, device)。"""
+    url = (base_url or "").rstrip("/")
+    if not url:
+        return False, None
+    try:
+        timeout = float(settings.OMNIPARSER_PROBE_TIMEOUT)
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.get(f"{url}/probe/")
+            if resp.status_code != 200:
+                return False, None
+            try:
+                data = resp.json()
+            except Exception:
+                return True, None
+            device = data.get("device")
+            if data.get("ready") is False:
+                return False, device
+            return True, device
+    except Exception:
+        return False, None
+
+
+def resolve_auto_backend(force: bool = False) -> Tuple[str, str, Optional[str]]:
+    """
+    解析 auto 模式实际后端。
+    返回 (backend_label, base_url, device)。
+    """
+    global _active_backend, _active_url, _active_device
+    if not force and _active_backend and _active_url:
+        return _active_backend, _active_url, _active_device
+
+    candidates: List[Tuple[str, str]] = []
+    gpu = (settings.OMNIPARSER_GPU_URL or "").strip().rstrip("/")
+    local = (settings.OMNIPARSER_LOCAL_URL or "").strip().rstrip("/")
+    if gpu:
+        candidates.append(("local_omniparser", gpu))
+    if local and local != gpu:
+        candidates.append(("local_omniparser", local))
+
+    for label, url in candidates:
+        ready, device = probe_omniparser_url(url)
+        if ready:
+            _active_backend = label
+            _active_url = url
+            _active_device = device or "cpu"
+            return _active_backend, _active_url, _active_device
+
+    if settings.DETECTOR_AUTO_FALLBACK_REPLICATE and settings.REPLICATE_API_TOKEN:
+        _active_backend = "replicate_omniparser"
+        _active_url = ""
+        _active_device = "cloud"
+        return _active_backend, _active_url, _active_device
+
+    _active_backend = None
+    _active_url = None
+    _active_device = None
+    raise DetectorError(
+        "auto detector: no reachable OmniParser (check OMNIPARSER_GPU_URL / OMNIPARSER_LOCAL_URL)"
+    )
+
+
+def get_detector_health_info() -> Dict[str, Any]:
+    """供 /health 使用的检测器状态。"""
+    backend = settings.DETECTOR_BACKEND
+    info: Dict[str, Any] = {
+        "detector_backend": backend,
+        "detector_active": None,
+        "detector_device": None,
+        "omniparser_url": None,
+        "omniparser_ready": None,
+    }
+    if backend == "replicate_omniparser":
+        info["detector_active"] = "replicate_omniparser"
+        info["detector_device"] = "cloud"
+        info["omniparser_ready"] = bool(settings.REPLICATE_API_TOKEN)
+        return info
+    if backend == "local_omniparser":
+        url = (settings.OMNIPARSER_LOCAL_URL or "").rstrip("/")
+        ready, device = probe_omniparser_url(url) if url else (False, None)
+        info["detector_active"] = "local_omniparser"
+        info["detector_device"] = device
+        info["omniparser_url"] = url or None
+        info["omniparser_ready"] = ready
+        return info
+    if backend == "auto":
+        try:
+            active, url, device = resolve_auto_backend(force=True)
+            ready, _ = probe_omniparser_url(url) if url else (False, None)
+            info["detector_active"] = active
+            info["detector_device"] = device
+            info["omniparser_url"] = url or None
+            info["omniparser_ready"] = ready if url else bool(settings.REPLICATE_API_TOKEN)
+        except DetectorError:
+            info["detector_active"] = None
+            info["detector_device"] = None
+            info["omniparser_url"] = None
+            info["omniparser_ready"] = False
+        return info
+    return info
+
+
 def detect(pil_image: Image.Image, backend: Optional[str] = None) -> DetectionResult:
     backend = backend or settings.DETECTOR_BACKEND
+    if backend == "auto":
+        active, url, _device = resolve_auto_backend()
+        if active == "replicate_omniparser":
+            return _detect_replicate_omniparser(pil_image)
+        return _detect_local_omniparser(pil_image, base_url=url)
     if backend == "replicate_omniparser":
         return _detect_replicate_omniparser(pil_image)
     if backend == "local_omniparser":
@@ -102,8 +214,10 @@ def _scale_elements_to_original(
     return scaled
 
 
-def _detect_local_omniparser(pil_image: Image.Image) -> DetectionResult:
-    base_url = (settings.OMNIPARSER_LOCAL_URL or "").rstrip("/")
+def _detect_local_omniparser(
+    pil_image: Image.Image, base_url: Optional[str] = None
+) -> DetectionResult:
+    base_url = (base_url or settings.OMNIPARSER_LOCAL_URL or "").rstrip("/")
     if not base_url:
         raise DetectorError("OMNIPARSER_LOCAL_URL not configured")
 

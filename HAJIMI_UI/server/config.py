@@ -37,6 +37,11 @@ class Config:
 
     # UI 检测器（Replicate OmniParser）
     DETECTOR_BACKEND: str = os.getenv("DETECTOR_BACKEND", "replicate_omniparser")
+    OMNIPARSER_GPU_URL: str = os.getenv("OMNIPARSER_GPU_URL", "")
+    OMNIPARSER_PROBE_TIMEOUT: float = float(os.getenv("OMNIPARSER_PROBE_TIMEOUT", "3"))
+    DETECTOR_AUTO_FALLBACK_REPLICATE: bool = (
+        os.getenv("DETECTOR_AUTO_FALLBACK_REPLICATE", "true").lower() == "true"
+    )
     REPLICATE_API_TOKEN: str = os.getenv("REPLICATE_API_TOKEN", "")
     OMNIPARSER_MODEL: str = os.getenv(
         "OMNIPARSER_MODEL",

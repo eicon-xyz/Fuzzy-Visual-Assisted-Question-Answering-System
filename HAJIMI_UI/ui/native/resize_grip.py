@@ -1,11 +1,19 @@
-"""8-direction resize for frameless medium window (helper, no overlay widget)."""
-from PyQt5.QtCore import Qt, QPoint
+﻿"""8-direction resize for frameless medium window (helper, no overlay widget)."""
+from PyQt5.QtCore import Qt, QPoint, QRectF
 from PyQt5.QtWidgets import QWidget, QApplication
-from PyQt5.QtGui import QPainter, QPen, QColor
+from PyQt5.QtGui import QPainter, QPen, QColor, QPainterPath
 
-from ui.native.design_tokens import ACCENT, MEDIUM_MIN_W, MEDIUM_MIN_H
+from ui.native.layout_tokens import MEDIUM_MIN_W, MEDIUM_MIN_H
+
+_SHELL_GLASS_RGB = (15, 23, 42)
+_SHELL_GLASS_ALPHA = 227
 
 GRIP = 14
+INSET = 2
+IDLE_ALPHA = 20
+HOVER_STROKE_ALPHA = 40
+IDLE_SHORT = 24
+HOVER_THICK = 3
 
 
 class WindowResizeHandler:
@@ -44,6 +52,18 @@ class WindowResizeHandler:
         area = screen.availableGeometry()
         return int(area.width() * 0.9), int(area.height() * 0.9)
 
+    @staticmethod
+    def _lr_edge(edge):
+        if not edge:
+            return None
+        if edge in ("l", "r"):
+            return edge
+        if edge in ("tl", "bl"):
+            return "l"
+        if edge in ("tr", "br"):
+            return "r"
+        return None
+
     def edge_at(self, host_pos: QPoint):
         r = self._panel_rect()
         x = host_pos.x() - r.x()
@@ -74,9 +94,10 @@ class WindowResizeHandler:
         return None
 
     def cursor_for(self, edge):
+        lr = self._lr_edge(edge)
+        if lr:
+            return Qt.SizeHorCursor
         return {
-            "l": Qt.SizeHorCursor,
-            "r": Qt.SizeHorCursor,
             "t": Qt.SizeVerCursor,
             "b": Qt.SizeVerCursor,
             "tl": Qt.SizeFDiagCursor,
@@ -105,7 +126,7 @@ class WindowResizeHandler:
         if self._is_medium_mode():
             host_pos = self._host_pos(global_pos)
             edge = self.edge_at(host_pos)
-            self._hover_edge = edge
+            self._hover_edge = self._lr_edge(edge)
             if edge:
                 self._host.setCursor(self.cursor_for(edge))
             else:
@@ -136,25 +157,63 @@ class WindowResizeHandler:
     def mouse_release(self, event) -> bool:
         return self.try_release_global(event.globalPos(), event.button())
 
-    def paint_hover(self, painter: QPainter):
-        if not self._hover_edge or not self._is_medium_mode():
+    def _idle_color(self) -> QColor:
+        return QColor(255, 255, 255, IDLE_ALPHA)
+
+    def _hover_fill(self) -> QColor:
+        r, g, b = _SHELL_GLASS_RGB
+        return QColor(r, g, b, _SHELL_GLASS_ALPHA)
+
+    def _hover_stroke(self) -> QColor:
+        return QColor(255, 255, 255, HOVER_STROKE_ALPHA)
+
+    def _draw_v_capsule(self, painter: QPainter, x: float, y: float, w: float, h: float):
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(x, y, w, h), w / 2, w / 2)
+        painter.setPen(Qt.NoPen)
+        painter.fillPath(path, painter.brush())
+
+    def _paint_idle_guides(self, painter: QPainter, r):
+        painter.setPen(QPen(self._idle_color(), 1))
+        cy = r.y() + r.height() / 2
+        half = IDLE_SHORT / 2
+        painter.drawLine(int(r.x() + INSET), int(cy - half), int(r.x() + INSET), int(cy + half))
+        painter.drawLine(
+            int(r.x() + r.width() - INSET), int(cy - half),
+            int(r.x() + r.width() - INSET), int(cy + half),
+        )
+
+    def _paint_hover_guides(self, painter: QPainter, r, edge: str):
+        left = r.x() + INSET
+        right = r.x() + r.width() - INSET
+        top = r.y() + INSET
+        bottom = r.y() + r.height() - INSET
+        thick = HOVER_THICK
+        gap = 22
+        painter.setBrush(self._hover_fill())
+        painter.setPen(QPen(self._hover_stroke(), 1))
+        if edge == "l":
+            y0 = top + gap
+            y1 = bottom - gap
+            if y1 > y0:
+                self._draw_v_capsule(painter, left, y0, thick, y1 - y0)
+        elif edge == "r":
+            y0 = top + gap
+            y1 = bottom - gap
+            if y1 > y0:
+                self._draw_v_capsule(painter, right - thick, y0, thick, y1 - y0)
+
+    def paint_resize_guides(self, painter: QPainter):
+        if not self._is_medium_mode():
             return
         r = self._panel_rect()
-        painter.setPen(QPen(QColor(ACCENT), 2))
-        m = GRIP // 2
-        edge = self._hover_edge
-        left = r.x() + m
-        right = r.x() + r.width() - m
-        top = r.y() + m
-        bottom = r.y() + r.height() - m
-        if edge in ("l", "tl", "bl"):
-            painter.drawLine(left, top, left, bottom)
-        if edge in ("r", "tr", "br"):
-            painter.drawLine(right, top, right, bottom)
-        if edge in ("t", "tl", "tr"):
-            painter.drawLine(left, top, right, top)
-        if edge in ("b", "bl", "br"):
-            painter.drawLine(left, bottom, right, bottom)
+        self._paint_idle_guides(painter, r)
+        edge = self._hover_edge or self._lr_edge(self._active_edge)
+        if edge in ("l", "r"):
+            self._paint_hover_guides(painter, r, edge)
+
+    def paint_hover(self, painter: QPainter):
+        self.paint_resize_guides(painter)
 
     def _apply_resize(self, global_pos: QPoint):
         delta = global_pos - self._start_global

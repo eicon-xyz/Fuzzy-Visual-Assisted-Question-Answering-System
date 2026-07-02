@@ -1,0 +1,154 @@
+"""Shell appearance tokens — shared by production ThemeManager and style demo."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from PyQt5.QtGui import QColor
+from PyQt5.QtWidgets import QGraphicsDropShadowEffect, QWidget
+
+from ui.native.crystal_glass import GLASS_FILL_ALPHA
+
+SHELL_STYLES: dict[str, str] = {
+    "qss": "QSS 实底",
+    "crystal_edge": "Crystal · 纯细边",
+    "crystal_light": "Crystal · 极轻阴影",
+}
+
+SHELL_STYLE_IDS = tuple(SHELL_STYLES.keys())
+
+DEFAULT_SHELL_STYLE = "qss"
+DEFAULT_SHELL_ALPHA_MEDIUM = 89
+DEFAULT_SHELL_ALPHA_COMPACT = 89
+DEFAULT_FONT_SIZE = 13
+DEFAULT_CRYSTAL_EDGE_SHADOW = 0
+DEFAULT_CRYSTAL_LIGHT_SHADOW = 14
+SHADOW_STRENGTH_MAX = 60
+
+SHELL_ALPHA_MIN = 80
+SHELL_ALPHA_MAX = 95
+FONT_SIZE_MIN = 11
+FONT_SIZE_MAX = 15
+
+QSS_ALPHA_REF = 89
+SHELL_BASE_RGB = (15, 23, 42)
+
+
+def _clamp_int(value: int, lo: int, hi: int) -> int:
+    return max(lo, min(hi, int(value)))
+
+
+def is_crystal_shell(shell_style: str) -> bool:
+    return str(shell_style).startswith("crystal")
+
+
+def shell_renderer_mode(shell_style: str) -> str:
+    return "crystal" if is_crystal_shell(shell_style) else "qss"
+
+
+def default_crystal_shadow_strength(shell_style: str) -> int:
+    if shell_style == "crystal_light":
+        return DEFAULT_CRYSTAL_LIGHT_SHADOW
+    if shell_style == "crystal_edge":
+        return DEFAULT_CRYSTAL_EDGE_SHADOW
+    return 0
+
+
+def crystal_fill_alpha_from_percent(alpha_percent: int) -> int:
+    pct = _clamp_int(alpha_percent, SHELL_ALPHA_MIN, SHELL_ALPHA_MAX)
+    return max(1, min(255, int(GLASS_FILL_ALPHA * pct / QSS_ALPHA_REF)))
+
+
+def qss_alpha_float(alpha_percent: int) -> float:
+    return _clamp_int(alpha_percent, SHELL_ALPHA_MIN, SHELL_ALPHA_MAX) / 100.0
+
+
+def _lerp_float(lo: float, hi: float, t: float) -> float:
+    t = max(0.0, min(1.0, t))
+    return lo + (hi - lo) * t
+
+
+def shadow_params(strength: int) -> tuple[float, float, int]:
+    t = max(0, min(SHADOW_STRENGTH_MAX, strength)) / float(SHADOW_STRENGTH_MAX)
+    blur = _lerp_float(8.0, 32.0, t)
+    offset_y = _lerp_float(2.0, 8.0, t)
+    alpha = int(round(_lerp_float(16.0, 80.0, t)))
+    return blur, offset_y, alpha
+
+
+def apply_crystal_drop_shadow(widget: QWidget, strength: int) -> None:
+    """Crystal outer shadow via DropShadow (strength 0–60)."""
+    if strength <= 0:
+        widget.setGraphicsEffect(None)
+        return
+    blur, offset_y, alpha = shadow_params(strength)
+    fx = QGraphicsDropShadowEffect(widget)
+    fx.setBlurRadius(blur)
+    fx.setOffset(0, offset_y)
+    fx.setColor(QColor(0, 0, 0, alpha))
+    widget.setGraphicsEffect(fx)
+
+
+@dataclass(frozen=True)
+class AppearanceSettings:
+    shell_style: str = DEFAULT_SHELL_STYLE
+    shell_alpha_medium: int = DEFAULT_SHELL_ALPHA_MEDIUM
+    shell_alpha_compact: int = DEFAULT_SHELL_ALPHA_COMPACT
+    font_size: int = DEFAULT_FONT_SIZE
+    crystal_shadow_strength: int = DEFAULT_CRYSTAL_EDGE_SHADOW
+
+    @classmethod
+    def from_user_settings(cls, data: dict) -> AppearanceSettings:
+        shell_style = data.get("shell_style", DEFAULT_SHELL_STYLE)
+        if shell_style not in SHELL_STYLE_IDS:
+            shell_style = DEFAULT_SHELL_STYLE
+        shadow = data.get("crystal_shadow_strength")
+        if shadow is None:
+            shadow = default_crystal_shadow_strength(shell_style)
+        return cls(
+            shell_style=shell_style,
+            shell_alpha_medium=_clamp_int(
+                data.get("shell_alpha_medium", DEFAULT_SHELL_ALPHA_MEDIUM),
+                SHELL_ALPHA_MIN,
+                SHELL_ALPHA_MAX,
+            ),
+            shell_alpha_compact=_clamp_int(
+                data.get("shell_alpha_compact", DEFAULT_SHELL_ALPHA_COMPACT),
+                SHELL_ALPHA_MIN,
+                SHELL_ALPHA_MAX,
+            ),
+            font_size=_clamp_int(
+                data.get("font_size", DEFAULT_FONT_SIZE),
+                FONT_SIZE_MIN,
+                FONT_SIZE_MAX,
+            ),
+            crystal_shadow_strength=_clamp_int(
+                shadow, 0, SHADOW_STRENGTH_MAX
+            ),
+        )
+
+    def to_user_settings_fragment(self) -> dict:
+        return {
+            "shell_style": self.shell_style,
+            "shell_alpha_medium": self.shell_alpha_medium,
+            "shell_alpha_compact": self.shell_alpha_compact,
+            "font_size": self.font_size,
+            "crystal_shadow_strength": self.crystal_shadow_strength,
+        }
+
+
+def appearance_override_qss(appearance: AppearanceSettings) -> str:
+    """Dynamic QSS overrides for shell rgba and global font size."""
+    r, g, b = SHELL_BASE_RGB
+    ma = qss_alpha_float(appearance.shell_alpha_medium)
+    ca = qss_alpha_float(appearance.shell_alpha_compact)
+    blocks = [
+        f"* {{ font-size: {appearance.font_size}px; }}",
+    ]
+    if not is_crystal_shell(appearance.shell_style):
+        blocks.extend(
+            [
+                f"QWidget#NativeShell {{ background-color: rgba({r}, {g}, {b}, {ma:.2f}); }}",
+                f"QWidget#CompactShell {{ background-color: rgba({r}, {g}, {b}, {ca:.2f}); }}",
+            ]
+        )
+    return "\n".join(blocks)

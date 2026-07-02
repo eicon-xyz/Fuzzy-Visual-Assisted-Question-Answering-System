@@ -1,4 +1,4 @@
-from ui.native.design_tokens import (
+from ui.native.visual_tokens import (
     OVERLAY_HIGHLIGHT_RGB,
     OVERLAY_INSPECT_RGB,
     OVERLAY_ARROW_RGB,

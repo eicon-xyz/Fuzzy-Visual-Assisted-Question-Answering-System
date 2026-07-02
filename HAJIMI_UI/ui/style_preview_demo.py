@@ -1,0 +1,1821 @@
+"""
+透明简约水晶玻璃风 — 观感预览 Demo
+====================================
+左栏 413×636 中窗 1:1 + 右栏样式控制台；外窗 773×636。
+
+运行:  python -m ui.style_preview_demo
+"""
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+
+from typing import Literal
+
+from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup, QRect, QRectF, QPointF, QSize
+from PyQt5.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QFontMetrics,
+    QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QRadialGradient,
+)
+from PyQt5.QtWidgets import (
+    QApplication,
+    QFrame,
+    QGraphicsOpacityEffect,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QRadioButton,
+    QButtonGroup,
+    QScrollArea,
+    QSlider,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+    QTextEdit,
+)
+
+from ui.chat_bubble import ChatBubble
+from ui.native.fonts import apply_app_font
+from ui.native import crystal_glass as cg
+from ui.native.crystal_glass import GLASS_FILL_ALPHA
+from ui.native.nav_icons import action_icon, svg_icon
+from ui.native.widgets import (
+    MenuButton,
+    apply_shell_shadow,
+    make_scroll_area_transparent,
+    make_widget_transparent,
+)
+from ui.native.shell_appearance import (
+    DEFAULT_CRYSTAL_EDGE_SHADOW,
+    SHADOW_STRENGTH_MAX,
+    apply_crystal_drop_shadow,
+    crystal_fill_alpha_from_percent,
+    default_crystal_shadow_strength,
+)
+
+MEDIUM_W = 413
+MEDIUM_H = 636
+COMPACT_W = 280
+COMPACT_H = 48
+CONTROL_W = 360
+WINDOW_H = 636
+WINDOW_W = MEDIUM_W + CONTROL_W
+SHELL_RADIUS = 20
+COMPACT_RADIUS = 24
+DEMO_TOPBAR_H = 52
+DEMO_PANEL_SUB = "操作指引"
+ERROR_CHIP_TEXT = "● A端连接失败"
+
+TITLE_ART_MODES: dict[str, str] = {
+    "gradient": "A · 渐变艺术字",
+    "logo_gradient": "B · Logo + 渐变",
+    "display_font": "C · 展示字体",
+}
+
+BODY_FONT_PRESETS: dict[str, str] = {
+    "system": '"Segoe UI", "Microsoft YaHei UI", sans-serif',
+    "source_han": '"Source Han Sans SC", "Microsoft YaHei UI", sans-serif',
+    "pingfang": '"PingFang SC", "Microsoft YaHei UI", sans-serif',
+    "inter": '"Inter", "Segoe UI", sans-serif',
+}
+
+LIGHT_MODES: dict[str, str] = {
+    "pro_only": "A · pro 对角顶光",
+    "dual": "B · crystal + pro 双层",
+    "crystal_only": "C · crystal 顶光",
+}
+
+QSS_HIGHLIGHT_MODES: dict[str, str] = {
+    "pro_only": "A · pro 对角",
+    "band_only": "B · 顶缘 band",
+    "dual_lite": "C · band + pro 双层",
+}
+
+QSS_BODY_MODES: dict[str, str] = {
+    "solid": "A · 纯实底",
+    "vertical_grad": "B · 竖渐变",
+}
+
+DEFAULT_TITLE_ART = "gradient"
+DEFAULT_BODY_FONT = "system"
+DEFAULT_LIGHT_MODE = "dual"
+DEFAULT_TOP_LIGHT_PEAK = 45
+DEFAULT_SHELL_LUMINANCE = 100
+DEFAULT_QSS_HIGHLIGHT = "dual_lite"
+DEFAULT_QSS_BODY = "solid"
+DEFAULT_QSS_HIGHLIGHT_PEAK = 34
+
+LightMode = Literal["pro_only", "dual", "crystal_only"]
+QssHighlightMode = Literal["pro_only", "band_only", "dual_lite"]
+QssBodyMode = Literal["solid", "vertical_grad"]
+
+ACCENTS: dict[str, tuple[str, str, str]] = {
+    "accent_a": ("雾蓝 calm", "#5a9ec4", "90, 158, 196"),
+    "accent_b": ("青蓝 tech", "#38bdf8", "56, 189, 248"),
+    "accent_c": ("紫蓝 premium", "#7c8fd4", "124, 143, 212"),
+}
+
+BASES: dict[str, tuple[str, str, tuple[int, int, int]]] = {
+    "base_a": ("冷蓝黑", "#0f172a", (15, 23, 42)),
+    "base_b": ("石墨", "#141820", (20, 24, 32)),
+    "base_c": ("暖紫灰", "#1a1625", (26, 22, 37)),
+}
+
+
+SHELL_PRESETS: dict[str, str] = {
+    "qss": "QSS 实底",
+    "crystal_edge": "Crystal · 纯细边",
+    "crystal_light": "Crystal · 极轻阴影",
+}
+
+DEFAULT_ACCENT = "accent_c"
+DEFAULT_BASE = "base_a"
+DEFAULT_FONT = 12
+DEFAULT_SHELL_PRESET = "qss"
+DEFAULT_MEDIUM_ALPHA = 87
+DEFAULT_COMPACT_ALPHA = 93
+QSS_ALPHA_REF = 89
+
+ERROR_BANNER_SHORT = "A 端连接失败 · 请检查校园网/VPN"
+ERROR_DETAIL = (
+    "内网 A 端不可达 (http://127.0.0.1:8010)。\n\n"
+    "请确认校园网/VPN 与系统设置中的地址是否正确。\n\n"
+    "如需本地启动，请切换为「本地启动」并运行 CPU OmniParser。"
+)
+DEMO_SYSTEM_REPLY = (
+    "你好！我是 HAJIMI 智能桌面指引助手。"
+    "本地模式请切换为「本地启动」并运行 CPU OmniParser。"
+)
+
+
+def _crystal_fill_alpha(alpha_percent: int) -> int:
+    return crystal_fill_alpha_from_percent(alpha_percent)
+
+
+def _lerp_rgb(
+    a: tuple[int, int, int], b: tuple[int, int, int], t: float
+) -> tuple[int, int, int]:
+    t = max(0.0, min(1.0, t))
+    return (
+        int(a[0] + (b[0] - a[0]) * t),
+        int(a[1] + (b[1] - a[1]) * t),
+        int(a[2] + (b[2] - a[2]) * t),
+    )
+
+
+@dataclass
+class DemoShellTokens:
+    base_rgb: tuple[int, int, int]
+    crystal_fill_rgb: tuple[int, int, int]
+    medium_fill_alpha: int
+    compact_fill_alpha: int
+    medium_qss_alpha: float
+    compact_qss_alpha: float
+    gradient_tint: tuple[int, int, int] | None
+
+
+def _compute_shell_tokens(
+    base_id: str,
+    medium_alpha: int,
+    compact_alpha: int,
+    shell_luminance: int,
+) -> DemoShellTokens:
+    _blabel, _bhex, base_rgb = _base_info(base_id)
+    eff_medium = _effective_alpha(medium_alpha, shell_luminance)
+    eff_compact = _effective_alpha(compact_alpha, shell_luminance)
+    medium_fill = _crystal_fill_alpha(medium_alpha)
+    compact_fill = _crystal_fill_alpha(compact_alpha)
+
+    if base_id == DEFAULT_BASE:
+        crystal_fill_rgb = cg.GLASS_FILL_RGB
+        gradient_tint = None
+    else:
+        crystal_fill_rgb = _lerp_rgb(cg.GLASS_FILL_RGB, base_rgb, 0.35)
+        gradient_tint = crystal_fill_rgb
+
+    return DemoShellTokens(
+        base_rgb=base_rgb,
+        crystal_fill_rgb=crystal_fill_rgb,
+        medium_fill_alpha=medium_fill,
+        compact_fill_alpha=compact_fill,
+        medium_qss_alpha=eff_medium / 100.0,
+        compact_qss_alpha=eff_compact / 100.0,
+        gradient_tint=gradient_tint,
+    )
+
+
+def _is_crystal_preset(shell_preset: str) -> bool:
+    return shell_preset.startswith("crystal")
+
+
+def _accent_rgb_hex(accent_id: str) -> tuple[str, str, str]:
+    return ACCENTS.get(accent_id, ACCENTS[DEFAULT_ACCENT])
+
+
+def _base_info(base_id: str) -> tuple[str, str, tuple[int, int, int]]:
+    return BASES.get(base_id, BASES[DEFAULT_BASE])
+
+
+def _error_tooltip() -> str:
+    return f"{ERROR_BANNER_SHORT}\n\n{ERROR_DETAIL}"
+
+
+def _effective_alpha(alpha_percent: int, luminance: int) -> int:
+    return max(50, min(95, int(alpha_percent * luminance / 100)))
+
+
+def _scale_luminance_rgb(r: int, g: int, b: int, luminance: int) -> tuple[int, int, int]:
+    t = luminance / 100.0
+    if t <= 1.0:
+        return (int(r * t), int(g * t), int(b * t))
+
+    def lift(c: int) -> int:
+        return min(255, int(c + (255 - c) * (t - 1.0) * 0.25))
+
+    return (lift(r), lift(g), lift(b))
+
+
+def _demo_paint_dark_gradient(
+    painter: QPainter,
+    panel: QPainterPath,
+    luminance: int,
+    gradient_tint: tuple[int, int, int] | None = None,
+) -> None:
+    bounds = panel.boundingRect()
+    grad = QLinearGradient(0, bounds.top(), 0, bounds.bottom())
+    if gradient_tint is None:
+        stops = ((0.0, (4, 8, 20)), (0.5, (8, 14, 30)), (1.0, (3, 6, 16)))
+    else:
+        tr, tg, tb = gradient_tint
+        stops = (
+            (0.0, (max(0, tr - 2), max(0, tg - 2), max(0, tb - 2))),
+            (0.5, (tr, tg, tb)),
+            (1.0, (max(0, tr - 3), max(0, tg - 4), max(0, tb - 6))),
+        )
+    for pos, rgb in stops:
+        r, g, b = _scale_luminance_rgb(*rgb, luminance)
+        grad.setColorAt(pos, QColor(r, g, b))
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QBrush(grad))
+    painter.drawPath(panel)
+
+
+def _draw_pro_top_light(painter: QPainter, w: float, h: float, peak: int) -> None:
+    peak = max(0, min(60, peak))
+    if peak <= 0:
+        return
+    high_grad = QLinearGradient(0, 0, w, h * 0.6)
+    high_grad.setColorAt(0.0, QColor(255, 255, 255, peak))
+    high_grad.setColorAt(0.15, QColor(255, 255, 255, max(0, int(peak * 0.33))))
+    high_grad.setColorAt(0.4, QColor(255, 255, 255, 0))
+    high_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QBrush(high_grad))
+    painter.drawRect(QRectF(0, 0, w, h))
+
+
+def _draw_crystal_top_highlights(
+    painter: QPainter,
+    w: float,
+    h: float,
+    ir: float,
+    peak_mult: float,
+) -> None:
+    m = max(0.0, peak_mult)
+
+    grad1 = QLinearGradient(0, 0, 0, h * 0.45)
+    grad1.setColorAt(0.00, QColor(255, 255, 255, int(30 * m)))
+    grad1.setColorAt(0.15, QColor(255, 255, 255, int(14 * m)))
+    grad1.setColorAt(0.40, QColor(255, 255, 255, int(3 * m)))
+    grad1.setColorAt(1.00, QColor(255, 255, 255, 0))
+    top_band = QPainterPath()
+    top_band.addRect(QRectF(0, 0, w, h * 0.45))
+    painter.fillPath(top_band, QBrush(grad1))
+
+    grad2 = QLinearGradient(0, 3, 0, h * 0.18)
+    grad2.setColorAt(0.00, QColor(255, 255, 255, int(45 * m)))
+    grad2.setColorAt(0.08, QColor(255, 255, 255, int(24 * m)))
+    grad2.setColorAt(0.30, QColor(255, 255, 255, int(4 * m)))
+    grad2.setColorAt(0.80, QColor(255, 255, 255, 0))
+    top_hi = QPainterPath()
+    top_hi.addRoundedRect(QRectF(8, 3, w - 16, h * 0.18), min(ir, 8), min(ir, 8))
+    painter.fillPath(top_hi, QBrush(grad2))
+
+
+def paint_demo_crystal_glass(
+    painter: QPainter,
+    w: float,
+    h: float,
+    *,
+    radius: float | None = None,
+    compact: bool = False,
+    fill_rgb: tuple[int, int, int] | None = None,
+    fill_alpha: int | None = None,
+    light_mode: LightMode = "dual",
+    top_light_peak: int = DEFAULT_TOP_LIGHT_PEAK,
+    shell_luminance: int = DEFAULT_SHELL_LUMINANCE,
+    gradient_tint: tuple[int, int, int] | None = None,
+) -> None:
+    """Demo-only crystal paint; outer shadow is DropShadow, not painter layers."""
+    if w <= 0 or h <= 0:
+        return
+
+    light_mode = str(light_mode)  # type: ignore[assignment]
+
+    if radius is None:
+        radius = min(cg.COMPACT_CORNER_RADIUS, h / 2) if compact else cg.CORNER_RADIUS
+
+    inset = cg._inset_panel_path(w, h, radius, 1.0)
+    ir = max(0.0, radius - 1.0)
+    r, g, b = fill_rgb if fill_rgb is not None else cg.GLASS_FILL_RGB
+    base_alpha = cg.GLASS_FILL_ALPHA if fill_alpha is None else max(0, min(255, fill_alpha))
+    alpha = max(0, min(255, int(base_alpha * shell_luminance / 100)))
+
+    painter.save()
+    painter.setClipPath(inset)
+
+    _demo_paint_dark_gradient(painter, inset, shell_luminance, gradient_tint)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(r, g, b, alpha))
+    painter.drawPath(inset)
+
+    painter.setPen(QPen(QColor(255, 255, 255, cg.GLASS_BORDER_ALPHA), 1.0))
+    painter.setBrush(Qt.NoBrush)
+    painter.drawRoundedRect(QRectF(1.0, 1.0, w - 2, h - 2), ir, ir)
+
+    peak_mult = top_light_peak / 45.0 if top_light_peak else 0.0
+
+    if light_mode in ("crystal_only", "dual"):
+        _draw_crystal_top_highlights(painter, w, h, ir, peak_mult if light_mode == "crystal_only" else 1.0)
+
+    if light_mode in ("pro_only", "dual"):
+        _draw_pro_top_light(painter, w, h, top_light_peak)
+
+    if not compact and h >= 120:
+        bot_y = h * 0.75
+        bot_path = cg._bottom_glow_path(w, h, radius, 0.75, top_r=14)
+        bot_grad = QLinearGradient(0, bot_y, 0, h)
+        bot_grad.setColorAt(0.0, QColor(255, 255, 255, 0))
+        bot_grad.setColorAt(0.6, QColor(255, 255, 255, 3))
+        bot_grad.setColorAt(1.0, QColor(255, 255, 255, 10))
+        painter.fillPath(bot_path, QBrush(bot_grad))
+
+        for left in (True, False):
+            wedge = cg._corner_wedge_path(w, h, radius, left)
+            cx = 12.0 if left else w - 12.0
+            corner = QRadialGradient(QPointF(cx, 16), min(180.0, w * 0.25))
+            peak = 10 if left else 7
+            corner.setColorAt(0.0, QColor(255, 255, 255, peak))
+            corner.setColorAt(0.6, QColor(255, 255, 255, 2))
+            corner.setColorAt(1.0, QColor(255, 255, 255, 0))
+            painter.fillPath(wedge, QBrush(corner))
+    elif compact:
+        edge = QLinearGradient(0, 0, 0, h)
+        edge.setColorAt(0.0, QColor(255, 255, 255, 18))
+        edge.setColorAt(0.35, QColor(255, 255, 255, 0))
+        painter.fillPath(inset, QBrush(edge))
+
+    painter.restore()
+
+
+def paint_demo_qss_shell(
+    painter: QPainter,
+    w: float,
+    h: float,
+    *,
+    rgba: tuple[int, int, int, int],
+    body_mode: QssBodyMode = DEFAULT_QSS_BODY,
+    highlight_mode: QssHighlightMode = DEFAULT_QSS_HIGHLIGHT,
+    highlight_peak: int = DEFAULT_QSS_HIGHLIGHT_PEAK,
+    radius: float,
+    compact: bool = False,
+) -> None:
+    """Demo QSS solid fill + optional page glass highlights (Round 9)."""
+    if w <= 0 or h <= 0:
+        return
+
+    body_mode = str(body_mode)  # type: ignore[assignment]
+    highlight_mode = str(highlight_mode)  # type: ignore[assignment]
+    r, g, b, a = rgba
+    shell_path = QPainterPath()
+    shell_path.addRoundedRect(QRectF(0, 0, w, h), radius, radius)
+    ir = max(0.0, radius - 1.0)
+
+    painter.save()
+    painter.setClipPath(shell_path)
+
+    if body_mode == "vertical_grad":
+        grad = QLinearGradient(0, 0, 0, h)
+        top_a = min(255, int(a * 1.06))
+        bot_a = max(0, int(a * 0.94))
+        grad.setColorAt(0.0, QColor(r, g, b, top_a))
+        grad.setColorAt(1.0, QColor(r, g, b, bot_a))
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(grad))
+        painter.drawPath(shell_path)
+    else:
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(r, g, b, a))
+        painter.drawPath(shell_path)
+
+    if highlight_mode in ("band_only", "dual_lite"):
+        _draw_crystal_top_highlights(painter, w, h, ir, 1.0)
+
+    if highlight_mode in ("pro_only", "dual_lite"):
+        _draw_pro_top_light(painter, w, h, highlight_peak)
+
+    painter.restore()
+
+    painter.setPen(QPen(QColor(255, 255, 255, 30), 1.0))
+    painter.setBrush(Qt.NoBrush)
+    painter.drawRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), ir, ir)
+
+
+def _coerce_int_prop(widget: QWidget, name: str, default: int) -> int:
+    value = widget.property(name)
+    if value is None or value == "":
+        return default
+    return int(value)
+
+
+def _apply_demo_crystal_shell(
+    widget: "DemoShellWidget",
+    tokens: DemoShellTokens,
+    *,
+    compact: bool,
+    shadow_strength: int,
+    light_mode: LightMode,
+    top_light_peak: int,
+    shell_luminance: int,
+) -> None:
+    fill_alpha = tokens.compact_fill_alpha if compact else tokens.medium_fill_alpha
+    widget._demo_crystal_active = True
+    widget._demo_shell_compact = compact
+    widget._demo_crystal_fill_rgb = tokens.crystal_fill_rgb
+    widget._demo_crystal_fill_alpha = fill_alpha
+    widget._demo_gradient_tint = tokens.gradient_tint
+    widget._demo_qss_rgba = None
+    widget.setProperty("_demo_crystal_shadow_strength", shadow_strength)
+    widget.setProperty("_demo_light_mode", light_mode)
+    widget.setProperty("_demo_top_light_peak", top_light_peak)
+    widget.setProperty("_demo_shell_luminance", shell_luminance)
+    _apply_crystal_drop_shadow(widget, shadow_strength)
+    widget.setAutoFillBackground(False)
+    widget.setAttribute(Qt.WA_StyledBackground, True)
+    widget.setAttribute(Qt.WA_TranslucentBackground, True)
+    widget.update()
+
+
+def _apply_demo_qss_shell(
+    widget: "DemoShellWidget",
+    tokens: DemoShellTokens,
+    *,
+    compact: bool,
+    body_mode: QssBodyMode,
+    highlight_mode: QssHighlightMode,
+    highlight_peak: int,
+) -> None:
+    qss_alpha = tokens.compact_qss_alpha if compact else tokens.medium_qss_alpha
+    r, g, b = tokens.base_rgb
+    widget._demo_crystal_active = False
+    widget._demo_shell_compact = compact
+    widget._demo_qss_rgba = (r, g, b, int(qss_alpha * 255))
+    widget._demo_qss_body_mode = body_mode
+    widget._demo_qss_highlight_mode = highlight_mode
+    widget._demo_qss_highlight_peak = highlight_peak
+    widget._demo_crystal_fill_rgb = None
+    widget._demo_crystal_fill_alpha = None
+    widget._demo_gradient_tint = None
+    widget.setAutoFillBackground(False)
+    widget.setAttribute(Qt.WA_StyledBackground, True)
+    widget.setAttribute(Qt.WA_TranslucentBackground, False)
+    apply_shell_shadow(widget)
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+    widget.update()
+
+
+class TitleArtWidget(QWidget):
+    """Demo top-bar title line: gradient / logo / display-font (HAJIMI only)."""
+
+    _TITLE = "HAJIMI"
+    _LINE_HEIGHT = 20
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("TitleArt")
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._mode = DEFAULT_TITLE_ART
+        self._accent = ACCENTS[DEFAULT_ACCENT][1]
+
+    def _title_font(self) -> QFont:
+        if self._mode == "display_font":
+            font = QFont("Segoe UI Variable Display", 13)
+            if not font.exactMatch():
+                font = QFont("Segoe UI", 13)
+            font.setWeight(QFont.Bold)
+            font.setLetterSpacing(QFont.AbsoluteSpacing, 1.0)
+            return font
+        font = QFont("Segoe UI", 13)
+        font.setWeight(QFont.Bold)
+        return font
+
+    def _content_width(self) -> int:
+        metrics = QFontMetrics(self._title_font())
+        width = metrics.horizontalAdvance(self._TITLE)
+        if self._mode == "logo_gradient":
+            width += 20
+        return max(width, 48)
+
+    def _content_height(self) -> int:
+        return self._LINE_HEIGHT
+
+    def set_mode(self, mode: str) -> None:
+        if mode in TITLE_ART_MODES:
+            self._mode = mode
+            self.updateGeometry()
+            self.update()
+
+    def set_accent(self, hex_color: str) -> None:
+        self._accent = hex_color
+        self.update()
+
+    def sizeHint(self) -> QSize:
+        return QSize(self._content_width(), self._content_height())
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def paintEvent(self, event):
+        if self.width() <= 0:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        if self._mode == "logo_gradient":
+            self._paint_logo_gradient(painter)
+        elif self._mode == "display_font":
+            self._paint_display_font(painter)
+        else:
+            self._paint_gradient(painter)
+        painter.end()
+
+    def _paint_gradient(self, painter: QPainter) -> None:
+        font = self._title_font()
+        painter.setFont(font)
+        metrics = QFontMetrics(font)
+        grad = QLinearGradient(0, 0, metrics.horizontalAdvance(self._TITLE), 0)
+        grad.setColorAt(0.0, QColor(self._accent))
+        grad.setColorAt(1.0, QColor("#f1f5f9"))
+        painter.setPen(QPen(QBrush(grad), 1))
+        painter.drawText(0, 15, self._TITLE)
+
+    def _paint_logo_gradient(self, painter: QPainter) -> None:
+        logo = svg_icon("logo", size=16, color=self._accent)
+        painter.drawPixmap(0, 2, logo.pixmap(16, 16))
+        x = 20
+        font = self._title_font()
+        painter.setFont(font)
+        metrics = QFontMetrics(font)
+        grad = QLinearGradient(x, 0, x + metrics.horizontalAdvance(self._TITLE), 0)
+        grad.setColorAt(0.0, QColor(self._accent))
+        grad.setColorAt(1.0, QColor("#f1f5f9"))
+        painter.setPen(QPen(QBrush(grad), 1))
+        painter.drawText(x, 15, self._TITLE)
+
+    def _paint_display_font(self, painter: QPainter) -> None:
+        font = self._title_font()
+        painter.setFont(font)
+        painter.setPen(QColor("#f1f5f9"))
+        painter.drawText(0, 15, self._TITLE)
+
+
+@dataclass
+class DemoTopBarResult:
+    bar: QWidget
+    menu_btn: MenuButton
+    title_art: TitleArtWidget
+    panel_sub: QLabel
+    error_chip: QLabel
+    status_badge: QPushButton
+
+
+def _build_demo_topbar(parent: QWidget | None = None) -> DemoTopBarResult:
+    """Demo-only top bar: art title + panel sub, inline error chip, ghost menu."""
+    bar = QWidget(parent)
+    bar.setObjectName("TopBar")
+    bar.setMinimumHeight(DEMO_TOPBAR_H)
+    bar.setMaximumHeight(DEMO_TOPBAR_H)
+
+    layout = QHBoxLayout(bar)
+    layout.setContentsMargins(16, 8, 16, 8)
+    layout.setSpacing(12)
+
+    menu_btn = MenuButton(bar)
+    layout.addWidget(menu_btn)
+
+    text_wrap = QWidget(bar)
+    text_wrap.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+    text_col = QVBoxLayout(text_wrap)
+    text_col.setContentsMargins(0, 0, 0, 0)
+    text_col.setSpacing(2)
+
+    title_art = TitleArtWidget(text_wrap)
+    text_col.addWidget(title_art)
+
+    panel_sub = QLabel(DEMO_PANEL_SUB, text_wrap)
+    panel_sub.setObjectName("TopSub")
+    panel_sub.setMinimumWidth(0)
+    panel_sub.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+    text_col.addWidget(panel_sub)
+
+    layout.addWidget(text_wrap)
+
+    error_chip = QLabel(ERROR_CHIP_TEXT, bar)
+    error_chip.setObjectName("TopErrorChip")
+    error_chip.setToolTip(_error_tooltip())
+    error_chip.hide()
+    layout.addWidget(error_chip)
+
+    layout.addStretch(1)
+
+    status_badge = QPushButton("●  准备就绪", bar)
+    status_badge.setObjectName("StatusBadge")
+    status_badge.setProperty("status", "idle")
+    status_badge.setFlat(True)
+    layout.addWidget(status_badge)
+
+    return DemoTopBarResult(
+        bar=bar,
+        menu_btn=menu_btn,
+        title_art=title_art,
+        panel_sub=panel_sub,
+        error_chip=error_chip,
+        status_badge=status_badge,
+    )
+
+
+def compose_demo_qss(
+    accent_id: str,
+    shell_preset: str,
+    base_id: str,
+    medium_alpha: int,
+    compact_alpha: int,
+    font_size: int,
+    body_font_id: str = DEFAULT_BODY_FONT,
+    shell_luminance: int = DEFAULT_SHELL_LUMINANCE,
+) -> str:
+    _alabel, accent, accent_rgb = _accent_rgb_hex(accent_id)
+    blabel, bhex, (br, bg, bb) = _base_info(base_id)
+    eff_medium = _effective_alpha(medium_alpha, shell_luminance)
+    eff_compact = _effective_alpha(compact_alpha, shell_luminance)
+    ma = eff_medium / 100.0
+    ca = eff_compact / 100.0
+    body_font = BODY_FONT_PRESETS.get(body_font_id, BODY_FONT_PRESETS[DEFAULT_BODY_FONT])
+    accent_soft = f"rgba({accent_rgb}, 0.15)"
+    accent_hover = f"rgba({accent_rgb}, 0.10)"
+    bubble_label = font_size + 1
+
+    if _is_crystal_preset(shell_preset):
+        shell_block = f"""
+QWidget#NativeShell {{
+    background: transparent;
+    background-color: transparent;
+    border: none;
+    border-radius: {SHELL_RADIUS}px;
+}}
+QWidget#CompactShell {{
+    background: transparent;
+    background-color: transparent;
+    border: none;
+    border-radius: {COMPACT_RADIUS}px;
+}}
+"""
+    else:
+        shell_block = f"""
+QWidget#NativeShell {{
+    background: transparent;
+    background-color: transparent;
+    border: none;
+    border-radius: {SHELL_RADIUS}px;
+}}
+QWidget#CompactShell {{
+    background: transparent;
+    background-color: transparent;
+    border: none;
+    border-radius: {COMPACT_RADIUS}px;
+}}
+"""
+
+    return f"""
+* {{
+    font-family: {body_font};
+    font-size: {font_size}px;
+}}
+{shell_block}
+QWidget#TopBar {{
+    background: transparent;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}}
+QWidget#TitleArt {{
+    background: transparent;
+}}
+QLabel#TopSub {{
+    font-size: 12px;
+    color: #94a3b8;
+    font-weight: 500;
+    padding-top: 2px;
+}}
+QLabel#TopErrorChip {{
+    font-size: 11px;
+    font-weight: 600;
+    color: #e74c3c;
+    padding-left: 4px;
+}}
+QPushButton#StatusBadge {{
+    padding: 6px 16px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.06);
+    color: #94a3b8;
+    border: none;
+}}
+QPushButton#StatusBadge:hover {{
+    background: rgba(255, 255, 255, 0.09);
+}}
+QPushButton#StatusBadge[status="processing"] {{
+    background: rgba({accent_rgb}, 0.2);
+    color: {accent};
+}}
+QPushButton#MenuBtn {{
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    min-width: 34px;
+    min-height: 34px;
+    padding: 0;
+}}
+QPushButton#MenuBtn:hover,
+QPushButton#MenuBtn[open="true"] {{
+    background: rgba(255, 255, 255, 0.06);
+    border: none;
+}}
+QScrollArea#PreviewContent {{
+    background: transparent;
+    border: none;
+}}
+QScrollArea#PreviewContent QAbstractScrollArea::viewport {{
+    background: transparent;
+}}
+QWidget#PreviewContentWrap,
+QWidget#InputDock {{
+    background: transparent;
+    border: none;
+}}
+QFrame#bubble-user {{
+    background-color: {accent};
+    border-radius: 12px;
+    border-top-right-radius: 2px;
+}}
+QFrame#bubble-system {{
+    background-color: rgba(30, 41, 59, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    border-top-left-radius: 2px;
+}}
+QLabel#bubbleUserLabel {{
+    color: #ffffff;
+    font-size: {bubble_label}px;
+}}
+QLabel#bubbleSystemLabel {{
+    color: #f1f5f9;
+    font-size: {bubble_label}px;
+}}
+QFrame#InputFloat {{
+    background: rgba(30, 41, 59, 0.50);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+}}
+QPushButton#IconBtnGhost {{
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    color: #64748b;
+    font-size: 14px;
+}}
+QPushButton#IconBtnGhost:disabled {{
+    color: #475569;
+}}
+QFrame#InputFloat QTextEdit#ChatInput {{
+    background: transparent;
+    border: none;
+    color: #f1f5f9;
+    font-size: {font_size}px;
+}}
+QPushButton#SendBtnAccent {{
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    color: {accent};
+    font-size: 16px;
+}}
+QPushButton#SendBtnAccent:hover {{
+    background: {accent_hover};
+}}
+QScrollBar:vertical {{
+    background: transparent;
+    width: 4px;
+    margin: 0;
+}}
+QScrollBar::handle:vertical {{
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    min-height: 20px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: rgba(255, 255, 255, 0.18);
+}}
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {{
+    height: 0;
+    background: transparent;
+}}
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {{
+    background: transparent;
+}}
+QScrollBar:horizontal {{
+    height: 0;
+    background: transparent;
+}}
+QLabel#CompactMark {{
+    background: {accent_soft};
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    color: {accent};
+    font-size: 13px;
+}}
+QLineEdit#CompactInput {{
+    background: transparent;
+    border: none;
+    color: #f1f5f9;
+    font-size: {font_size}px;
+}}
+QLabel#CompactHint {{
+    color: #64748b;
+    font-size: 10px;
+}}
+QWidget#LeftPane {{
+    background: transparent;
+}}
+QWidget#ControlPanel {{
+    background: rgba(15, 23, 42, 0.96);
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+}}
+QLabel#ControlTitle {{
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 600;
+}}
+QRadioButton {{
+    color: #f1f5f9;
+    font-size: 11px;
+    spacing: 4px;
+}}
+QLabel#DemoHint {{
+    color: #64748b;
+    font-size: 10px;
+}}
+QLabel#ScaleBadge {{
+    color: #94a3b8;
+    font-size: 9px;
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 4px 8px;
+}}
+QLabel#SliderValue {{
+    color: #64748b;
+    font-size: 10px;
+    min-width: 32px;
+}}
+QPushButton#DemoActionBtn {{
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 8px;
+    color: #f1f5f9;
+    font-size: 11px;
+    padding: 6px 10px;
+}}
+QPushButton#DemoActionBtn:hover {{
+    background: rgba(255, 255, 255, 0.10);
+}}
+QLabel#SectionLabel {{
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 600;
+    padding-top: 4px;
+}}
+"""
+
+
+class BusyDesktopBackground(QWidget):
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        w, h = self.width(), self.height()
+
+        grad = QLinearGradient(0, 0, w, h)
+        grad.setColorAt(0.0, QColor(45, 75, 120))
+        grad.setColorAt(0.5, QColor(90, 130, 180))
+        grad.setColorAt(1.0, QColor(30, 50, 85))
+        painter.fillRect(self.rect(), QBrush(grad))
+
+        blocks = [
+            (12, 40, 120, 90, QColor(240, 240, 245, 200)),
+            (220, 20, 100, 70, QColor(255, 255, 255, 190)),
+            (40, 260, 140, 100, QColor(255, 255, 255, 170)),
+            (250, 380, 90, 60, QColor(235, 240, 250, 190)),
+            (20, 500, 160, 70, QColor(200, 210, 230, 180)),
+        ]
+        painter.setPen(Qt.NoPen)
+        for x, y, bw, bh, color in blocks:
+            painter.setBrush(color)
+            painter.drawRoundedRect(x, y, bw, bh, 8, 8)
+        painter.end()
+
+
+class DemoShellWidget(QWidget):
+    """Demo shell: demo-owned QSS fill or crystal paint (no production shell_renderer)."""
+
+    def __init__(self, parent=None, *, compact: bool = False):
+        super().__init__(parent)
+        self._demo_crystal_active = False
+        self._demo_shell_compact = compact
+        self._demo_qss_rgba: tuple[int, int, int, int] | None = None
+        self._demo_crystal_fill_rgb: tuple[int, int, int] | None = None
+        self._demo_crystal_fill_alpha: int | None = None
+        self._demo_gradient_tint: tuple[int, int, int] | None = None
+        self._demo_qss_body_mode: QssBodyMode = DEFAULT_QSS_BODY
+        self._demo_qss_highlight_mode: QssHighlightMode = DEFAULT_QSS_HIGHLIGHT
+        self._demo_qss_highlight_peak: int = DEFAULT_QSS_HIGHLIGHT_PEAK
+
+    def _shell_radius(self) -> float:
+        return COMPACT_RADIUS if self._demo_shell_compact else SHELL_RADIUS
+
+    def _paint_qss_shell(self, painter: QPainter) -> None:
+        if not self._demo_qss_rgba:
+            return
+        paint_demo_qss_shell(
+            painter,
+            float(self.width()),
+            float(self.height()),
+            rgba=self._demo_qss_rgba,
+            body_mode=self._demo_qss_body_mode,
+            highlight_mode=self._demo_qss_highlight_mode,
+            highlight_peak=self._demo_qss_highlight_peak,
+            radius=self._shell_radius(),
+            compact=self._demo_shell_compact,
+        )
+
+    def paintEvent(self, event):
+        if self._demo_crystal_active:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            light_mode = str(self.property("_demo_light_mode") or DEFAULT_LIGHT_MODE)
+            paint_demo_crystal_glass(
+                painter,
+                float(self.width()),
+                float(self.height()),
+                compact=self._demo_shell_compact,
+                fill_rgb=self._demo_crystal_fill_rgb,
+                fill_alpha=self._demo_crystal_fill_alpha,
+                light_mode=light_mode,
+                top_light_peak=_coerce_int_prop(self, "_demo_top_light_peak", DEFAULT_TOP_LIGHT_PEAK),
+                shell_luminance=_coerce_int_prop(self, "_demo_shell_luminance", DEFAULT_SHELL_LUMINANCE),
+                gradient_tint=self._demo_gradient_tint,
+            )
+            painter.end()
+            return
+        if self._demo_qss_rgba:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            self._paint_qss_shell(painter)
+            painter.end()
+            return
+        super().paintEvent(event)
+
+
+class MediumMock(DemoShellWidget):
+    """413×636 medium panel — demo topbar, bubbles, input dock."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent, compact=False)
+        self.setObjectName("NativeShell")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setFixedSize(MEDIUM_W, MEDIUM_H)
+
+        col = QVBoxLayout(self)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(0)
+
+        top = _build_demo_topbar(self)
+        make_widget_transparent(top.bar)
+        self.title_art = top.title_art
+        self.status_badge = top.status_badge
+        self.error_chip = top.error_chip
+        col.addWidget(top.bar)
+
+        scroll = QScrollArea()
+        scroll.setObjectName("PreviewContent")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        make_scroll_area_transparent(scroll)
+
+        wrap = QWidget()
+        wrap.setObjectName("PreviewContentWrap")
+        make_widget_transparent(wrap)
+        wl = QVBoxLayout(wrap)
+        wl.setContentsMargins(14, 10, 14, 10)
+        wl.setSpacing(10)
+
+        wl.addWidget(ChatBubble(DEMO_SYSTEM_REPLY, "system"))
+        wl.addWidget(ChatBubble("怎么安装微信？", "user"))
+        wl.addStretch()
+        scroll.setWidget(wrap)
+        col.addWidget(scroll, 1)
+
+        dock = QWidget()
+        dock.setObjectName("InputDock")
+        make_widget_transparent(dock)
+        dl = QVBoxLayout(dock)
+        dl.setContentsMargins(10, 0, 10, 10)
+        float_frame = QFrame()
+        float_frame.setObjectName("InputFloat")
+        float_frame.setAttribute(Qt.WA_StyledBackground, True)
+        fl = QHBoxLayout(float_frame)
+        fl.setContentsMargins(12, 8, 12, 8)
+        fl.setSpacing(8)
+
+        mic_btn = QPushButton()
+        mic_btn.setObjectName("IconBtnGhost")
+        mic_btn.setIcon(action_icon("mic"))
+        mic_btn.setFixedSize(32, 32)
+        mic_btn.setEnabled(False)
+        mic_btn.setToolTip("语音（即将推出）")
+
+        inp = QTextEdit()
+        inp.setObjectName("ChatInput")
+        inp.setPlaceholderText("输入问题…")
+        inp.setFixedHeight(30)
+        inp.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        send = QPushButton("➤")
+        send.setObjectName("SendBtnAccent")
+        send.setFixedSize(32, 32)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(12)
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.addWidget(send)
+
+        fl.addWidget(mic_btn)
+        fl.addWidget(inp, 1)
+        fl.addLayout(actions)
+        dl.addWidget(float_frame)
+        col.addWidget(dock)
+
+
+class CompactMock(DemoShellWidget):
+    """280×48 compact pill preview."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent, compact=True)
+        self.setObjectName("CompactShell")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setFixedSize(COMPACT_W, COMPACT_H)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 4, 6, 4)
+        layout.setSpacing(8)
+
+        mark = QLabel("✦")
+        mark.setObjectName("CompactMark")
+        mark.setAlignment(Qt.AlignCenter)
+        mark.setFixedSize(26, 26)
+        layout.addWidget(mark)
+
+        inp = QLineEdit()
+        inp.setObjectName("CompactInput")
+        inp.setPlaceholderText("Ask HAJIMI…")
+        layout.addWidget(inp, 1)
+
+        hint = QLabel("↵")
+        hint.setObjectName("CompactHint")
+        layout.addWidget(hint)
+
+
+class StylePreviewWindow(QWidget):
+    """Left: 413×636 medium on busy desktop. Right: style control panel."""
+
+    def __init__(self):
+        super().__init__()
+        self._accent_id = DEFAULT_ACCENT
+        self._base_id = DEFAULT_BASE
+        self._shell_preset = DEFAULT_SHELL_PRESET
+        self._font_size = DEFAULT_FONT
+        self._medium_alpha = DEFAULT_MEDIUM_ALPHA
+        self._compact_alpha = DEFAULT_COMPACT_ALPHA
+        self._processing = False
+        self._system_error = False
+        self._title_art_mode = DEFAULT_TITLE_ART
+        self._body_font_id = DEFAULT_BODY_FONT
+        self._light_mode: LightMode = DEFAULT_LIGHT_MODE
+        self._top_light_peak = DEFAULT_TOP_LIGHT_PEAK
+        self._shell_luminance = DEFAULT_SHELL_LUMINANCE
+        self._qss_body_mode: QssBodyMode = DEFAULT_QSS_BODY
+        self._qss_highlight_mode: QssHighlightMode = DEFAULT_QSS_HIGHLIGHT
+        self._qss_highlight_peak = DEFAULT_QSS_HIGHLIGHT_PEAK
+        self._crystal_shadow_strength = DEFAULT_CRYSTAL_EDGE_SHADOW
+
+        self.setWindowTitle("HAJIMI · 水晶玻璃风观感 Demo")
+        self.setFixedSize(WINDOW_W, WINDOW_H)
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        left = QWidget()
+        left.setObjectName("LeftPane")
+        left.setFixedSize(MEDIUM_W, WINDOW_H)
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(0)
+
+        self._bg = BusyDesktopBackground()
+        left_layout.addWidget(self._bg)
+
+        medium_host = QWidget(self._bg)
+        medium_host.setAttribute(Qt.WA_TranslucentBackground, True)
+        mh_layout = QVBoxLayout(medium_host)
+        mh_layout.setContentsMargins(0, 0, 0, 0)
+        self._medium = MediumMock()
+        mh_layout.addWidget(self._medium, 0, Qt.AlignTop | Qt.AlignHCenter)
+
+        self._scale_badge = QLabel()
+        self._scale_badge.setObjectName("ScaleBadge")
+        badge_layout = QHBoxLayout()
+        badge_layout.setContentsMargins(6, 0, 6, 6)
+        badge_layout.addStretch()
+        badge_layout.addWidget(self._scale_badge)
+        mh_layout.addLayout(badge_layout)
+        self._medium_host = medium_host
+
+        root.addWidget(left)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setFixedWidth(CONTROL_W)
+
+        self._compact = CompactMock()
+        self._control = self._build_controls()
+        scroll.setWidget(self._control)
+        root.addWidget(scroll)
+
+        self._setup_badge_pulse()
+        self._apply_preview()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._medium_host.setGeometry(0, 0, MEDIUM_W, WINDOW_H)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._medium_host.setGeometry(0, 0, MEDIUM_W, WINDOW_H)
+
+    def _refresh_left_preview(self) -> None:
+        self._medium_host.setGeometry(0, 0, MEDIUM_W, WINDOW_H)
+        self._medium_host.raise_()
+        self._medium_host.show()
+        self._medium.show()
+        for widget in (self._medium, self._compact):
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+            widget.repaint()
+        self._medium_host.repaint()
+
+    def _compute_tokens(self) -> DemoShellTokens:
+        return _compute_shell_tokens(
+            self._base_id,
+            self._medium_alpha,
+            self._compact_alpha,
+            self._shell_luminance,
+        )
+
+    def _sync_top_light_controls(self) -> None:
+        crystal = _is_crystal_preset(self._shell_preset)
+        for btn in self._light_group.buttons():
+            btn.setEnabled(crystal)
+        self._top_light_slider.setEnabled(crystal)
+        self._top_light_hint.setVisible(not crystal)
+
+    def _sync_qss_highlight_controls(self) -> None:
+        qss = self._shell_preset == "qss"
+        for btn in self._qss_body_group.buttons():
+            btn.setEnabled(qss)
+        for btn in self._qss_highlight_group.buttons():
+            btn.setEnabled(qss)
+        self._qss_highlight_slider.setEnabled(qss)
+        self._qss_highlight_hint.setVisible(not qss)
+
+    def _sync_shadow_controls(self) -> None:
+        crystal = _is_crystal_preset(self._shell_preset)
+        self._shadow_slider.setEnabled(crystal)
+        self._shadow_hint.setVisible(not crystal)
+
+    def _update_hint_labels(self) -> None:
+        preset = self._shell_preset
+        tokens = self._compute_tokens()
+        alabel, hex_color, _ = _accent_rgb_hex(self._accent_id)
+        blabel, bhex, _ = _base_info(self._base_id)
+        shell_label = SHELL_PRESETS.get(preset, preset)
+        eff_m = _effective_alpha(self._medium_alpha, self._shell_luminance)
+        eff_c = _effective_alpha(self._compact_alpha, self._shell_luminance)
+        self._medium_alpha_label.setText(f"{eff_m / 100:.2f}")
+        self._compact_alpha_label.setText(f"{eff_c / 100:.2f}")
+        self._top_light_label.setText(str(self._top_light_peak))
+        self._shadow_label.setText(str(self._crystal_shadow_strength))
+        self._qss_highlight_label.setText(str(self._qss_highlight_peak))
+        self._luminance_label.setText(f"{self._shell_luminance}%")
+        self._scale_badge.setText(f"{MEDIUM_W}×{MEDIUM_H} px · 逻辑像素")
+        light_label = LIGHT_MODES.get(self._light_mode, self._light_mode)
+        font_label = self._body_font_id.replace("_", " ")
+        title_label = TITLE_ART_MODES.get(self._title_art_mode, self._title_art_mode)
+        if _is_crystal_preset(preset):
+            eff_fill = max(
+                1,
+                min(255, int(tokens.medium_fill_alpha * self._shell_luminance / 100)),
+            )
+            shell_note = (
+                f"Crystal fill α {eff_fill} · 顶光 {light_label} · "
+                f"阴影 {self._crystal_shadow_strength}"
+            )
+        else:
+            body_label = QSS_BODY_MODES.get(self._qss_body_mode, self._qss_body_mode)
+            hi_label = QSS_HIGHLIGHT_MODES.get(
+                self._qss_highlight_mode, self._qss_highlight_mode
+            )
+            shell_note = (
+                f"QSS {body_label} · {hi_label}@{self._qss_highlight_peak} · "
+                f"α {eff_m / 100:.2f}"
+            )
+        self._hint.setText(
+            f"底 {blabel} ({bhex}) · 中窗 {shell_note} · "
+            f"小窗 α {eff_c / 100:.2f} · 字号 {self._font_size}px · "
+            f"标题 {title_label} · 字体 {font_label} · 强调 {alabel} · {shell_label}"
+        )
+        self.setWindowTitle(
+            f"HAJIMI Demo · {MEDIUM_W}×{MEDIUM_H} · {hex_color} · {shell_label}"
+        )
+
+    def _apply_crystal_light_only(self) -> bool:
+        if not _is_crystal_preset(self._shell_preset):
+            return False
+        tokens = self._compute_tokens()
+        _apply_demo_crystal_shell(
+            self._medium,
+            tokens,
+            compact=False,
+            shadow_strength=self._crystal_shadow_strength,
+            light_mode=self._light_mode,
+            top_light_peak=self._top_light_peak,
+            shell_luminance=self._shell_luminance,
+        )
+        _apply_demo_crystal_shell(
+            self._compact,
+            tokens,
+            compact=True,
+            shadow_strength=self._crystal_shadow_strength,
+            light_mode=self._light_mode,
+            top_light_peak=self._top_light_peak,
+            shell_luminance=self._shell_luminance,
+        )
+        self._medium.repaint()
+        self._compact.repaint()
+        self._update_hint_labels()
+        return True
+
+    def _apply_crystal_shadow_only(self) -> bool:
+        if not _is_crystal_preset(self._shell_preset):
+            return False
+        strength = self._crystal_shadow_strength
+        for widget in (self._medium, self._compact):
+            widget.setProperty("_demo_crystal_shadow_strength", strength)
+            _apply_crystal_drop_shadow(widget, strength)
+            widget.update()
+        self._medium.repaint()
+        self._compact.repaint()
+        self._update_hint_labels()
+        return True
+
+    def _apply_qss_highlight_only(self) -> bool:
+        if self._shell_preset != "qss":
+            return False
+        tokens = self._compute_tokens()
+        _apply_demo_qss_shell(
+            self._medium,
+            tokens,
+            compact=False,
+            body_mode=self._qss_body_mode,
+            highlight_mode=self._qss_highlight_mode,
+            highlight_peak=self._qss_highlight_peak,
+        )
+        _apply_demo_qss_shell(
+            self._compact,
+            tokens,
+            compact=True,
+            body_mode=self._qss_body_mode,
+            highlight_mode=self._qss_highlight_mode,
+            highlight_peak=self._qss_highlight_peak,
+        )
+        self._medium.repaint()
+        self._compact.repaint()
+        self._update_hint_labels()
+        return True
+
+    def _apply_shell_from_tokens(self, tokens: DemoShellTokens) -> None:
+        preset = self._shell_preset
+        if preset == "qss":
+            _apply_demo_qss_shell(
+                self._medium,
+                tokens,
+                compact=False,
+                body_mode=self._qss_body_mode,
+                highlight_mode=self._qss_highlight_mode,
+                highlight_peak=self._qss_highlight_peak,
+            )
+            _apply_demo_qss_shell(
+                self._compact,
+                tokens,
+                compact=True,
+                body_mode=self._qss_body_mode,
+                highlight_mode=self._qss_highlight_mode,
+                highlight_peak=self._qss_highlight_peak,
+            )
+        else:
+            _apply_demo_crystal_shell(
+                self._medium,
+                tokens,
+                compact=False,
+                shadow_strength=self._crystal_shadow_strength,
+                light_mode=self._light_mode,
+                top_light_peak=self._top_light_peak,
+                shell_luminance=self._shell_luminance,
+            )
+            _apply_demo_crystal_shell(
+                self._compact,
+                tokens,
+                compact=True,
+                shadow_strength=self._crystal_shadow_strength,
+                light_mode=self._light_mode,
+                top_light_peak=self._top_light_peak,
+                shell_luminance=self._shell_luminance,
+            )
+
+    def _setup_badge_pulse(self):
+        badge = self._medium.status_badge
+        self._badge_fx = QGraphicsOpacityEffect(badge)
+        badge.setGraphicsEffect(self._badge_fx)
+        self._badge_fx.setOpacity(1.0)
+
+        fade_in = QPropertyAnimation(self._badge_fx, b"opacity", self)
+        fade_in.setDuration(1200)
+        fade_in.setStartValue(0.72)
+        fade_in.setEndValue(1.0)
+        fade_in.setEasingCurve(QEasingCurve.InOutSine)
+
+        fade_out = QPropertyAnimation(self._badge_fx, b"opacity", self)
+        fade_out.setDuration(1200)
+        fade_out.setStartValue(1.0)
+        fade_out.setEndValue(0.72)
+        fade_out.setEasingCurve(QEasingCurve.InOutSine)
+
+        self._breath_group = QSequentialAnimationGroup(self)
+        self._breath_group.addAnimation(fade_in)
+        self._breath_group.addAnimation(fade_out)
+        self._breath_group.setLoopCount(-1)
+
+    def _set_status_property(self, badge: QPushButton, status: str) -> None:
+        badge.setProperty("status", status)
+        badge.style().unpolish(badge)
+        badge.style().polish(badge)
+
+    def _refresh_status_ui(self) -> None:
+        badge = self._medium.status_badge
+        chip = self._medium.error_chip
+        if self._system_error:
+            chip.show()
+            chip.setToolTip(_error_tooltip())
+            badge.setText("●  准备就绪")
+            self._set_status_property(badge, "idle")
+            badge.setToolTip("")
+            self._breath_group.stop()
+            self._badge_fx.setOpacity(1.0)
+        elif self._processing:
+            chip.hide()
+            badge.setText("●  思考中…")
+            self._set_status_property(badge, "processing")
+            badge.setToolTip("")
+        else:
+            chip.hide()
+            badge.setText("●  准备就绪")
+            self._set_status_property(badge, "idle")
+            badge.setToolTip("")
+
+    def _set_processing(self, on: bool):
+        if on and self._system_error:
+            self._error_btn.blockSignals(True)
+            self._error_btn.setChecked(False)
+            self._error_btn.blockSignals(False)
+            self._system_error = False
+        self._processing = on
+        if on:
+            self._refresh_status_ui()
+            self._breath_group.start()
+        else:
+            self._breath_group.stop()
+            self._badge_fx.setOpacity(1.0)
+            self._refresh_status_ui()
+
+    def _set_system_error(self, on: bool):
+        if on and self._processing:
+            self._proc_btn.blockSignals(True)
+            self._proc_btn.setChecked(False)
+            self._proc_btn.blockSignals(False)
+            self._processing = False
+            self._breath_group.stop()
+            self._badge_fx.setOpacity(1.0)
+        self._system_error = on
+        self._refresh_status_ui()
+
+    def _on_error_toggled(self, on: bool):
+        self._set_system_error(on)
+
+    def _build_controls(self) -> QWidget:
+        panel = QWidget()
+        panel.setObjectName("ControlPanel")
+        panel.setAttribute(Qt.WA_StyledBackground, True)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(6)
+
+        title = QLabel("样式实现控制台")
+        title.setObjectName("ControlTitle")
+        layout.addWidget(title)
+
+        layout.addWidget(self._section("强调色"))
+        self._accent_group = QButtonGroup(self)
+        for idx, (aid, (label, hex_color, _)) in enumerate(ACCENTS.items()):
+            rb = QRadioButton(f"{label}  {hex_color}")
+            rb.setProperty("accent_id", aid)
+            self._accent_group.addButton(rb, idx)
+            layout.addWidget(rb)
+            if aid == DEFAULT_ACCENT:
+                rb.setChecked(True)
+        self._accent_group.buttonClicked.connect(self._on_accent_changed)
+
+        layout.addWidget(self._section("Shell 模式（三档对比）"))
+        self._shell_group = QButtonGroup(self)
+        self._shell_radios: dict[str, QRadioButton] = {}
+        for idx, (preset_id, label) in enumerate(SHELL_PRESETS.items()):
+            rb = QRadioButton(label)
+            rb.setProperty("shell_preset", preset_id)
+            self._shell_group.addButton(rb, idx)
+            self._shell_radios[preset_id] = rb
+            layout.addWidget(rb)
+            if preset_id == DEFAULT_SHELL_PRESET:
+                rb.setChecked(True)
+        self._shell_group.buttonClicked.connect(self._on_shell_changed)
+
+        layout.addWidget(self._section("QSS 页面高光"))
+        layout.addWidget(QLabel("实底类型"))
+        self._qss_body_group = QButtonGroup(self)
+        for idx, (mode_id, label) in enumerate(QSS_BODY_MODES.items()):
+            rb = QRadioButton(label)
+            rb.setProperty("qss_body_mode", mode_id)
+            self._qss_body_group.addButton(rb, idx)
+            layout.addWidget(rb)
+            if mode_id == DEFAULT_QSS_BODY:
+                rb.setChecked(True)
+        self._qss_body_group.buttonClicked.connect(self._on_qss_body_changed)
+
+        layout.addWidget(QLabel("高光方案"))
+        self._qss_highlight_group = QButtonGroup(self)
+        for idx, (mode_id, label) in enumerate(QSS_HIGHLIGHT_MODES.items()):
+            rb = QRadioButton(label)
+            rb.setProperty("qss_highlight_mode", mode_id)
+            self._qss_highlight_group.addButton(rb, idx)
+            layout.addWidget(rb)
+            if mode_id == DEFAULT_QSS_HIGHLIGHT:
+                rb.setChecked(True)
+        self._qss_highlight_group.buttonClicked.connect(self._on_qss_highlight_changed)
+
+        self._qss_highlight_label = QLabel()
+        self._qss_highlight_label.setObjectName("SliderValue")
+        self._qss_highlight_slider = QSlider(Qt.Horizontal)
+        self._qss_highlight_slider.setRange(0, 60)
+        self._qss_highlight_slider.setValue(DEFAULT_QSS_HIGHLIGHT_PEAK)
+        self._qss_highlight_slider.valueChanged.connect(self._on_qss_highlight_peak_changed)
+        row_qss = QHBoxLayout()
+        row_qss.addWidget(QLabel("高光强度"))
+        row_qss.addWidget(self._qss_highlight_slider, 1)
+        row_qss.addWidget(self._qss_highlight_label)
+        layout.addLayout(row_qss)
+
+        self._qss_highlight_hint = QLabel("页面高光需切换为 QSS 实底")
+        self._qss_highlight_hint.setObjectName("DemoHint")
+        layout.addWidget(self._qss_highlight_hint)
+
+        layout.addWidget(self._section("标题艺术字"))
+        self._title_art_group = QButtonGroup(self)
+        for idx, (mode_id, label) in enumerate(TITLE_ART_MODES.items()):
+            rb = QRadioButton(label)
+            rb.setProperty("title_art_mode", mode_id)
+            self._title_art_group.addButton(rb, idx)
+            layout.addWidget(rb)
+            if mode_id == DEFAULT_TITLE_ART:
+                rb.setChecked(True)
+        self._title_art_group.buttonClicked.connect(self._on_title_art_changed)
+
+        layout.addWidget(self._section("正文字体试验"))
+        self._body_font_group = QButtonGroup(self)
+        for idx, (font_id, css) in enumerate(BODY_FONT_PRESETS.items()):
+            short = font_id.replace("_", " ")
+            rb = QRadioButton(f"{short}  ·  {css.split(',')[0].strip('\"')}")
+            rb.setProperty("body_font_id", font_id)
+            self._body_font_group.addButton(rb, idx)
+            layout.addWidget(rb)
+            if font_id == DEFAULT_BODY_FONT:
+                rb.setChecked(True)
+        self._body_font_group.buttonClicked.connect(self._on_body_font_changed)
+
+        layout.addWidget(self._section("Crystal 顶光"))
+        self._light_group = QButtonGroup(self)
+        for idx, (mode_id, label) in enumerate(LIGHT_MODES.items()):
+            rb = QRadioButton(label)
+            rb.setProperty("light_mode", mode_id)
+            self._light_group.addButton(rb, idx)
+            layout.addWidget(rb)
+            if mode_id == DEFAULT_LIGHT_MODE:
+                rb.setChecked(True)
+        self._light_group.buttonClicked.connect(self._on_light_mode_changed)
+
+        self._top_light_label = QLabel()
+        self._top_light_label.setObjectName("SliderValue")
+        self._top_light_slider = QSlider(Qt.Horizontal)
+        self._top_light_slider.setRange(0, 60)
+        self._top_light_slider.setValue(DEFAULT_TOP_LIGHT_PEAK)
+        self._top_light_slider.valueChanged.connect(self._on_top_light_changed)
+        row_tl = QHBoxLayout()
+        row_tl.addWidget(QLabel("顶光强度"))
+        row_tl.addWidget(self._top_light_slider, 1)
+        row_tl.addWidget(self._top_light_label)
+        layout.addLayout(row_tl)
+
+        self._top_light_hint = QLabel("顶光试验需切换为 Crystal · 纯细边 / 极轻阴影")
+        self._top_light_hint.setObjectName("DemoHint")
+        layout.addWidget(self._top_light_hint)
+
+        self._shadow_label = QLabel()
+        self._shadow_label.setObjectName("SliderValue")
+        self._shadow_slider = QSlider(Qt.Horizontal)
+        self._shadow_slider.setRange(0, SHADOW_STRENGTH_MAX)
+        self._shadow_slider.setValue(DEFAULT_CRYSTAL_EDGE_SHADOW)
+        self._shadow_slider.valueChanged.connect(self._on_crystal_shadow_changed)
+        row_sh = QHBoxLayout()
+        row_sh.addWidget(QLabel("阴影强度"))
+        row_sh.addWidget(self._shadow_slider, 1)
+        row_sh.addWidget(self._shadow_label)
+        layout.addLayout(row_sh)
+
+        self._shadow_hint = QLabel("阴影试验需切换为 Crystal · 纯细边 / 极轻阴影")
+        self._shadow_hint.setObjectName("DemoHint")
+        layout.addWidget(self._shadow_hint)
+
+        self._luminance_label = QLabel()
+        self._luminance_label.setObjectName("SliderValue")
+        self._luminance_slider = QSlider(Qt.Horizontal)
+        self._luminance_slider.setRange(50, 150)
+        self._luminance_slider.setValue(DEFAULT_SHELL_LUMINANCE)
+        self._luminance_slider.valueChanged.connect(self._on_luminance_changed)
+        row_lum = QHBoxLayout()
+        row_lum.addWidget(QLabel("壳明暗"))
+        row_lum.addWidget(self._luminance_slider, 1)
+        row_lum.addWidget(self._luminance_label)
+        layout.addLayout(row_lum)
+
+        layout.addWidget(self._section("壳底色"))
+        self._base_group = QButtonGroup(self)
+        for idx, (bid, (label, hex_color, _)) in enumerate(BASES.items()):
+            rb = QRadioButton(f"{label}  {hex_color}")
+            rb.setProperty("base_id", bid)
+            self._base_group.addButton(rb, idx)
+            layout.addWidget(rb)
+            if bid == DEFAULT_BASE:
+                rb.setChecked(True)
+        self._base_group.buttonClicked.connect(self._on_base_changed)
+
+        layout.addWidget(self._section("全局字号"))
+        font_lbl = QLabel("12px（已定稿）")
+        font_lbl.setObjectName("DemoHint")
+        layout.addWidget(font_lbl)
+
+        self._medium_alpha_label = QLabel()
+        self._medium_alpha_label.setObjectName("SliderValue")
+        self._medium_slider = QSlider(Qt.Horizontal)
+        self._medium_slider.setRange(80, 95)
+        self._medium_slider.setValue(DEFAULT_MEDIUM_ALPHA)
+        self._medium_slider.valueChanged.connect(self._on_medium_alpha_changed)
+        row_m = QHBoxLayout()
+        row_m.addWidget(QLabel("中窗 α"))
+        row_m.addWidget(self._medium_slider, 1)
+        row_m.addWidget(self._medium_alpha_label)
+        layout.addLayout(row_m)
+
+        self._compact_alpha_label = QLabel()
+        self._compact_alpha_label.setObjectName("SliderValue")
+        self._compact_slider = QSlider(Qt.Horizontal)
+        self._compact_slider.setRange(80, 95)
+        self._compact_slider.setValue(DEFAULT_COMPACT_ALPHA)
+        self._compact_slider.valueChanged.connect(self._on_compact_alpha_changed)
+        row_c = QHBoxLayout()
+        row_c.addWidget(QLabel("小窗 α"))
+        row_c.addWidget(self._compact_slider, 1)
+        row_c.addWidget(self._compact_alpha_label)
+        layout.addLayout(row_c)
+
+        self._proc_btn = QPushButton("模拟 processing（轻 pulse）")
+        self._proc_btn.setObjectName("DemoActionBtn")
+        self._proc_btn.setCheckable(True)
+        self._proc_btn.toggled.connect(self._set_processing)
+        layout.addWidget(self._proc_btn)
+
+        self._error_btn = QPushButton("模拟系统错误（标题行内 Chip + Tooltip）")
+        self._error_btn.setObjectName("DemoActionBtn")
+        self._error_btn.setCheckable(True)
+        self._error_btn.toggled.connect(self._on_error_toggled)
+        layout.addWidget(self._error_btn)
+
+        layout.addWidget(self._section("Compact 预览 280×48"))
+        compact_wrap = QHBoxLayout()
+        compact_wrap.addWidget(self._compact)
+        compact_wrap.addStretch()
+        layout.addLayout(compact_wrap)
+
+        self._hint = QLabel()
+        self._hint.setObjectName("DemoHint")
+        self._hint.setWordWrap(True)
+        layout.addWidget(self._hint)
+        layout.addStretch()
+        self._sync_top_light_controls()
+        self._sync_qss_highlight_controls()
+        self._sync_shadow_controls()
+        return panel
+
+    @staticmethod
+    def _section(text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setObjectName("SectionLabel")
+        return lbl
+
+    def _on_accent_changed(self, button: QRadioButton):
+        self._accent_id = button.property("accent_id") or DEFAULT_ACCENT
+        self._apply_preview()
+
+    def _on_base_changed(self, button: QRadioButton):
+        self._base_id = button.property("base_id") or DEFAULT_BASE
+        self._apply_preview()
+
+    def _on_shell_changed(self, button: QRadioButton):
+        new_preset = button.property("shell_preset") or DEFAULT_SHELL_PRESET
+        if new_preset != self._shell_preset and _is_crystal_preset(new_preset):
+            strength = default_crystal_shadow_strength(new_preset)
+            self._crystal_shadow_strength = strength
+            self._shadow_slider.blockSignals(True)
+            self._shadow_slider.setValue(strength)
+            self._shadow_slider.blockSignals(False)
+        self._shell_preset = new_preset
+        self._apply_preview()
+
+    def _on_crystal_shadow_changed(self, value: int):
+        self._crystal_shadow_strength = value
+        if not self._apply_crystal_shadow_only():
+            self._update_hint_labels()
+
+    def _on_qss_body_changed(self, button: QRadioButton):
+        mode = button.property("qss_body_mode") or DEFAULT_QSS_BODY
+        self._qss_body_mode = mode  # type: ignore[assignment]
+        if not self._apply_qss_highlight_only():
+            self._update_hint_labels()
+
+    def _on_qss_highlight_changed(self, button: QRadioButton):
+        mode = button.property("qss_highlight_mode") or DEFAULT_QSS_HIGHLIGHT
+        self._qss_highlight_mode = mode  # type: ignore[assignment]
+        if not self._apply_qss_highlight_only():
+            self._update_hint_labels()
+
+    def _on_qss_highlight_peak_changed(self, value: int):
+        self._qss_highlight_peak = value
+        if not self._apply_qss_highlight_only():
+            self._update_hint_labels()
+
+    def _on_title_art_changed(self, button: QRadioButton):
+        self._title_art_mode = button.property("title_art_mode") or DEFAULT_TITLE_ART
+        self._apply_preview()
+
+    def _on_body_font_changed(self, button: QRadioButton):
+        self._body_font_id = button.property("body_font_id") or DEFAULT_BODY_FONT
+        self._apply_preview()
+
+    def _on_light_mode_changed(self, button: QRadioButton):
+        mode = button.property("light_mode") or DEFAULT_LIGHT_MODE
+        self._light_mode = mode  # type: ignore[assignment]
+        if not self._apply_crystal_light_only():
+            self._update_hint_labels()
+
+    def _on_top_light_changed(self, value: int):
+        self._top_light_peak = value
+        if not self._apply_crystal_light_only():
+            self._update_hint_labels()
+
+    def _on_luminance_changed(self, value: int):
+        self._shell_luminance = value
+        self._apply_preview()
+
+    def _on_medium_alpha_changed(self, value: int):
+        self._medium_alpha = value
+        self._apply_preview()
+
+    def _on_compact_alpha_changed(self, value: int):
+        self._compact_alpha = value
+        self._apply_preview()
+
+    def _apply_preview(self):
+        app = QApplication.instance()
+        preset = self._shell_preset
+        qss = compose_demo_qss(
+            self._accent_id,
+            preset,
+            self._base_id,
+            self._medium_alpha,
+            self._compact_alpha,
+            self._font_size,
+            body_font_id=self._body_font_id,
+            shell_luminance=self._shell_luminance,
+        )
+        app.setStyleSheet(qss)
+
+        tokens = self._compute_tokens()
+        self._apply_shell_from_tokens(tokens)
+
+        alabel, hex_color, _ = _accent_rgb_hex(self._accent_id)
+        self._medium.title_art.set_accent(hex_color)
+        self._medium.title_art.set_mode(self._title_art_mode)
+
+        self._sync_top_light_controls()
+        self._sync_qss_highlight_controls()
+        self._sync_shadow_controls()
+        self._refresh_left_preview()
+
+        if self._processing:
+            self._refresh_status_ui()
+            self._breath_group.start()
+        elif self._system_error:
+            self._refresh_status_ui()
+
+        self._update_hint_labels()
+
+
+def main():
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    app = QApplication(sys.argv)
+    apply_app_font(app)
+    win = StylePreviewWindow()
+    win.show()
+    sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()

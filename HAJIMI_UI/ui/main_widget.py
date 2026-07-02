@@ -29,6 +29,13 @@ from config import (
 )
 from core.task_worker import TaskWorkerThread
 from core.api_client import check_inspect_preflight, get_api_status_message
+from core.user_settings import (
+    apply_user_settings,
+    is_intranet_mode,
+    load_user_settings,
+    save_user_settings,
+)
+from core.env_sync import sync_server_env
 from core.service_manager import (
     start_backend_services,
     stop_backend_services,
@@ -53,29 +60,24 @@ from ui.native.window_state import (
     save_window_state,
     apply_state_to_window,
 )
-
-_THEME_PATH = os.path.join(os.path.dirname(__file__), "native", "theme.qss")
-
-
-def _load_theme(app: QApplication):
-    if os.path.isfile(_THEME_PATH):
-        with open(_THEME_PATH, encoding="utf-8") as f:
-            app.setStyleSheet(f.read())
+from ui.native.theme_manager import get_theme_manager, THEME_LABELS
+from ui.native.shell_appearance import AppearanceSettings, SHELL_STYLES
 
 
 class MainWidget(QWidget):
-    def __init__(self):
+    def __init__(self, startup_hints=None):
         super().__init__()
+        self._startup_hints = list(startup_hints or [])
         self.setWindowTitle("HAJIMI 智能桌面助手")
         self.setAttribute(Qt.WA_DeleteOnClose)
 
         if USE_NATIVE_UI:
-            _load_theme(QApplication.instance())
             from ui.native.fonts import apply_app_font
             apply_app_font(QApplication.instance())
 
         self._mode = "medium"
         self._medium_size = [MEDIUM_WIDTH, MEDIUM_HEIGHT]
+        self._size_before_settings = None
         self._mode_switching = False
         self._prepare_hint = ""
         self._prepare_desc = ""
@@ -100,6 +102,8 @@ class MainWidget(QWidget):
         if state:
             self._medium_size = [state.medium_width, state.medium_height]
             apply_state_to_window(self, state)
+            if state.migrated_from_legacy:
+                self._state_save_timer().start(0)
             if state.x is None or state.y is None:
                 self._position_bottom_right()
             if state.last_mode == "compact":
@@ -168,6 +172,15 @@ class MainWidget(QWidget):
         self._wire_relocate_worker()
         self._setup_tray()
         self._check_api_on_startup()
+        mgr = get_theme_manager(QApplication.instance())
+        mgr.register_shell(self.medium_panel, compact=False)
+        mgr.register_shell(self.compact_bar, compact=True)
+        self._apply_native_appearance()
+
+    def _apply_native_appearance(self, settings: dict | None = None) -> None:
+        data = settings if settings is not None else load_user_settings()
+        appearance = AppearanceSettings.from_user_settings(data)
+        get_theme_manager().apply(data.get("ui_theme", "current"), appearance)
 
     def _install_resize_tracking(self):
         """Forward edge mouse events from panel children to resize handler."""
@@ -299,15 +312,33 @@ class MainWidget(QWidget):
         p.inspect_exit_requested.connect(self.controller.exit_inspect_mode)
         p.start_services_requested.connect(self._on_start_services)
         p.stop_services_requested.connect(self._on_stop_services)
+        p.settings_saved.connect(self._on_settings_saved)
+        p.panel_resize_requested.connect(self._on_panel_resize_requested)
+        p.panel_restore_size.connect(self._on_panel_restore_size)
         b.expand_requested.connect(self.switch_to_medium)
         b.drag_requested.connect(self.controller.begin_window_drag)
-        p.height_resize_drag.connect(self._resize_window_height)
         p.quit_requested.connect(self._quit_application)
 
     def on_medium_resized(self):
-        self._medium_size = [self.width(), self.height()]
+        if (
+            hasattr(self, "medium_panel")
+            and self.medium_panel.current_panel() != "settings"
+        ):
+            self._medium_size = [self.width(), self.height()]
+            self._state_save_timer().start(500)
         self.medium_panel._update_mode_pills_visibility()
-        self._state_save_timer().start(500)
+
+    def _on_panel_resize_requested(self, w: int, h: int):
+        if self._size_before_settings is None:
+            self._size_before_settings = [self.width(), self.height()]
+        self._apply_size_bottom_right(w, h, animated=True)
+
+    def _on_panel_restore_size(self):
+        if not self._size_before_settings:
+            return
+        w, h = self._size_before_settings
+        self._size_before_settings = None
+        self._apply_size_bottom_right(w, h, animated=True)
 
     def _resize_window_height(self, delta: int):
         if self._mode != "medium" or delta == 0:
@@ -327,7 +358,8 @@ class MainWidget(QWidget):
         if hasattr(self, "_resize_handler") and USE_NATIVE_UI:
             from PyQt5.QtGui import QPainter
             p = QPainter(self)
-            self._resize_handler.paint_hover(p)
+            p.setRenderHint(QPainter.Antialiasing)
+            self._resize_handler.paint_resize_guides(p)
             p.end()
 
     def mousePressEvent(self, event):
@@ -366,6 +398,8 @@ class MainWidget(QWidget):
     def _check_api_on_startup(self):
         if not hasattr(self, "controller"):
             return
+        for hint in self._startup_hints:
+            self.controller.message_added.emit(hint, "system")
         self._startup_health_attempt = 0
         QTimer.singleShot(STARTUP_HEALTH_DELAY_MS, self._run_startup_health_check)
 
@@ -374,6 +408,8 @@ class MainWidget(QWidget):
             return
         text, msg_type = get_api_status_message()
         is_error = "danger" in msg_type
+        if hasattr(self, "medium_panel"):
+            self.medium_panel.set_service_status(text if not is_error else text)
         if not is_error or self._startup_health_attempt >= STARTUP_HEALTH_MAX_RETRIES:
             self.controller.message_added.emit(text, msg_type)
             return
@@ -411,8 +447,48 @@ class MainWidget(QWidget):
     def _on_inspect_progress(self, pct, label):
         self.medium_panel.set_inspect_status(label)
 
-    def _on_start_services(self):
+    def _refresh_api_status(self):
+        text, msg_type = get_api_status_message()
+        if hasattr(self, "medium_panel"):
+            self.medium_panel.set_service_status(text)
+        return text, msg_type
+
+    def _on_settings_saved(self, data: dict):
         try:
+            merged = save_user_settings(data)
+            apply_user_settings(merged)
+            self._apply_native_appearance(merged)
+            if merged.get("deployment_mode") == "local":
+                sync_server_env(merged)
+            mode_label = "内网 API" if is_intranet_mode() else "本地启动"
+            theme_label = THEME_LABELS.get(merged.get("ui_theme", "current"), "默认")
+            shell_label = SHELL_STYLES.get(merged.get("shell_style", "qss"), "QSS 实底")
+            font_size = merged.get("font_size", 13)
+            self.medium_panel.on_settings_applied(
+                merged,
+                f"已保存，当前会话：{mode_label} · {shell_label} · {theme_label} · 字号 {font_size}px",
+            )
+            text, msg_type = self._refresh_api_status()
+            self.controller.message_added.emit("配置已保存并应用", "system")
+            if "danger" in msg_type:
+                self.controller.message_added.emit(text, msg_type)
+        except Exception as exc:
+            self.medium_panel.on_settings_applied(
+                data,
+                f"保存失败: {exc}",
+            )
+            self.controller.message_added.emit(f"保存设置失败: {exc}", "system danger")
+
+    def _on_start_services(self):
+        if is_intranet_mode():
+            self.medium_panel.set_service_status(
+                "内网 API 模式下无需本地启动服务；请确认远程 A 端已运行。"
+            )
+            return
+        try:
+            from core.user_settings import load_user_settings
+
+            sync_server_env(load_user_settings())
             start_backend_services()
             self.medium_panel.set_service_status(
                 "已清理旧进程并启动新窗口；请等待 OmniParser「Omniparser initialized」"

@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions
 
-if not defined OMNI_ROOT set "OMNI_ROOT=E:\Tools\OmniParser"
+call "%~dp0resolve_omni_root.bat"
 if not defined OMNI_PY set "OMNI_PY=E:\CodingSoftwards\Anaconda\envs\omni\python.exe"
 if not defined OMNI_MS set "OMNI_MS=E:\CodingSoftwards\Anaconda\envs\omni\Scripts\modelscope.exe"
 
@@ -24,6 +24,8 @@ for /f "delims=" %%B in ('conda info --base 2^>nul') do (
 )
 
 echo [3/5] Installing PyTorch and requirements ...
+rem Default cu124 does NOT support RTX 50 (sm_120). start_omniparser.bat will force CPU.
+rem For local RTX 50 GPU: run scripts\upgrade_omni_pytorch_cu128.bat after setup.
 call conda run -n omni pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 call conda run -n omni pip install -r "%OMNI_ROOT%\requirements.txt" fastapi uvicorn transformers==4.48.3
 if errorlevel 1 exit /b 1
@@ -47,7 +49,8 @@ for %%F in (configuration_florence2.py modeling_florence2.py processing_florence
 )
 
 echo.
-echo Done. Next: scripts\start_omniparser.bat
+echo Done. Next: scripts\start_omniparser.bat  (RTX 50 auto CPU; campus GPU: b_group2_intranet_setup.py)
+echo Optional GPU on RTX 50: scripts\upgrade_omni_pytorch_cu128.bat
 echo Then:  scripts\start_server.bat
 
 endlocal
