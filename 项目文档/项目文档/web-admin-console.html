@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAJIMI Admin — Web 管理控制台</title>
+<style>
+  :root {
+    --bg: #f0f2f5;
+    --card: #fff;
+    --text: #2c3e50;
+    --sub: #7f8c8d;
+    --accent: #409EFF;
+    --green: #27ae60;
+    --orange: #e67e22;
+    --red: #e74c3c;
+    --nav-bg: #304156;
+    --nav-active: #3A5268;
+    --border: #e8ecf1;
+    --shadow: 0 2px 12px rgba(0,0,0,0.06);
+    --radius: 8px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--bg);
+    font-family: -apple-system, BlinkMacSystemFont, 'Microsoft YaHei', 'PingFang SC', sans-serif;
+    min-height: 100vh; display: flex; user-select: none;
+  }
+
+  /* ===== 侧边导航 ===== */
+  .nav {
+    width: 200px; background: var(--nav-bg);
+    display: flex; flex-direction: column;
+    position: fixed; top:0; left:0; bottom:0; z-index: 10;
+  }
+  .nav .logo {
+    padding: 18px 16px; color: #fff;
+    font-size: 16px; font-weight: 700;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .nav .logo span { font-size: 10px; color: #8ab4f8; display: block; font-weight: 400; }
+  .nav a {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 20px; color: #bfcbd9; font-size: 13px;
+    text-decoration: none; cursor: pointer; transition: all 0.2s;
+    border-left: 3px solid transparent;
+  }
+  .nav a:hover { background: rgba(255,255,255,0.04); color: #fff; }
+  .nav a.active {
+    background: var(--nav-active); color: #fff;
+    border-left-color: var(--accent);
+  }
+  .nav a .badge {
+    margin-left: auto; background: var(--red);
+    color: #fff; font-size: 10px; padding: 1px 6px;
+    border-radius: 8px; min-width: 18px; text-align: center;
+  }
+
+  /* ===== 主内容区 ===== */
+  .main-area {
+    margin-left: 200px; flex: 1;
+    padding: 20px 24px; display: flex; flex-direction: column; gap: 16px;
+  }
+  .page-header {
+    font-size: 18px; font-weight: 700; color: var(--text);
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+
+  /* ===== 页面容器 ===== */
+  .page { display: none; flex-direction: column; gap: 16px; }
+  .page.active { display: flex; }
+
+  /* ===== 登录页 ===== */
+  .login-wrap {
+    position: fixed; inset: 0; z-index: 100;
+    background: linear-gradient(135deg, #1a3a5c 0%, #2d5a87 100%);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .login-wrap.hidden { display: none; }
+  .login-card {
+    background: #fff; border-radius: 12px; padding: 40px 36px;
+    width: 400px; box-shadow: 0 16px 48px rgba(0,0,0,0.18);
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .login-card .brand-strip {
+    width: 4px; height: 48px; background: var(--accent);
+    border-radius: 2px; position: absolute; left: 0; top: 36px;
+  }
+  .login-card .login-header {
+    position: relative; padding-left: 16px;
+  }
+  .login-card .login-header h2 { font-size: 20px; color: var(--text); }
+  .login-card .login-header p  { font-size: 12px; color: var(--sub); margin-top: 2px; }
+  .login-card input {
+    width: 100%; padding: 10px 14px; border-radius: 6px;
+    border: 1.5px solid var(--border); font-size: 13px;
+    font-family: inherit; outline: none; transition: border 0.2s;
+  }
+  .login-card input:focus { border-color: var(--accent); }
+  .login-card .login-btn {
+    width: 100%; padding: 10px; border-radius: 6px;
+    border: none; background: var(--accent); color: #fff;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .login-card .login-btn:hover { background: #337ecc; }
+  .login-card .extra { font-size: 11px; color: var(--sub); text-align: center; }
+
+  /* ===== 统计卡片行 ===== */
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .stat-card {
+    background: var(--card); border-radius: var(--radius);
+    padding: 16px 20px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .stat-card .stat-num { font-size: 26px; font-weight: 700; color: var(--text); }
+  .stat-card .stat-label { font-size: 12px; color: var(--sub); }
+  .stat-card.c1 { border-left: 3px solid #409EFF; }
+  .stat-card.c2 { border-left: 3px solid #27ae60; }
+  .stat-card.c3 { border-left: 3px solid #e67e22; }
+  .stat-card.c4 { border-left: 3px solid #9b59b6; }
+
+  /* ===== 图表区 ===== */
+  .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .chart-box {
+    background: var(--card); border-radius: var(--radius);
+    padding: 16px 20px; box-shadow: var(--shadow);
+    min-height: 200px;
+  }
+  .chart-box h4 { font-size: 13px; color: var(--text); margin-bottom: 12px; }
+  .chart-full {
+    background: var(--card); border-radius: var(--radius);
+    padding: 16px 20px; box-shadow: var(--shadow);
+  }
+  .chart-full h4 { font-size: 13px; color: var(--text); margin-bottom: 12px; }
+
+  /* 简易图表 */
+  .pie { display: flex; align-items: center; gap: 20px; }
+  .pie-ring {
+    width: 100px; height: 100px; border-radius: 50%;
+    background: conic-gradient(#409EFF 0% 70%, #e67e22 70% 100%);
+  }
+  .pie-legend { font-size: 11px; }
+  .pie-legend div { margin: 4px 0; display: flex; align-items: center; gap: 6px; }
+  .pie-legend .swatch {
+    width: 10px; height: 10px; border-radius: 2px; display: inline-block;
+  }
+
+  .line-chart {
+    display: flex; align-items: flex-end; gap: 10px; height: 120px;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .line-bar {
+    flex: 1; border-radius: 3px 3px 0 0;
+    background: linear-gradient(to top, #409EFF, #6db3f2);
+    min-width: 20px; position: relative;
+  }
+  .line-bar span {
+    position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
+    font-size: 9px; color: var(--sub);
+  }
+  .line-labels { display: flex; gap: 10px; font-size: 9px; color: var(--sub); margin-top: 4px; }
+  .line-labels span { flex: 1; text-align: center; min-width: 20px; }
+
+  .bar-chart {
+    display: flex; align-items: flex-end; gap: 16px; height: 140px;
+    padding: 10px 0;
+  }
+  .bar-col {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .bar-col .bar {
+    width: 100%; max-width: 50px; border-radius: 3px 3px 0 0;
+    transition: height 0.5s ease;
+  }
+  .bar-col .bar-label { font-size: 9px; color: var(--sub); text-align: center; }
+  .bar-col .bar-val  { font-size: 10px; font-weight: 600; color: var(--text); }
+
+  /* ===== 表格 ===== */
+  .table-wrap {
+    background: var(--card); border-radius: var(--radius);
+    box-shadow: var(--shadow); overflow: hidden;
+  }
+  .table-toolbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+  }
+  .table-toolbar .filter-tag {
+    font-size: 11px; padding: 4px 12px; border-radius: 12px;
+    cursor: pointer; border: 1px solid var(--border); background: #fafbfc; color: var(--sub);
+  }
+  .table-toolbar .filter-tag.on { background: #ebf3fb; border-color: var(--accent); color: var(--accent); }
+  .table-toolbar input {
+    padding: 6px 12px; border-radius: 14px; border: 1px solid var(--border);
+    font-size: 11px; outline: none; margin-left: auto; width: 180px;
+  }
+  table {
+    width: 100%; border-collapse: collapse; font-size: 12px;
+  }
+  th { text-align: left; padding: 10px 14px; color: var(--text); font-weight: 600;
+       background: #fafbfc; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--border); color: var(--sub); }
+  tr:nth-child(even) td { background: #fafbfc; }
+  .tag {
+    font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600;
+  }
+  .tag.ok     { background: #e8f8f0; color: var(--green); }
+  .tag.wait   { background: #fef5e7; color: var(--orange); }
+  .tag.reject { background: #fdeaea; color: var(--red); }
+  .action-link { color: var(--accent); cursor: pointer; font-size: 11px; }
+  .action-link:hover { text-decoration: underline; }
+
+  /* ===== 分页 ===== */
+  .pager {
+    display: flex; align-items: center; justify-content: flex-end;
+    gap: 6px; padding: 10px 14px; font-size: 11px; color: var(--sub);
+  }
+  .pager span {
+    width: 26px; height: 26px; display: flex; align-items: center;
+    justify-content: center; border-radius: 4px; cursor: pointer;
+    border: 1px solid var(--border);
+  }
+  .pager span.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* ===== 弹窗 ===== */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+    z-index: 200; display: none; align-items: center; justify-content: center;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: #fff; border-radius: 10px; width: 500px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.15); padding: 24px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .modal h3 { font-size: 16px; color: var(--text); }
+  .modal .steps-preview {
+    background: #fafbfc; border-radius: 6px; padding: 12px 16px;
+    font-size: 12px; line-height: 1.8; color: var(--text);
+  }
+  .modal .btn-row { display: flex; gap: 8px; justify-content: flex-end; }
+  .modal button {
+    padding: 7px 18px; border-radius: 6px; border: 1px solid var(--border);
+    background: #fff; cursor: pointer; font-size: 12px;
+  }
+  .modal button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .modal button.danger  { color: var(--red); border-color: var(--red); }
+
+  /* ===== 失败分析页 ===== */
+  .fail-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .fail-panel {
+    background: var(--card); border-radius: var(--radius);
+    padding: 16px 20px; box-shadow: var(--shadow);
+  }
+  .fail-panel h4 { font-size: 13px; color: var(--text); margin-bottom: 12px; }
+  .fail-bar-row {
+    display: flex; align-items: center; gap: 10px; margin: 8px 0;
+  }
+  .fail-bar-row .fname { font-size: 11px; color: var(--sub); width: 140px; text-align: right; }
+  .fail-bar-row .fbar {
+    flex: 1; height: 22px; border-radius: 3px;
+    display: flex; align-items: center; padding-left: 8px;
+    font-size: 10px; color: #fff; font-weight: 600; transition: width 0.5s;
+  }
+  .detail-row { display: flex; margin: 6px 0; font-size: 11px; }
+  .detail-row .dl { color: var(--sub); width: 100px; flex-shrink: 0; }
+  .detail-row .dv { color: var(--text); }
+
+  /* ===== 配置页 ===== */
+  .config-form {
+    background: var(--card); border-radius: var(--radius);
+    padding: 20px 24px; box-shadow: var(--shadow);
+  }
+  .config-row {
+    display: flex; align-items: center; padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .config-row:last-child { border: none; }
+  .config-row .clabel { width: 180px; font-size: 13px; color: var(--text); flex-shrink: 0; }
+  .config-row .cvalue { flex: 1; font-size: 13px; color: var(--sub); }
+  .config-row input[type="range"] { width: 200px; margin: 0 10px; }
+  .config-row select, .config-row input[type="text"] {
+    padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border);
+    font-size: 12px; font-family: inherit; width: 260px;
+  }
+  .config-actions { display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end; }
+  .config-actions button {
+    padding: 8px 20px; border-radius: 6px; border: 1px solid var(--border);
+    background: #fff; cursor: pointer; font-size: 13px;
+  }
+  .config-actions .primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* ===== Toast ===== */
+  .toast {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--green); color: #fff; padding: 8px 20px;
+    border-radius: 6px; font-size: 13px; z-index: 300;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- ===== 登录页 ===== -->
+<div class="login-wrap" id="loginPage">
+  <div class="login-card" style="position:relative;">
+    <div class="brand-strip"></div>
+    <div class="login-header">
+      <h2>HAJIMI Admin</h2>
+      <p>管理控制台</p>
+    </div>
+    <input type="text" id="loginUser" placeholder="用户名" value="admin" />
+    <input type="password" id="loginPwd" placeholder="密码" value="123456" />
+    <label style="font-size:11px;color:var(--sub);">
+      <input type="checkbox" checked /> 记住密码
+    </label>
+    <button class="login-btn" onclick="doLogin()">登  录</button>
+    <div class="extra">智能桌面指引助手 · 管理控制台 v1.0</div>
+  </div>
+</div>
+
+<!-- ===== 侧边导航 ===== -->
+<nav class="nav" id="sidebar">
+  <div class="logo">HAJIMI Admin<span>智能桌面指引助手</span></div>
+  <a data-page="config">系统配置</a>
+  <a data-page="monitor">健康监控</a>
+  <div style="margin-top:auto;padding:12px 20px;font-size:10px;color:#57697c;">
+    在线客户端: <span style="color:#27ae60;">42</span><br>
+    运行时间: 3d 14h
+  </div>
+</nav>
+
+<!-- ===== 主内容区 ===== -->
+<div class="main-area" id="mainArea">
+
+  <!-- ===== 仪表盘 ===== -->
+  <div class="page active" id="page-dashboard">
+    <div class="page-header">仪表盘</div>
+    <div class="stat-row">
+      <div class="stat-card c1">
+        <div class="stat-num">1,247</div><div class="stat-label">今日事务量</div>
+      </div>
+      <div class="stat-card c2">
+        <div class="stat-num">42</div><div class="stat-label">在线客户端</div>
+      </div>
+      <div class="stat-card c3">
+        <div class="stat-num">89%</div><div class="stat-label">有用率</div>
+      </div>
+      <div class="stat-card c4">
+        <div class="stat-num">$3.20</div><div class="stat-label">API 费用预估</div>
+      </div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-box">
+        <h4>L2 / L3 处理路径占比</h4>
+        <div class="pie">
+          <div class="pie-ring"></div>
+          <div class="pie-legend">
+            <div><span class="swatch" style="background:#409EFF;"></span> L2 快路径 70% (872)</div>
+            <div><span class="swatch" style="background:#e67e22;"></span> L3 慢路径 30% (374)</div>
+          </div>
+        </div>
+      </div>
+      <div class="chart-box">
+        <h4>24h 响应时长趋势 (ms)</h4>
+        <div class="line-chart">
+          <div class="line-bar" style="height:45%;"><span>420</span></div>
+          <div class="line-bar" style="height:55%;"><span>510</span></div>
+          <div class="line-bar" style="height:38%;"><span>380</span></div>
+          <div class="line-bar" style="height:70%;"><span>680</span></div>
+          <div class="line-bar" style="height:50%;"><span>490</span></div>
+          <div class="line-bar" style="height:35%;"><span>350</span></div>
+          <div class="line-bar" style="height:60%;"><span>560</span></div>
+          <div class="line-bar" style="height:42%;"><span>410</span></div>
+        </div>
+        <div class="line-labels">
+          <span>00:00</span><span>03:00</span><span>06:00</span><span>09:00</span>
+          <span>12:00</span><span>15:00</span><span>18:00</span><span>21:00</span>
+        </div>
+      </div>
+    </div>
+    <div class="chart-full">
+      <h4>高频任务 TOP 10</h4>
+      <div class="bar-chart">
+        <div class="bar-col"><div class="bar-val">352</div><div class="bar" style="height:100px;background:#409EFF;"></div><div class="bar-label">安装软件</div></div>
+        <div class="bar-col"><div class="bar-val">281</div><div class="bar" style="height:80px;background:#409EFF;"></div><div class="bar-label">找设置项</div></div>
+        <div class="bar-col"><div class="bar-val">204</div><div class="bar" style="height:58px;background:#409EFF;"></div><div class="bar-label">清理磁盘</div></div>
+        <div class="bar-col"><div class="bar-val">189</div><div class="bar" style="height:54px;background:#27ae60;"></div><div class="bar-label">图标含义</div></div>
+        <div class="bar-col"><div class="bar-val">156</div><div class="bar" style="height:44px;background:#27ae60;"></div><div class="bar-label">回退操作</div></div>
+        <div class="bar-col"><div class="bar-val">134</div><div class="bar" style="height:38px;background:#27ae60;"></div><div class="bar-label">复制粘贴</div></div>
+        <div class="bar-col"><div class="bar-val">98</div><div class="bar" style="height:28px;background:#e67e22;"></div><div class="bar-label">连接WiFi</div></div>
+        <div class="bar-col"><div class="bar-val">87</div><div class="bar" style="height:25px;background:#e67e22;"></div><div class="bar-label">打印机</div></div>
+        <div class="bar-col"><div class="bar-val">62</div><div class="bar" style="height:18px;background:#e67e22;"></div><div class="bar-label">翻译文字</div></div>
+        <div class="bar-col"><div class="bar-val">45</div><div class="bar" style="height:13px;background:#e67e22;"></div><div class="bar-label">导出教程</div></div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ===== 失败归因分析 ===== -->
+  <div class="page" id="page-failures">
+    <div class="page-header">失败归因分析</div>
+    <div class="fail-layout">
+      <div class="fail-panel">
+        <h4>失败类型 TOP 10</h4>
+        <div class="fail-bar-row">
+          <span class="fname">蓝图指纹不匹配</span>
+          <div class="fbar" style="width:100%;background:#e74c3c;">42</div>
+        </div>
+        <div class="fail-bar-row">
+          <span class="fname">LLM API 调用超时</span>
+          <div class="fbar" style="width:43%;background:#e67e22;">18</div>
+        </div>
+        <div class="fail-bar-row">
+          <span class="fname">UI 解析元素丢失</span>
+          <div class="fbar" style="width:29%;background:#f39c12;">12</div>
+        </div>
+        <div class="fail-bar-row">
+          <span class="fname">用户主动中止任务</span>
+          <div class="fbar" style="width:19%;background:#3498db;">8</div>
+        </div>
+        <div class="fail-bar-row">
+          <span class="fname">红线检测误拦截</span>
+          <div class="fbar" style="width:12%;background:#9b59b6;">5</div>
+        </div>
+      </div>
+      <div class="fail-panel" style="background:#fef9e7;border:1px solid #f9e79f;">
+        <h4>失败详情: Task #a3f2</h4>
+        <div class="detail-row"><span class="dl">任务名称</span><span class="dv">"安装微信"</span></div>
+        <div class="detail-row"><span class="dl">处理路径</span><span class="dv">L3 慢路径 (GPT-4V)</span></div>
+        <div class="detail-row"><span class="dl">失败步骤</span><span class="dv" style="color:#e74c3c;">Step 2 / 5</span></div>
+        <div class="detail-row"><span class="dl">预期指纹</span><span class="dv">SHA256(Word文档 + button)</span></div>
+        <div class="detail-row"><span class="dl">实际指纹</span><span class="dv" style="color:#e74c3c;">SHA256(Chrome + download)</span></div>
+        <div class="detail-row"><span class="dl">根因分析</span><span class="dv">用户切换了窗口，蓝图预期与当前屏幕不匹配</span></div>
+        <div class="detail-row"><span class="dl">LLM 输入快照</span><span class="dv" style="color:var(--accent);cursor:pointer;">[ 展开查看 ]</span></div>
+        <div class="detail-row"><span class="dl">LLM 输出快照</span><span class="dv" style="color:var(--accent);cursor:pointer;">[ 展开查看 ]</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 系统配置 ===== -->
+  <div class="page" id="page-config">
+    <div class="page-header">系统配置</div>
+    <div class="config-form">
+      <div class="config-row">
+        <span class="clabel">置信度阈值</span>
+        <input type="range" min="50" max="100" value="80" oninput="this.nextElementSibling.textContent=this.value+'%'" />
+        <span>80%</span>
+      </div>
+      <div class="config-row">
+        <span class="clabel">LLM API 端点</span>
+        <input type="text" value="https://api.openai.com/v1" />
+      </div>
+      <div class="config-row">
+        <span class="clabel">LLM 模型名称</span>
+        <select><option>gpt-4-vision-preview</option><option>gpt-4o</option><option>qwen-vl-max</option></select>
+      </div>
+      <div class="config-row">
+        <span class="clabel">模板匹配相似度阈值</span>
+        <input type="range" min="50" max="100" value="90" oninput="this.nextElementSibling.textContent=this.value+'%'" />
+        <span>90%</span>
+      </div>
+      <div class="config-row">
+        <span class="clabel">最大蓝图步骤数</span>
+        <input type="text" value="15" style="width:80px;" />
+      </div>
+      <div class="config-row">
+        <span class="clabel">Token 超限阈值</span>
+        <input type="text" value="8000" style="width:100px;" />
+      </div>
+      <div class="config-row">
+        <span class="clabel">客户端配置拉取间隔</span>
+        <input type="text" value="30" style="width:60px;" /> 分钟
+      </div>
+      <div class="config-row">
+        <span class="clabel">审计上报批量大小</span>
+        <input type="text" value="10" style="width:60px;" /> 条
+      </div>
+      <div class="config-row">
+        <span class="clabel">离线 TTS 引擎</span>
+        <select><option>pyttsx3</option><option>Vosk</option><option>Azure TTS</option></select>
+      </div>
+      <div class="config-actions">
+        <button onclick="toastMsg('已恢复默认配置')">恢复默认</button>
+        <button class="primary" onclick="toastMsg('配置已热部署，客户端下次拉取生效')">热部署 &gt;&gt;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 健康监控 ===== -->
+  <div class="page" id="page-monitor">
+    <div class="page-header">系统健康监控</div>
+    <div class="stat-row">
+      <div class="stat-card c1">
+        <div class="stat-num" style="font-size:22px;">42</div><div class="stat-label">在线客户端数</div>
+      </div>
+      <div class="stat-card c2">
+        <div class="stat-num" style="font-size:22px;">612 ms</div><div class="stat-label">平均响应时长</div>
+      </div>
+      <div class="stat-card c3">
+        <div class="stat-num" style="font-size:22px;">99.2%</div><div class="stat-label">服务可用率</div>
+      </div>
+      <div class="stat-card c4">
+        <div class="stat-num" style="font-size:22px;">1.2 GB</div><div class="stat-label">内存占用</div>
+      </div>
+    </div>
+    <div class="chart-full">
+      <h4>最近告警</h4>
+      <div class="notif warn" style="margin:6px 0;">
+        <span class="nicon">!</span>
+        <div><strong>2025-06-25 15:42</strong><br><span style="color:var(--sub)">LLM API 响应延迟升至 8.2s，超过阈值 6s</span></div>
+      </div>
+      <div class="notif" style="margin:6px 0;">
+        <span class="nicon">i</span>
+        <div><strong>2025-06-25 14:10</strong><br><span style="color:var(--sub)">配置热部署成功，当前 42 个客户端已拉取新配置</span></div>
+      </div>
+      <div class="notif" style="margin:6px 0;">
+        <span class="nicon">&#10003;</span>
+        <div><strong>2025-06-25 09:00</strong><br><span style="color:var(--sub)">每日健康检查通过：数据库连接正常、缓存命中率 94%、磁盘剩余 120GB</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== 审核弹窗 ===== -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h3 id="modalTitle">审核模板：安装打印机驱动</h3>
+    <div class="steps-preview" id="modalSteps">
+      步骤1：点击标签 ~3 打开「设置」应用<br>
+      步骤2：在搜索栏输入「打印机」<br>
+      步骤3：点击「添加打印机或扫描仪」<br>
+      步骤4：等待系统搜索，选择目标打印机<br>
+      步骤5：按向导完成驱动安装
+    </div>
+    <div class="btn-row">
+      <button class="danger" onclick="closeModal()">拒绝</button>
+      <button onclick="closeModal()">取消</button>
+      <button class="primary" onclick="closeModal();toastMsg('模板已审核通过，进入全局库 v1')">审核通过</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+
+<script>
+// ===== 登录 =====
+function doLogin() {
+  document.getElementById('loginPage').classList.add('hidden');
+}
+// 按回车也可登录
+document.getElementById('loginPwd').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// ===== 页面切换 =====
+const navLinks = document.querySelectorAll('.nav a[data-page]');
+const pages = document.querySelectorAll('.page');
+
+navLinks.forEach(a => {
+  a.addEventListener('click', () => {
+    navLinks.forEach(l => l.classList.remove('active'));
+    a.classList.add('active');
+    pages.forEach(p => p.classList.remove('active'));
+    document.getElementById('page-' + a.dataset.page).classList.add('active');
+  });
+});
+
+// ===== 弹窗 =====
+function showModal(action) {
+  const overlay = document.getElementById('modalOverlay');
+  if (action === '审核') {
+    document.getElementById('modalTitle').textContent = '审核模板：安装打印机驱动';
+  } else {
+    document.getElementById('modalTitle').textContent = '下架模板确认';
+    document.getElementById('modalSteps').textContent = '确定要下架该模板吗？下架后客户端将无法匹配到此模板。';
+  }
+  overlay.classList.add('show');
+}
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('show');
+}
+document.getElementById('modalOverlay').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+// ===== Toast =====
+function toastMsg(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ===== 筛选标签切换 =====
+document.querySelectorAll('.filter-tag').forEach(tag => {
+  tag.addEventListener('click', function() {
+    this.parentElement.querySelectorAll('.filter-tag').forEach(t => t.classList.remove('on'));
+    this.classList.add('on');
+  });
+});
+
+// ===== LLM 快照展开 =====
+document.querySelectorAll('.detail-row .dv').forEach(el => {
+  if (el.textContent.includes('展开查看')) {
+    el.addEventListener('click', () => {
+      el.textContent = el.textContent.includes('展开')
+        ? '[ 已折叠 ] 快照内容过长已隐藏'
+        : '[ 展开查看 ]';
+    });
+  }
+});
+
+console.log('HAJIMI Admin Console ready.');
+console.log('  Pages: 总览 | 失败归因 | 数据流监控 | 系统配置 | 健康监控');
+console.log('  Login: click login or press Enter');
+</script>
+
+</body>
+</html>
