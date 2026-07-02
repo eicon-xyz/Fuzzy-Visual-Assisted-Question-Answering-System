@@ -17,6 +17,33 @@
       </el-col>
     </el-row>
 
+    <!-- GPU 状态 (OmniParser 校园网 GPU 服务器) -->
+    <el-row :gutter="16" style="margin-bottom: 16px" v-if="gpuInfo">
+      <el-col :span="6">
+        <el-card shadow="hover">
+          <div style="display: flex; align-items: center; gap: 12px">
+            <div :style="{ width: '48px', height: '48px', borderRadius: '12px', background: gpuInfo.ready ? '#e8f8e8' : '#fde8e8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px' }">
+              🖥
+            </div>
+            <div>
+              <p style="color: #909399; font-size: 12px; margin: 0">GPU 服务器</p>
+              <p style="font-size: 14px; font-weight: 600; color: #303133; margin: 2px 0">{{ gpuInfo.gpu_name || 'NVIDIA A800' }}</p>
+              <el-tag :type="gpuInfo.ready ? 'success' : 'danger'" size="small">{{ gpuInfo.ready ? '就绪' : '离线' }}</el-tag>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="6" v-if="gpuInfo.vram_total_gb">
+        <el-card shadow="hover">
+          <p style="color: #909399; font-size: 12px">显存使用</p>
+          <p style="font-size: 20px; font-weight: 700; color: #303133; margin: 4px 0">
+            {{ (gpuInfo.vram_allocated_gb || 0).toFixed(1) }} / {{ gpuInfo.vram_total_gb }} GB
+          </p>
+          <el-progress :percentage="gpuInfo.vram_total_gb ? ((gpuInfo.vram_allocated_gb || 0) / gpuInfo.vram_total_gb * 100).toFixed(0) : 0" :stroke-width="8" />
+        </el-card>
+      </el-col>
+    </el-row>
+
     <!-- 组件状态 -->
     <el-card header="组件健康状态" style="margin-bottom: 16px">
       <div style="display: flex; gap: 16px; flex-wrap: wrap">
@@ -87,7 +114,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { fetchMonitorHealth, fetchAlerts, markAlertRead, markAllAlertsRead } from '../api/admin'
+import { fetchMonitorHealth, fetchAlerts, markAlertRead, markAllAlertsRead, fetchGpuProbe } from '../api/admin'
 
 const resources = ref([
   { icon: '🖥', label: 'CPU 使用率', value: '42%', bg: '#e8f4fd' },
@@ -98,6 +125,7 @@ const resources = ref([
 
 const components = ref([])
 const alerts = ref([])
+const gpuInfo = ref(null)
 
 const unreadCount = computed(() => alerts.value.filter(a => a.status === 'unread').length)
 
@@ -143,6 +171,19 @@ onMounted(async () => {
   try {
     const a = await fetchAlerts()
     alerts.value = a?.alerts || []
+  } catch {}
+  // GPU 状态
+  try {
+    const probe = await fetchGpuProbe()
+    if (probe) {
+      gpuInfo.value = {
+        ready: probe.ready,
+        gpu_name: probe.gpu?.name,
+        vram_total_gb: probe.gpu?.vram_total_gb,
+        vram_allocated_gb: probe.gpu?.vram_allocated_gb,
+        ocr_engine: probe.models?.ocr_engine,
+      }
+    }
   } catch {}
 })
 </script>

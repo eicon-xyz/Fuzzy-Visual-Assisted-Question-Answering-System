@@ -308,6 +308,33 @@ export async function fetchDeployLogs(limit = 20) {
   return api.get('/admin/config/deploy-logs', { params: { limit } })
 }
 
+// ═══════════════════════════════════════════
+//  GPU OmniParser 监控 (B端 GPU API)
+//  对应 B端-OmniParser-GPU-API部署文档 §六
+// ═══════════════════════════════════════════
+
+const GPU_API_URL = 'http://10.0.0.5:9800'  // 校园网 GPU 服务器，按实际 IP 修改
+
+/** GPU 健康检查 */
+export async function fetchGpuHealth() {
+  try {
+    const res = await fetch(`${GPU_API_URL}/health`, { signal: AbortSignal.timeout(5000) })
+    return await res.json()
+  } catch {
+    return null
+  }
+}
+
+/** GPU 详细探测 (含显存) */
+export async function fetchGpuProbe() {
+  try {
+    const res = await fetch(`${GPU_API_URL}/probe/`, { signal: AbortSignal.timeout(5000) })
+    return await res.json()
+  } catch {
+    return null
+  }
+}
+
 export default {
   setUseMock, isMockMode,
   fetchOverview, fetchTrend, fetchFeedback, fetchTopTasks, fetchRedline,
@@ -315,4 +342,5 @@ export default {
   fetchFlowTopology, fetchFlowMetrics, fetchFlowVersions,
   fetchMonitorHealth, fetchAlerts, markAlertRead, markAllAlertsRead,
   fetchConfigCurrent, deployConfig, fetchDeployLogs,
+  fetchGpuHealth, fetchGpuProbe,
 }

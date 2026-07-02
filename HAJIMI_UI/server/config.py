@@ -50,13 +50,13 @@ class Config:
     OMNIPARSER_MIN_AREA: int = int(os.getenv("OMNIPARSER_MIN_AREA", "100"))
     OMNIPARSER_TIMEOUT: int = int(os.getenv("OMNIPARSER_TIMEOUT", "60"))
     OMNIPARSER_LOCAL_URL: str = os.getenv(
-        "OMNIPARSER_LOCAL_URL", "http://127.0.0.1:8000"
+        "OMNIPARSER_LOCAL_URL", "http://127.0.0.1:9800"
     )
     OMNIPARSER_LOCAL_TIMEOUT: int = int(
-        os.getenv("OMNIPARSER_LOCAL_TIMEOUT", "360")
+        os.getenv("OMNIPARSER_LOCAL_TIMEOUT", "60")
     )
     OMNIPARSER_LOCAL_MAX_SIDE: int = int(
-        os.getenv("OMNIPARSER_LOCAL_MAX_SIDE", "960")
+        os.getenv("OMNIPARSER_LOCAL_MAX_SIDE", "3200")
     )
     ALLOW_DETECTOR_FALLBACK: bool = (
         os.getenv("ALLOW_DETECTOR_FALLBACK", "false").lower() == "true"

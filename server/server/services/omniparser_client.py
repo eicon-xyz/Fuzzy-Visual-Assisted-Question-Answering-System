@@ -20,6 +20,8 @@ from server.models.schemas import UIElement
 
 _OMNIPARSER_URL = settings.OMNIPARSER_URL.rstrip("/")
 _OMNIPARSER_TIMEOUT = settings.OMNIPARSER_TIMEOUT
+_OMNIPARSER_RETRY = getattr(settings, "OMNIPARSER_RETRY", 1)
+_OMNIPARSER_RETRY_DELAY = getattr(settings, "OMNIPARSER_RETRY_DELAY", 3.0)
 
 # Regex to strip data URI prefix, e.g. "data:image/png;base64,"
 _DATA_URI_RE = re.compile(r"^data:image/\w+;base64,")
@@ -80,17 +82,25 @@ def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
     url = f"{_OMNIPARSER_URL}/parse"
     payload = {"image": payload_base64}
 
-    t_start = time.time()
-    try:
-        with httpx.Client(timeout=_OMNIPARSER_TIMEOUT) as client:
-            response = client.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-    except Exception as exc:
-        print(f"[OmniParser Client] parser unavailable or request failed: {exc}")
+    last_exc = None
+    for attempt in range(_OMNIPARSER_RETRY + 1):
+        if attempt > 0:
+            time.sleep(_OMNIPARSER_RETRY_DELAY)
+        try:
+            t_start = time.time()
+            with httpx.Client(timeout=_OMNIPARSER_TIMEOUT) as client:
+                response = client.post(url, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                break  # success, exit retry loop
+        except Exception as exc:
+            last_exc = exc
+            print(f"[OmniParser Client] attempt {attempt+1}/{_OMNIPARSER_RETRY+1} failed: {exc}")
+    else:
+        # All retries exhausted
+        latency_ms = int((time.time() - t_start) * 1000) if 't_start' in dir() else 0
+        print(f"[OmniParser Client] all retries exhausted: {last_exc}")
         return ParseResult()
-    finally:
-        latency_ms = int((time.time() - t_start) * 1000)
 
     if data.get("error"):
         print(f"[OmniParser Client] parser returned error: {data['error']}")
