@@ -12,7 +12,7 @@ info:
       - **Web 管理面板**（Vue3 + Element-Plus）：管理员通过浏览器访问，
         调用全部 `/api/admin/*` 接口
 
-    **覆盖接口**：20 个端点（审计 2 + 配置 3 + 管理控制台 13 + 系统 2）
+    **覆盖接口**：23 个端点（审计 2 + 配置 3 + 管理控制台 13 + 模板 3 + 系统 2）
 
     参考文档：
     - 《HAJIMI 管理控制台设计文档 V2.1》§五 数据接口定义
@@ -50,7 +50,7 @@ components:
       bearerFormat: JWT
       description: |
         Web 管理面板登录后获取的 JWT Access Token（有效期 2 小时）。
-        适用于全部 `/api/admin/*` 端点。
+        适用于全部 `/api/admin/*` 端点（模板匹配除外）。
         Token 通过 `POST /api/auth/login` 获取。
       x-applies-to: ["/api/admin/"]
 

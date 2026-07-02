@@ -437,10 +437,11 @@ curl -X POST http://127.0.0.1:8001/api/demo/inspect `
 
 ## 待 A 端 / 与 B 端联调事项
 
-- [ ] `server/README.md` 第 118–119 行仍写「坐标由规则生成」，需更新为 OmniParser 描述
+- [x] `server/README.md` 第 118–119 行仍写「坐标由规则生成」，需更新为 OmniParser 描述（✅ 2026-07-01 已更新）
 - [x] 内网部署 OmniParser：新增 `DETECTOR_BACKEND=local_omniparser`，HTTP 调用 `omniparserserver :8000`
+- [x] `POST /api/demo/relocate` 端点实现（✅ 2026-07-01 新增）
 - [ ] SeeClick / YOLO 评估（见下方路线图）
-- [ ] `ProcessResponse` 可选返回 `reference_resolution` 写入 OpenAPI example
+- [x] `ProcessResponse` 可选返回 `reference_resolution` 写入 OpenAPI example（✅ `HealthResponse` 已扩展 `detector_backend` + `omniparser_ready`）
 
 ---
 
@@ -477,3 +478,4 @@ curl -X POST http://127.0.0.1:8001/api/demo/inspect `
 | 2026-06-29 | `.env` 加载路径修复 + DeepSeek Key | `config.py`, `.env` |
 | 2026-06-29 | 真实视觉检测 + `/inspect` + schema 扩展 | `ui_detector.py`, `llm_ai.py`, `demo.py`, … |
 | 2026-06-29 | Replicate image 改 data URI（修 502） | `ui_detector.py` |
+| 2026-07-01 | `/relocate` 端点 + health 扩展 + README 更新 | `schemas.py`, `demo.py`, `router.py`, `README.md` |

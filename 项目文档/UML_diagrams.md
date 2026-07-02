@@ -87,7 +87,7 @@ mindmap
 
 ### 文字描述
 
-展示从用户提问到获得指引的完整系统交互时序，涵盖L2快路径（<3秒）和L3慢路径（全视觉推理，5~10秒）两条路径，以及异常挂起恢复、审计上报闭环。
+展示从用户提问到获得指引的完整系统交互时序，涵盖L2快路径（模板匹配辅助，<3秒）和L3慢路径（全视觉推理，5~10秒）两条路径，以及异常挂起恢复、审计上报闭环。
 
 ### Mermaid 代码
 
@@ -108,13 +108,20 @@ sequenceDiagram
         Client-->>Widget: 标准拒答/降级话术
         Widget-->>User: 显示安全提示
     else 通过红线检测
-        Note over Client: === 意图理解 ===
-        Client->>Client: 结构化解析 + 指代消解
-        alt 置信度 < 80%
-            Client-->>Widget: 主动澄清问题
-            Widget-->>User: 显示探测性问题
-            User->>Widget: 选择/回答
-            Widget->>Client: 更新意图锚点
+        Note over Client,Server: === 模板匹配（服务端辅助查询）===
+        Client->>Server: POST /api/templates/match
+        alt 命中预置模板
+            Server-->>Client: 返回预制蓝图 (≤500ms)
+            Note over Client: 跳转至执行层
+        else 未命中
+            Server-->>Client: null
+            Note over Client: === 意图理解 ===
+            Client->>Client: 结构化解析 + 指代消解
+            alt 置信度 < 80%
+                Client-->>Widget: 主动澄清问题
+                Widget-->>User: 显示探测性问题
+                User->>Widget: 选择/回答
+                Widget->>Client: 更新意图锚点
             end
 
             Note over Client: === L2/L3 路径判断 ===
@@ -144,6 +151,12 @@ sequenceDiagram
 
         Note over Client,Server: === 审计上报 ===
         Client->>Server: POST /api/audit/report (异步批量)
+        Server->>Server: 存入待审核模板库
+
+        Note over Server,Admin: === 管理员闭环(离线) ===
+        Server->>Admin: 待审核模板列表
+        Admin->>Server: 审核通过 → 一键发布
+        Server->>Server: 模板进入全局库 (版本+1)
     end
 ```
 
@@ -161,13 +174,13 @@ sequenceDiagram
 graph TB
     subgraph Server["HAJIMI Server (服务端)"]
         direction TB
-        S1["配置管理模块"]
+        S1["模板管理模块"]
         S2["管理员Web控制台"]
         S3["数据持久化模块"]
         S4["配置下发模块"]
         
-        S1 --> S11["配置查询接口"]
-        S1 --> S12["配置热部署"]
+        S1 --> S11["模板匹配接口"]
+        S1 --> S12["模板审核发布"]
         S1 --> S13["版本控制"]
         
         S2 --> S21["仪表盘首页"]
@@ -177,7 +190,7 @@ graph TB
         
         S3 --> S31["事务日志存储"]
         S3 --> S32["步骤明细存储"]
-        S3 --> S33["反馈数据管理"]
+        S3 --> S33["模板库管理"]
         S3 --> S34["反馈数据管理"]
         
         S4 --> S41["配置热部署"]
@@ -206,8 +219,9 @@ graph TB
         C21 --> C212["指代消解"]
         C21 --> C213["主动澄清"]
         
-        C22 --> C221["L2快路径 <3s"]
-        C22 --> C222["L3慢路径 5-10s"]
+        C22 --> C221["模板匹配匹配 <500ms"]
+        C22 --> C222["L2快路径 <3s"]
+        C22 --> C223["L3慢路径 5-10s"]
         
         C3 --> C31["屏幕标注渲染(ANNO)"]
         C3 --> C32["文字步骤展示(TEXT)"]
@@ -285,6 +299,21 @@ erDiagram
         varchar error_code "错误码"
     }
     
+    Template {
+        string template_id PK "UUID主键"
+        string name "模板名称"
+        json constant_steps_json "恒定步骤数组"
+        text trigger_keywords "触发关键词"
+        varchar intent_category "意图分类"
+        string source_task_id "来源任务ID"
+        string source_user_id "来源用户ID"
+        enum status "pending/approved/rejected/archived"
+        string reviewer_id "审核人ID"
+        int version "版本号"
+        int use_count "使用次数"
+        float useful_rate "有用率"
+    }
+    
     Feedback {
         string feedback_id PK "UUID主键"
         string task_id FK "关联Transaction"
@@ -319,7 +348,7 @@ graph TB
     subgraph ServerSide["HAJIMI Server"]
         direction TB
         API["API接口层<br/>FastAPI + WebSocket"]
-        BIZ["业务逻辑层<br/>审计日志处理 / 配置管理"]
+        BIZ["业务逻辑层<br/>模板匹配引擎 / 审计日志处理 / 配置管理"]
         DATA["数据持久层<br/>SQLAlchemy ORM<br/>PostgreSQL / SQLite"]
 
         API --> BIZ --> DATA
@@ -445,13 +474,14 @@ graph TB
         B3["蓝图状态机<br/>状态模式"]
         B4["标注渲染引擎<br/>QPainter"]
         B5["红线检测器<br/>关键词+语义匹配"]
-        B6["审计日志处理器<br/>批量写入 + 异常分类"]
+        B6["模板匹配引擎<br/>TF-IDF + 余弦相似度"]
+        B7["审计日志处理器<br/>批量写入 + 异常分类"]
         B8["配置管理器<br/>版本控制 + 热部署"]
     end
 
     subgraph DATA_L["数据层 (Data)"]
         D1["客户端SQLite<br/>事务缓存 + 配置"]
-        D2["服务端PostgreSQL<br/>事务日志 + 反馈数据"]
+        D2["服务端PostgreSQL<br/>事务日志 + 模板库"]
         D3["Redis缓存<br/>配置加速 + 会话"]
         D4["SQLAlchemy ORM<br/>统一数据访问"]
     end
@@ -479,7 +509,7 @@ HAJIMI桌面挂件的UI布局示意图。
 
 ```
 ┌──────────────────────────────────┐
-│  🟢 HAJIMI 智能指引           │ ← 状态栏 (30px)
+│  🟢 HAJIMI 智能指引    ⚡模板匹配  │ ← 状态栏 (30px)
 │                         12:30     │
 ├──────────────────────────────────┤
 │  ┌──────────────────────────┐    │
@@ -523,6 +553,7 @@ HAJIMI桌面挂件的UI布局示意图。
 状态指示器:
   - 在线: 绿色圆点(#4CAF50) + "HAJIMI 智能指引"
   - 模式标签: 圆角胶囊形背景
+    - 模板匹配: 绿色背景 "#模板匹配"
     - L2快速: 蓝色背景 "#快速响应"
     - L3深度: 紫色背景 "#深度推理"
 
@@ -634,7 +665,7 @@ Web管理控制台(Vue3 + Element-Plus)的5个核心页面布局描述。
 
 ```
 ┌──────────────────────────────────────────────┐
-│  🏠 仪表盘    ⚙️ 配置  📊 归因  │ ← 侧边导航
+│  🏠 仪表盘    📋 模板审核  ⚙️ 配置  📊 归因  │ ← 侧边导航
 ├──────────────────────────────────────────────┤
 │  统计卡片行:                                   │
 │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐        │
@@ -654,23 +685,32 @@ Web管理控制台(Vue3 + Element-Plus)的5个核心页面布局描述。
 └──────────────────────────────────────────────┘
 ```
 
-### 图12 — 系统配置页
+### 图12 — 模板审核列表
 
 ```
 ┌──────────────────────────────────────────────┐
-│  系统配置页                                   │
+│  模板审核列表                    [+ 新建模板] │
 ├──────────────────────────────────────────────┤
+│  筛选: [全部▼] [待审核] [已发布] [已拒绝]     │
+│  搜索: [________________] 🔍                 │
 │                                              │
-│  置信度阈值: [========|========] 80%         │
-│  最大蓝图步骤数: [========|====] 15          │
-│  LLM API 端点: [https://api.openai.com/v1]   │
-│  LLM 模型: [gpt-4o]                          │
-│  Token 限制: [====|============] 8000        │
-│  配置轮询间隔: [====|============] 30min     │
-│  审计批量大小: [===|=============] 10        │
-│  离线TTS引擎: [pyttsx3]                      │
+│  ┌──────────────────────────────────────┐    │
+│  │ 模板名称    │关键词    │版本│状态│操作│    │
+│  ├──────────────────────────────────────┤    │
+│  │ 安装微信    │安装,微信 │ v3 │待审│[审]│   │
+│  │ 设置打印机  │打印机    │ v1 │已发│[下]│   │
+│  │ 清理C盘    │清理,C盘  │ v2 │待审│[审]│   │
+│  │ ...        │...       │... │... │... │    │
+│  └──────────────────────────────────────┘    │
 │                                              │
-│  [恢复默认] [热部署]                          │
+│  审核弹窗:                                    │
+│  ┌──────────────────────────────┐            │
+│  │ 预览步骤:                     │            │
+│  │ 1. 点击标签~3「下载」按钮     │            │
+│  │ 2. 选择安装路径(非C盘)        │            │
+│  │ 3. 点击「下一步」             │            │
+│  │ [审核通过] [拒绝] [取消]      │            │
+│  └──────────────────────────────┘            │
 └──────────────────────────────────────────────┘
 ```
 
@@ -710,6 +750,7 @@ Web管理控制台(Vue3 + Element-Plus)的5个核心页面布局描述。
 │  │ 置信度阈值: [========|========] 80%   │    │
 │  │ LLM端点: [https://api.openai.com/v1]  │    │
 │  │ LLM模型: [gpt-4-vision-preview  ▼]    │    │
+│  │ 模板匹配相似度阈值: [======|====] 90%  │    │
 │  │ 最大蓝图步骤数: [15]                   │    │
 │  │ Token超限阈值: [8000]                  │    │
 │  │ 客户端配置拉取间隔: [30] 分钟          │    │
@@ -785,7 +826,7 @@ stateDiagram-v2
 
 ### 文字描述
 
-展示从用户问题输入到选择L2/L3处理路径的完整决策流程。
+展示从用户问题输入到选择L2/L3处理路径的完整决策流程。模板匹配已从独立速度层降级为L2快路径的服务端辅助查询。
 
 ### Mermaid 代码
 
@@ -805,7 +846,10 @@ flowchart TD
     CONF -->|"是 ✅"| COMPLEX{"复杂度评分<br/>score < 30?"}
     
     COMPLEX -->|"是(简单指令) ✅"| L2["L2 快路径"]
-    L2 --> L2_RESULT["本地OCR + 规则匹配<br/>+ 轻量LLM（Qwen2-VL-2B）"]
+    L2 --> L2_MATCH["服务端模板匹配<br/>POST /api/templates/match"]
+    L2_MATCH -->|命中| L2_RESULT["返回预置蓝图<br/>+ 本地OCR + 规则匹配"]
+    L2_MATCH -->|未命中| L2_LIGHT["轻量LLM推理<br/>Qwen2-VL-2B"]
+    L2_LIGHT --> L2_RESULT
     L2_RESULT --> EXEC
     L2_RESULT --> L2_TIME["⏱ 响应时间 < 3s"]
     
@@ -966,7 +1010,32 @@ CREATE TABLE t_step_logs (
 CREATE INDEX idx_steps_task_id ON t_step_logs(task_id);
 CREATE INDEX idx_steps_status ON t_step_logs(status);
 
--- 4. 用户反馈表
+-- 4. 任务模板表
+CREATE TABLE t_templates (
+    template_id         VARCHAR(64)  PRIMARY KEY,
+    name                VARCHAR(256) NOT NULL,
+    constant_steps_json JSONB        NOT NULL,
+    trigger_keywords    TEXT         NOT NULL,
+    intent_category     VARCHAR(32),
+    source_task_id      VARCHAR(64)  REFERENCES t_transactions(task_id),
+    source_user_id      VARCHAR(64)  REFERENCES t_users(user_id),
+    status              VARCHAR(16)  NOT NULL DEFAULT 'pending'
+                        CHECK (status IN (
+                            'pending', 'approved', 'rejected', 'archived'
+                        )),
+    reviewer_id         VARCHAR(64)  REFERENCES t_users(user_id),
+    version             INTEGER      NOT NULL DEFAULT 1,
+    use_count           INTEGER      NOT NULL DEFAULT 0,
+    useful_rate         REAL         NOT NULL DEFAULT 1.0
+                        CHECK (useful_rate >= 0 AND useful_rate <= 1),
+    created_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_tmpl_status ON t_templates(status);
+CREATE INDEX idx_tmpl_version ON t_templates(version);
+CREATE INDEX idx_tmpl_keywords ON t_templates USING GIN(to_tsvector('simple', trigger_keywords));
+
+-- 5. 用户反馈表
 CREATE TABLE t_feedback (
     feedback_id     VARCHAR(64)  PRIMARY KEY,
     task_id         VARCHAR(64)  NOT NULL REFERENCES t_transactions(task_id),
@@ -1074,8 +1143,8 @@ graph TB
     MAIN_CTRL -->|"事务日志"| SQLITE
     AUDIT_SVC -->|"批量读取"| SQLITE
     AUDIT_SVC -->|"POST上报"| SERVER_API
-    PLAN_CTRL -->|"配置请求"| SERVER_API
-    SERVER_API -->|"配置响应"| PLAN_CTRL
+    PLAN_CTRL -->|"模板匹配请求"| SERVER_API
+    SERVER_API -->|"预置模板"| PLAN_CTRL
     
     WIDGET -->|"语音输入"| ASR_API
     ASR_API -->|"识别文本"| WIDGET
@@ -1113,7 +1182,7 @@ graph TB
     end
 
     subgraph ServerUC["服务端用例"]
-        UC9["⚙️ 管理配置"]
+        UC9["📋 审核发布模板"]
         UC10["📊 查看统计数据"]
         UC11["🔧 系统配置管理"]
         UC12["🔍 失败归因分析"]
@@ -1162,7 +1231,7 @@ graph TB
 | `【此处插入 图9 屏幕覆盖层标注示意图】` | 图9 | 屏幕覆盖层标注示意图 | 16:9宽幅 |
 | `【此处插入 图10 Web控制台登录界面】` | 图10 | 登录页面 | 4:3 |
 | `【此处插入 图11 Web控制台仪表盘首页】` | 图11 | 仪表盘首页 | 16:9 |
-| `【此处插入 图12 Web控制台系统配置页界面】` | 图12 | 系统配置页 | 16:9 |
+| `【此处插入 图12 Web控制台模板审核列表界面】` | 图12 | 模板审核列表 | 16:9 |
 | `【此处插入 图13 Web控制台失败归因详情界面】` | 图13 | 失败归因详情 | 16:9 |
 | `【此处插入 图14 Web控制台系统配置界面】` | 图14 | 系统配置页 | 16:9 |
 | `【此处插入 图15 蓝图状态机转换图】` | 图15 | 蓝图状态机转换图 | A4纵向 |

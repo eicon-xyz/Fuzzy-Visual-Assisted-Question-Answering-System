@@ -4,42 +4,79 @@
     <el-row :gutter="16" style="margin-bottom: 16px">
       <el-col :span="6" v-for="r in resources" :key="r.label">
         <el-card shadow="hover">
-          <p style="color: #909399; font-size: 13px">{{ r.label }}</p>
-          <p style="font-size: 22px; font-weight: 700; color: #303133; margin: 8px 0">{{ r.value }}</p>
+          <div style="display: flex; align-items: center; gap: 12px">
+            <div :style="{ width: '48px', height: '48px', borderRadius: '12px', background: r.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px' }">
+              {{ r.icon }}
+            </div>
+            <div>
+              <p style="color: #909399; font-size: 12px; margin: 0">{{ r.label }}</p>
+              <p style="font-size: 20px; font-weight: 700; color: #303133; margin: 2px 0">{{ r.value }}</p>
+            </div>
+          </div>
         </el-card>
       </el-col>
     </el-row>
 
     <!-- 组件状态 -->
     <el-card header="组件健康状态" style="margin-bottom: 16px">
-      <el-table :data="components" stripe>
-        <el-table-column prop="name" label="组件" />
-        <el-table-column prop="status" label="状态" width="120">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 'healthy' ? 'success' : 'warning'" size="small">
-              {{ row.status === 'healthy' ? '正常' : '降级' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="detail" label="详情" />
-      </el-table>
+      <div style="display: flex; gap: 16px; flex-wrap: wrap">
+        <el-card
+          v-for="comp in components" :key="comp.name"
+          shadow="hover"
+          :body-style="{ padding: '20px', textAlign: 'center', minWidth: '160px' }"
+        >
+          <div :style="{ width: '16px', height: '16px', borderRadius: '50%', background: statusColor(comp.status), margin: '0 auto 8px', boxShadow: `0 0 8px ${statusColor(comp.status)}` }" />
+          <p style="font-weight: 600; margin: 4px 0">{{ comp.name }}</p>
+          <el-tag :type="comp.status === 'healthy' ? 'success' : 'warning'" size="small">
+            {{ comp.status === 'healthy' ? '正常' : '降级' }}
+          </el-tag>
+          <p style="font-size: 12px; color: #909399; margin: 6px 0 0">{{ comp.detail }}</p>
+        </el-card>
+      </div>
     </el-card>
 
     <!-- 告警列表 -->
-    <el-card header="活跃告警">
-      <el-table :data="alerts" stripe>
-        <el-table-column prop="timestamp" label="时间" width="180" />
+    <el-card>
+      <template #header>
+        <div style="display: flex; justify-content: space-between; align-items: center">
+          <span>活跃告警
+            <el-badge :value="unreadCount" :hidden="unreadCount === 0" style="margin-left: 8px" />
+          </span>
+          <div style="display: flex; gap: 8px">
+            <el-button text type="primary" @click="markAllRead" :disabled="unreadCount === 0">全部已读</el-button>
+            <el-button text @click="exportCSV">CSV 导出</el-button>
+          </div>
+        </div>
+      </template>
+
+      <el-table :data="alerts" stripe @row-click="showDetail">
+        <el-table-column prop="timestamp" label="时间" width="180">
+          <template #default="{ row }">
+            {{ formatTime(row.timestamp) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="level" label="级别" width="80">
           <template #default="{ row }">
-            <el-tag :type="row.level === 'warning' ? 'warning' : 'danger'" size="small">
-              {{ row.level }}
+            <el-tag :type="row.level === 'error' ? 'danger' : 'warning'" size="small">
+              {{ row.level === 'error' ? '严重' : '告警' }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="message" label="内容" />
-        <el-table-column label="操作" width="100">
-          <template #default>
-            <el-button text type="primary">已读</el-button>
+        <el-table-column prop="status" label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'unread' ? 'danger' : 'info'" size="small">
+              {{ row.status === 'unread' ? '未读' : '已读' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="80">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.status === 'unread'"
+              text type="primary" size="small"
+              @click.stop="markRead(row)"
+            >已读</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -48,24 +85,64 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import { fetchMonitorHealth, fetchAlerts, markAlertRead, markAllAlertsRead } from '../api/admin'
 
 const resources = ref([
-  { label: 'CPU 使用率', value: '42%' },
-  { label: '内存占用', value: '3.2 GB' },
-  { label: '磁盘剩余', value: '128 GB' },
-  { label: '运行时间', value: '14d 7h' },
+  { icon: '🖥', label: 'CPU 使用率', value: '42%', bg: '#e8f4fd' },
+  { icon: '💾', label: '内存占用', value: '3.2 GB', bg: '#e8f8e8' },
+  { icon: '💿', label: '磁盘剩余', value: '128 GB', bg: '#fdf6e8' },
+  { icon: '⏱', label: '运行时间', value: '14d 7h', bg: '#f0e8fd' },
 ])
 
-const components = ref([
-  { name: 'PostgreSQL', status: 'healthy', detail: '连接池 8/20' },
-  { name: 'Redis', status: 'healthy', detail: '命中率 94%' },
-  { name: 'LLM API', status: 'degraded', detail: '平均延迟 4.2s（超阈值 3s）' },
-  { name: 'Nginx', status: 'healthy', detail: 'QPS 120' },
-])
+const components = ref([])
+const alerts = ref([])
 
-const alerts = ref([
-  { timestamp: '2026-06-29 14:20:33', level: 'warning', message: 'LLM API 平均延迟 4.2s 超过阈值 3s，持续 15 分钟' },
-  { timestamp: '2026-06-29 13:45:00', level: 'warning', message: '客户端 #d07f 离线超过 30 分钟' },
-])
+const unreadCount = computed(() => alerts.value.filter(a => a.status === 'unread').length)
+
+function statusColor(s) {
+  return s === 'healthy' ? '#67c23a' : s === 'degraded' ? '#e6a23c' : '#f56c6c'
+}
+
+function formatTime(ts) {
+  return ts ? new Date(ts).toLocaleString('zh-CN') : ''
+}
+
+async function markRead(row) {
+  await markAlertRead(row.id)
+  row.status = 'read'
+  ElMessage.success('已标记为已读')
+}
+
+async function markAllRead() {
+  await markAllAlertsRead()
+  alerts.value.forEach(a => a.status = 'read')
+  ElMessage.success('全部已标记为已读')
+}
+
+function exportCSV() {
+  const header = 'ID,时间,级别,消息,状态\n'
+  const rows = alerts.value.map(a => `${a.id},"${formatTime(a.timestamp)}",${a.level},"${a.message}",${a.status}`).join('\n')
+  const blob = new Blob(['﻿' + header + rows], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = `hajimi-alerts-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click(); URL.revokeObjectURL(url)
+  ElMessage.success('CSV 已导出')
+}
+
+onMounted(async () => {
+  try {
+    const h = await fetchMonitorHealth()
+    components.value = h?.components || []
+    resources.value[0].value = h?.resources?.cpu_pct + '%' || '42%'
+    resources.value[1].value = (h?.resources?.memory_gb || 3.2) + ' GB'
+    resources.value[2].value = (h?.resources?.disk_free_gb || 128) + ' GB'
+  } catch {}
+  try {
+    const a = await fetchAlerts()
+    alerts.value = a?.alerts || []
+  } catch {}
+})
 </script>
