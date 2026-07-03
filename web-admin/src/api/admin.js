@@ -138,18 +138,22 @@ const MOCK = {
   config: {
     current: {
       config: {
-        version: 'v2.1.3',
+        version: 'v2.2.0',
+        llm_provider: 'deepseek',
+        llm_api_endpoint: 'https://api.deepseek.com',
+        llm_model: 'deepseek-v4-flash',
+        llm_temperature: 0.3,
+        llm_max_tokens: 4096,
         confidence_threshold: 80,
-        llm_api_endpoint: 'https://api.openai.com/v1',
-        llm_model: 'gpt-4o',
         template_similarity_threshold: 90,
         max_blueprint_steps: 15,
-        token_limit: 8000,
         config_pull_interval_min: 30,
         audit_batch_size: 10,
         offline_tts_engine: 'pyttsx3',
+        evaluate_steps: false,
+        trust_level: 'balanced',
         routing_rules: { length_weight: 0.3, verb_weight: 8, cross_app_bonus: 10, threshold_score: 30, custom_keywords: ['安装', '配置', '设置'] },
-        updated_at: '2026-06-29T12:00:00Z',
+        updated_at: '2026-07-03T15:00:00Z',
       },
       deployed_at: '2026-06-29T11:00:00Z',
       deployed_by: 'admin@hajimi.local',
@@ -313,7 +317,7 @@ export async function fetchDeployLogs(limit = 20) {
 //  对应 B端-OmniParser-GPU-API部署文档 §六
 // ═══════════════════════════════════════════
 
-const GPU_API_URL = 'http://10.0.0.5:9800'  // 校园网 GPU 服务器，按实际 IP 修改
+const GPU_API_URL = 'http://127.0.0.1:8002'  // 本地 OmniParser (D:\ominprester)
 
 /** GPU 健康检查 */
 export async function fetchGpuHealth() {

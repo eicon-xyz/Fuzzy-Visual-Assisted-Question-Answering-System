@@ -35,10 +35,10 @@ class Config:
     DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
     DEEPSEEK_TIMEOUT: int = int(os.getenv("DEEPSEEK_TIMEOUT", "30"))
 
-    # OmniParser GPU API (校园网 GPU 服务器 :9800)
+    # Local OmniParser V2 API (D:\ominprester, default port 8002)
     # 详见 项目文档/GPU-API接入指南-配置修改.md
     OMNIPARSER_URL: str = os.getenv(
-        "OMNIPARSER_URL", "http://127.0.0.1:9800"
+        "OMNIPARSER_URL", "http://127.0.0.1:8002"
     )
     OMNIPARSER_TIMEOUT: int = int(os.getenv("OMNIPARSER_TIMEOUT", "30"))
     OMNIPARSER_RETRY: int = int(os.getenv("OMNIPARSER_RETRY", "1"))

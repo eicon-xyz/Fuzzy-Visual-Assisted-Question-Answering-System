@@ -40,7 +40,7 @@ from pathlib import Path
 # ============================================================
 # 配置
 # ============================================================
-API_URL = os.getenv("OMNIPARSER_URL", "http://127.0.0.1:9800")
+API_URL = os.getenv("OMNIPARSER_URL", "http://127.0.0.1:8002")
 HEALTH_TIMEOUT = int(os.getenv("OMNIPARSER_HEALTH_TIMEOUT", "5"))
 PARSE_TIMEOUT = int(os.getenv("OMNIPARSER_TIMEOUT", "360"))
 
