@@ -55,7 +55,7 @@ class Config:
     OMNIPARSER_MIN_AREA: int = int(os.getenv("OMNIPARSER_MIN_AREA", "100"))
     OMNIPARSER_TIMEOUT: int = int(os.getenv("OMNIPARSER_TIMEOUT", "60"))
     OMNIPARSER_LOCAL_URL: str = os.getenv(
-        "OMNIPARSER_LOCAL_URL", "http://127.0.0.1:8000"
+        "OMNIPARSER_LOCAL_URL", "http://127.0.0.1:8002"
     )
     OMNIPARSER_LOCAL_TIMEOUT: int = int(
         os.getenv("OMNIPARSER_LOCAL_TIMEOUT", "360")

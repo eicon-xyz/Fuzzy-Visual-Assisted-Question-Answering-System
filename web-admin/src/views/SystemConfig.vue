@@ -3,24 +3,42 @@
     <el-card header="系统配置" style="margin-bottom: 16px">
       <el-form :model="config" label-width="180px" style="max-width: 660px">
         <el-divider content-position="left">AI 推理</el-divider>
-        <el-form-item label="置信度阈值">
-          <el-slider v-model="config.confidence_threshold" :min="50" :max="100" show-input />
+        <el-form-item label="LLM Provider">
+          <el-select v-model="config.llm_provider">
+            <el-option label="DeepSeek" value="deepseek" />
+            <el-option label="OpenAI" value="openai" />
+            <el-option label="Claude" value="claude" />
+            <el-option label="OpenRouter" value="openrouter" />
+            <el-option label="Ollama" value="ollama" />
+          </el-select>
         </el-form-item>
         <el-form-item label="LLM 端点">
           <el-input v-model="config.llm_api_endpoint" />
         </el-form-item>
         <el-form-item label="LLM 模型">
-          <el-select v-model="config.llm_model">
-            <el-option label="deepseek-chat" value="deepseek-chat" />
-            <el-option label="gpt-4o" value="gpt-4o" />
-            <el-option label="qwen-vl-max" value="qwen-vl-max" />
-          </el-select>
+          <el-input v-model="config.llm_model" placeholder="deepseek-v4-flash" />
         </el-form-item>
-        <el-form-item label="Token 限制">
-          <el-input-number v-model="config.token_limit" :min="1000" :max="32000" :step="1000" />
+        <el-form-item label="Temperature">
+          <el-slider v-model="config.llm_temperature" :min="0" :max="2" :step="0.1" show-input />
+        </el-form-item>
+        <el-form-item label="Max Tokens">
+          <el-input-number v-model="config.llm_max_tokens" :min="256" :max="32768" :step="256" />
+        </el-form-item>
+        <el-form-item label="置信度阈值">
+          <el-slider v-model="config.confidence_threshold" :min="50" :max="100" show-input />
         </el-form-item>
         <el-form-item label="模板相似度阈值">
           <el-slider v-model="config.template_similarity_threshold" :min="50" :max="100" show-input />
+        </el-form-item>
+        <el-form-item label="步骤评估 (P1)">
+          <el-switch v-model="config.evaluate_steps" />
+        </el-form-item>
+        <el-form-item label="信任级别 (P1)">
+          <el-select v-model="config.trust_level">
+            <el-option label="保守" value="conservative" />
+            <el-option label="平衡" value="balanced" />
+            <el-option label="激进" value="aggressive" />
+          </el-select>
         </el-form-item>
 
         <el-divider content-position="left">任务控制</el-divider>
@@ -82,11 +100,15 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { fetchConfigCurrent, deployConfig, fetchDeployLogs } from '../api/admin'
 
 const config = reactive({
+  llm_provider: 'deepseek',
+  llm_api_endpoint: 'https://api.deepseek.com',
+  llm_model: 'deepseek-v4-flash',
+  llm_temperature: 0.3,
+  llm_max_tokens: 4096,
   confidence_threshold: 80,
-  llm_api_endpoint: 'https://api.openai.com/v1',
-  llm_model: 'deepseek-chat',
-  token_limit: 8000,
   template_similarity_threshold: 90,
+  evaluate_steps: false,
+  trust_level: 'balanced',
   max_blueprint_steps: 15,
   config_pull_interval_min: 30,
   audit_batch_size: 10,

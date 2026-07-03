@@ -17,7 +17,7 @@
       </el-col>
     </el-row>
 
-    <!-- GPU 状态 (OmniParser 校园网 GPU 服务器) -->
+    <!-- GPU 状态 (本地 OmniParser) -->
     <el-row :gutter="16" style="margin-bottom: 16px" v-if="gpuInfo">
       <el-col :span="6">
         <el-card shadow="hover">

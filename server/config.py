@@ -48,9 +48,9 @@ class Config:
     )
     TRUST_LEVEL: str = os.getenv("HAJIMI_TRUST_LEVEL", "balanced")
 
-    # Local OmniParser V2 API (deployed at D:\ominprester)
+    # Local OmniParser V2 API (deployed at D:\ominprester, default port 8002)
     OMNIPARSER_URL: str = os.getenv(
-        "OMNIPARSER_URL", "http://127.0.0.1:9800"
+        "OMNIPARSER_URL", "http://127.0.0.1:8002"
     )
     OMNIPARSER_TIMEOUT: int = int(os.getenv("OMNIPARSER_TIMEOUT", "30"))
 

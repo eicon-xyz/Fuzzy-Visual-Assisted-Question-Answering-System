@@ -35,22 +35,10 @@ class Config:
     DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
     DEEPSEEK_TIMEOUT: int = int(os.getenv("DEEPSEEK_TIMEOUT", "30"))
 
-    # Multi-Provider LLM (1.1.0 新增)
-    # 可选 Provider: deepseek | openai | claude | openrouter | ollama
-    # 默认为 deepseek（向后兼容）
-    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "deepseek")
-    LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "4096"))
-    LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.3"))
-
-    # P1 改造开关 (1.1.0 新增)
-    EVALUATE_STEPS: bool = (
-        os.getenv("HAJIMI_EVALUATE_STEPS", "0") == "1"
-    )
-    TRUST_LEVEL: str = os.getenv("HAJIMI_TRUST_LEVEL", "balanced")
-
-    # Local OmniParser V2 API (deployed at D:\ominprester)
+    # Local OmniParser V2 API (D:\ominprester, default port 8002)
+    # 详见 项目文档/GPU-API接入指南-配置修改.md
     OMNIPARSER_URL: str = os.getenv(
-        "OMNIPARSER_URL", "http://127.0.0.1:9800"
+        "OMNIPARSER_URL", "http://127.0.0.1:8002"
     )
     OMNIPARSER_TIMEOUT: int = int(os.getenv("OMNIPARSER_TIMEOUT", "30"))
 

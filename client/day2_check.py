@@ -191,7 +191,10 @@ def test_config_integration():
 
     from client.config.config_poller import ConfigPoller
 
-    poller = ConfigPoller(interval_min=5)
+    poller = ConfigPoller(
+        server_url="http://127.0.0.1:19999",  # 不可达端口，测试离线降级
+        interval_min=5,
+    )
 
     # 基础状态
     state = poller.get_state()
