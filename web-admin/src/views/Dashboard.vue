@@ -48,6 +48,7 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
+import { fetchOverview, fetchTrend, fetchFeedback } from '../api/admin'
 
 // ── KPI 数据 ──
 const kpiCards = ref([
@@ -65,6 +66,19 @@ const latencyChart = ref(null)
 
 onMounted(async () => {
   await nextTick()
+
+  // 拉取真实数据（Mock 降级自动生效）
+  try {
+    const ov = await fetchOverview()
+    if (ov) {
+      kpiCards.value[0].value = ov.today_volume?.toLocaleString() || '1,247'
+      kpiCards.value[0].trend = ov.volume_change_pct || 12
+      kpiCards.value[1].value = String(ov.online_clients || 42)
+      kpiCards.value[2].value = ((ov.overall_useful_rate || 0.89) * 100).toFixed(0) + '%'
+      kpiCards.value[3].value = ((ov.overall_fail_rate || 0.032) * 100).toFixed(1) + '%'
+    }
+  } catch {}
+
   renderFeedbackPie()
   renderRoutePie()
   renderVolumeLine()
