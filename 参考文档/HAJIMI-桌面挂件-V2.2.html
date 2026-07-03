@@ -1,0 +1,1581 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAJIMI — 智能桌面指引挂件 V2.2</title>
+<style>
+:root {
+  --accent: #5a9ec4; --accent-soft: rgba(90,158,196,0.1);
+  --text: #1d2d3d; --text-secondary: #3b5266; --text-tertiary: #697f91;
+  --danger: #e74c3c; --success: #2ecc71; --warning: #f1c40f; --info: #3498db;
+  --glass-fill: rgba(245,249,253,0.6); --glass-blur: 28px;
+  --panel-shadow: 0 16px 48px rgba(30,50,80,0.18);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body,html{
+  width:100%;height:100%;overflow:hidden;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Microsoft YaHei",sans-serif;
+  background:linear-gradient(135deg,#1e293b 0%,#0f172a 100%);
+}
+
+/* ===== 桌面背景 ===== */
+.desktop-bg{
+  position:fixed;top:0;left:0;width:100%;height:100%;
+  display:flex;align-items:center;justify-content:center;
+  color:rgba(255,255,255,0.04);font-size:100px;font-weight:900;
+  letter-spacing:20px;pointer-events:none;z-index:0;
+}
+
+/* ===== 模拟应用窗口 ===== */
+.mock-app-window{
+  position:absolute;background:rgba(255,255,255,0.04);
+  border:1px solid rgba(255,255,255,0.1);border-radius:8px;
+  padding:20px;font-size:14px;color:rgba(255,255,255,0.5);
+  box-shadow:0 4px 15px rgba(0,0,0,0.2);z-index:1;
+}
+#mock-store{top:8%;left:8%;width:46%;height:52%;display:none;}
+#mock-editor{top:12%;left:20%;width:48%;height:58%;display:none;}
+.mock-app-window .win-title{
+  border-bottom:1px solid rgba(255,255,255,0.1);
+  padding-bottom:8px;margin-bottom:14px;
+  display:flex;justify-content:space-between;font-size:13px;
+}
+#search-box{
+  width:100%;height:34px;background:rgba(255,255,255,0.06);
+  border-radius:4px;margin-bottom:16px;padding:8px 12px;
+  font-size:12px;border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.4);
+}
+.app-card{
+  background:rgba(255,255,255,0.05);padding:14px;border-radius:6px;
+  display:flex;justify-content:space-between;align-items:center;
+}
+.app-card strong{color:#fff;display:block;font-size:14px;}
+.app-card .sub{font-size:12px;color:rgba(255,255,255,0.4);}
+#install-btn{
+  padding:6px 16px;background:rgba(0,120,215,0.3);border-radius:4px;
+  font-size:12px;border:1px solid rgba(0,120,215,0.3);color:rgba(255,255,255,0.7);cursor:pointer;
+}
+.mock-taskbar{
+  position:fixed;bottom:0;left:0;right:0;height:48px;
+  background:rgba(15,23,42,0.85);z-index:5;
+  border-top:1px solid rgba(255,255,255,0.1);
+  display:flex;align-items:center;padding:0 20px;gap:14px;
+}
+.task-icon{
+  width:36px;height:36px;border-radius:6px;
+  display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:16px;cursor:pointer;transition:background 0.2s;
+}
+.task-icon:hover{background:rgba(255,255,255,0.15);}
+.task-icon.store{background:rgba(0,120,215,0.2);border:1px solid rgba(0,120,215,0.3);}
+.editor-menu{
+  position:absolute;background:#2d3748;
+  border:1px solid rgba(255,255,255,0.15);border-radius:6px;
+  padding:4px 0;min-width:140px;z-index:60;
+  box-shadow:0 8px 25px rgba(0,0,0,0.5);display:none;
+}
+.editor-menu.show{display:block;}
+.editor-menu .item{padding:6px 16px;color:#e2e8f0;font-size:13px;cursor:pointer;}
+.editor-menu .item:hover{background:rgba(90,158,196,0.3);}
+.editor-menu .item.highlight{background:rgba(231,76,60,0.3);border-left:3px solid var(--danger);}
+
+/* ===== 屏幕标注覆盖层 ===== */
+.guide-overlay{
+  position:fixed;top:0;left:0;width:100%;height:100%;
+  pointer-events:none;z-index:50;
+}
+.highlight-box{
+  position:absolute;
+  border:2px dashed var(--danger);
+  background:rgba(231,76,60,0.08);border-radius:4px;
+  box-shadow:0 0 22px rgba(231,76,60,0.45);
+  transition:all 0.35s cubic-bezier(0.25,1,0.5,1);
+  opacity:0;pointer-events:auto;cursor:pointer;
+}
+.highlight-box:hover{
+  background:rgba(231,76,60,0.22);
+  box-shadow:0 0 34px rgba(231,76,60,0.75);border-style:solid;
+}
+.step-badge{
+  position:absolute;background:var(--danger);color:#fff;
+  font-weight:bold;font-size:11px;padding:3px 12px;border-radius:14px;
+  box-shadow:0 2px 10px rgba(0,0,0,0.35);
+  transition:all 0.35s cubic-bezier(0.25,1,0.5,1);
+  transform:translate(-50%,-130%);opacity:0;white-space:nowrap;
+}
+.guide-arrow{
+  position:absolute;width:0;height:0;
+  border-left:10px solid transparent;border-right:10px solid transparent;
+  border-bottom:20px solid var(--danger);
+  filter:drop-shadow(0 2px 6px rgba(0,0,0,0.4));
+  transition:all 0.35s cubic-bezier(0.25,1,0.5,1);
+  transform:translate(-50%,10px);opacity:0;
+}
+
+/* ===== 快捷测试栏 ===== */
+.quick-test-bar{
+  position:fixed;top:16px;left:50%;transform:translateX(-50%);
+  display:flex;gap:8px;z-index:90;
+  background:rgba(15,23,42,0.7);backdrop-filter:blur(6px);
+  border:1px solid rgba(255,255,255,0.12);border-radius:10px;
+  padding:10px 14px;
+}
+.quick-test-bar .test-btn{
+  background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);
+  color:#e2e8f0;padding:6px 14px;border-radius:6px;
+  font-size:12px;cursor:pointer;transition:all 0.2s;
+  white-space:nowrap;font-family:inherit;
+}
+.quick-test-bar .test-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent);}
+.quick-test-bar .hint{color:rgba(255,255,255,0.4);font-size:11px;display:flex;align-items:center;}
+
+/* ================================================================
+   HAJIMI 桌面挂件 — 三栏布局
+   ================================================================ */
+.hajimi-widget{
+  position:fixed;width:520px;min-height:440px;max-height:680px;
+  background:var(--glass-fill);
+  backdrop-filter:blur(var(--glass-blur));
+  -webkit-backdrop-filter:blur(var(--glass-blur));
+  border:1px solid rgba(255,255,255,0.45);border-radius:16px;
+  box-shadow:var(--panel-shadow);
+  display:flex;flex-direction:column; /* 纵向：三栏行 + 底部输入 */
+  z-index:100;overflow:hidden;
+  right:24px;bottom:64px;
+  transition:width 0.3s ease,height 0.3s ease;
+  color:var(--text);
+}
+
+/* ---- 三栏主体行 ---- */
+.widget-body-row{
+  flex:1;display:flex;flex-direction:row;min-height:0;
+}
+
+/* ---- 左栏：按钮列 ---- */
+.widget-sidebar{
+  width:54px;flex-shrink:0;
+  background:rgba(255,255,255,0.25);
+  border-right:1px solid rgba(255,255,255,0.2);
+  display:flex;flex-direction:column;align-items:center;
+  padding-top:12px;gap:6px;
+}
+.sidebar-btn{
+  width:38px;height:38px;border-radius:8px;border:none;
+  background:transparent;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;font-size:17px;color:var(--text-tertiary);
+  transition:all 0.2s;position:relative;font-family:inherit;
+}
+.sidebar-btn:hover{background:rgba(90,158,196,0.12);color:var(--accent);}
+.sidebar-btn.active{
+  background:var(--accent);color:#fff;
+  box-shadow:0 2px 8px rgba(90,158,196,0.3);
+}
+.sidebar-btn .badge{
+  position:absolute;top:-2px;right:-2px;
+  min-width:16px;height:16px;border-radius:8px;
+  background:var(--danger);color:#fff;
+  font-size:10px;font-weight:700;display:flex;
+  align-items:center;justify-content:center;
+  padding:0 4px;display:none;
+}
+.sidebar-btn .badge.show{display:flex;}
+.sidebar-spacer{flex:1;}
+
+/* ---- 分栏拖拽手柄 ---- */
+.col-divider{
+  width:5px;flex-shrink:0;cursor:col-resize;
+  background:transparent;transition:background 0.15s;
+  position:relative;z-index:5;
+}
+.col-divider:hover,
+.col-divider.dragging{background:rgba(90,158,196,0.35);}
+.col-divider::after{
+  content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:3px;height:28px;border-radius:2px;
+  background:rgba(0,0,0,0.12);transition:background 0.15s;
+}
+.col-divider:hover::after{background:var(--accent);}
+
+/* ---- 中栏：主面板 ---- */
+.widget-main{
+  flex:1;display:flex;flex-direction:column;
+  background:rgba(255,255,255,0.1);min-width:180px;
+}
+
+/* 标题栏 */
+.widget-chrome{
+  display:flex;align-items:center;
+  padding:8px 10px 8px 14px;
+  background:rgba(255,255,255,0.4);
+  border-bottom:1px solid rgba(255,255,255,0.25);
+  cursor:grab;gap:8px;flex-shrink:0;
+}
+.widget-chrome:active{cursor:grabbing;}
+.chrome-dot{
+  width:7px;height:7px;border-radius:50%;background:var(--success);
+  animation:pulse 2s infinite;
+}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.35}}
+.chrome-title{
+  flex:1;font-size:13px;font-weight:600;color:var(--text);
+  display:flex;align-items:center;gap:6px;
+}
+.chrome-title .ver{
+  font-size:10px;background:rgba(0,0,0,0.06);
+  padding:2px 6px;border-radius:4px;font-weight:normal;
+}
+.chrome-btn{
+  width:26px;height:26px;border-radius:6px;border:none;
+  background:transparent;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;font-size:13px;color:var(--text-secondary);
+  transition:all 0.15s;font-family:inherit;
+}
+.chrome-btn:hover{background:rgba(0,0,0,0.08);}
+.chrome-btn.pin-active{color:var(--accent);background:rgba(90,158,196,0.12);}
+
+/* 状态栏 */
+.widget-status-bar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:6px 12px;font-size:11px;
+  border-bottom:1px solid rgba(255,255,255,0.15);flex-shrink:0;
+}
+.status-indicator{
+  font-size:10px;padding:3px 10px;border-radius:20px;
+  font-weight:600;display:flex;align-items:center;gap:4px;
+}
+.status-idle{background:#e2e8f0;color:#64748b;}
+.status-processing{background:#dbeafe;color:#1d4ed8;}
+.status-executing{background:#dcfce7;color:#15803d;}
+.status-suspended{background:#fef9c3;color:#a16207;}
+
+/* 内容区（面板视图） */
+.widget-content{
+  flex:1;overflow-y:auto;padding:12px;
+  display:flex;flex-direction:column;gap:10px;min-height:0;
+}
+.panel-view{display:none;flex-direction:column;gap:10px;}
+.panel-view.active{display:flex;}
+
+/* 对话气泡 */
+.chat-bubble{
+  max-width:92%;padding:9px 12px;border-radius:12px;
+  font-size:13px;line-height:1.45;word-break:break-word;
+}
+.bubble-user{
+  background:var(--accent);color:#fff;align-self:flex-end;
+  border-top-right-radius:3px;box-shadow:0 2px 8px rgba(90,158,196,0.3);
+}
+.bubble-system{
+  background:rgba(255,255,255,0.65);color:var(--text);
+  align-self:flex-start;border-top-left-radius:3px;
+  border:1px solid rgba(255,255,255,0.35);
+}
+.bubble-system.danger{
+  background:rgba(231,76,60,0.14);border-color:rgba(231,76,60,0.3);color:#c0392b;
+}
+
+/* 路由日志 */
+.router-log{
+  background:rgba(0,0,0,0.03);border:1px dashed rgba(0,0,0,0.1);
+  border-radius:8px;padding:10px 12px;font-size:12px;color:var(--text-secondary);line-height:1.5;
+}
+.router-log .title{font-weight:700;color:var(--text);margin-bottom:4px;}
+
+/* 蓝图卡片 */
+.blueprint-container{display:flex;flex-direction:column;gap:6px;}
+.step-card{
+  background:rgba(255,255,255,0.45);border:1px solid rgba(255,255,255,0.25);
+  border-radius:8px;padding:9px 10px;display:flex;gap:10px;align-items:flex-start;
+  transition:all 0.3s ease;
+}
+.step-card.active{
+  background:#fff;border-color:var(--accent);
+  box-shadow:0 4px 14px rgba(90,158,196,0.18);transform:scale(1.02);
+}
+.step-card.completed{opacity:0.45;background:rgba(255,255,255,0.2);}
+.step-num{
+  width:22px;height:22px;border-radius:50%;background:var(--text-tertiary);color:#fff;
+  font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.step-card.active .step-num{background:var(--accent);}
+.step-card.completed .step-num{background:var(--success);}
+.step-text{font-size:12px;line-height:1.4;color:var(--text-secondary);}
+.step-card.active .step-text{color:var(--text);font-weight:500;}
+
+/* TTS 条 */
+.tts-bar{
+  background:rgba(90,158,196,0.14);border-radius:6px;padding:5px 8px;
+  font-size:11px;color:var(--text-secondary);
+  display:flex;align-items:center;gap:6px;margin-top:5px;
+}
+.tts-wave{display:flex;gap:2px;}
+.tts-wave span{
+  width:2px;height:10px;background:var(--accent);
+  animation:ttsBounce 0.8s infinite ease-in-out;border-radius:1px;
+}
+.tts-wave span:nth-child(2){animation-delay:0.2s;}
+.tts-wave span:nth-child(3){animation-delay:0.4s;}
+@keyframes ttsBounce{0%,100%{height:4px;}50%{height:13px;}}
+
+/* ---- 通知列表 ---- */
+.notif-item{
+  display:flex;align-items:flex-start;gap:10px;padding:10px 12px;
+  border-radius:8px;font-size:12px;line-height:1.4;
+  border:1px solid rgba(255,255,255,0.3);
+  background:rgba(255,255,255,0.5);transition:all 0.2s;
+  cursor:pointer;
+}
+.notif-item:hover{background:rgba(255,255,255,0.75);}
+.notif-item.warn{background:rgba(241,196,15,0.1);border-color:rgba(241,196,15,0.3);}
+.notif-item.danger{background:rgba(231,76,60,0.08);border-color:rgba(231,76,60,0.25);}
+.notif-item .notif-icon{font-size:18px;flex-shrink:0;margin-top:1px;}
+.notif-item .notif-body{flex:1;}
+.notif-item .notif-body .notif-title{font-weight:600;color:var(--text);margin-bottom:2px;}
+.notif-item .notif-body .notif-desc{color:var(--text-secondary);}
+.notif-item .notif-body .notif-time{font-size:10px;color:var(--text-tertiary);margin-top:3px;}
+.notif-item .notif-dot{
+  width:7px;height:7px;border-radius:50%;background:var(--danger);
+  flex-shrink:0;margin-top:5px;
+}
+.notif-empty{text-align:center;color:var(--text-tertiary);font-size:12px;padding:20px;}
+
+/* ---- 设置 ---- */
+.setting-item{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 0;border-bottom:1px solid rgba(0,0,0,0.06);
+}
+.setting-item:last-child{border-bottom:none;}
+.setting-item .setting-label{font-size:13px;color:var(--text);}
+.setting-item .setting-desc{font-size:11px;color:var(--text-tertiary);margin-top:1px;}
+.toggle-switch{
+  width:44px;height:24px;border-radius:12px;
+  background:#dcdfe6;cursor:pointer;position:relative;
+  transition:background 0.25s;flex-shrink:0;
+}
+.toggle-switch.on{background:var(--accent);}
+.toggle-switch::after{
+  content:'';position:absolute;top:2px;left:2px;
+  width:20px;height:20px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,0.15);
+  transition:left 0.25s;
+}
+.toggle-switch.on::after{left:22px;}
+
+/* 设置中的滑块与数值 */
+.setting-slider-row{display:flex;align-items:center;gap:8px;margin-top:4px;}
+.setting-slider-row input[type=range]{
+  flex:1;height:4px;-webkit-appearance:none;appearance:none;
+  background:#dcdfe6;border-radius:2px;outline:none;cursor:pointer;
+}
+.setting-slider-row input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+  background:var(--accent);cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.2);
+}
+.setting-slider-row .range-val{
+  font-size:11px;color:var(--accent);font-weight:600;min-width:36px;text-align:right;
+}
+
+/* ---- 右栏：详情面板 ---- */
+.widget-detail{
+  width:0;overflow:hidden;
+  background:rgba(255,255,255,0.5);
+  border-left:1px solid rgba(255,255,255,0.3);
+  transition:width 0.3s ease;
+}
+.widget-detail.open{width:260px;padding:14px;}
+.widget-detail h4{font-size:13px;margin-bottom:10px;color:var(--text);}
+.widget-detail .detail-row{display:flex;margin-bottom:8px;font-size:12px;}
+.widget-detail .detail-row .lbl{width:80px;color:var(--text-tertiary);flex-shrink:0;}
+
+/* 执行控制 */
+.exec-controls{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:8px 12px;border-top:1px solid rgba(255,255,255,0.2);
+  background:rgba(255,255,255,0.3);flex-shrink:0;
+}
+.exec-controls .step-label{font-size:11px;color:var(--text-secondary);}
+.btn{
+  padding:6px 13px;border:none;border-radius:6px;
+  font-size:12px;font-weight:600;cursor:pointer;
+  transition:all 0.2s;font-family:inherit;
+}
+.btn-primary{background:var(--accent);color:#fff;}
+.btn-primary:hover{background:#4a8eb4;}
+.btn-secondary{background:rgba(0,0,0,0.06);color:var(--text-secondary);}
+.btn-secondary:hover{background:rgba(0,0,0,0.12);}
+.btn-danger{background:var(--danger);color:#fff;}
+
+/* 输入栏 */
+.widget-input-bar{
+  display:flex;gap:8px;padding:9px 12px;
+  border-top:1px solid rgba(255,255,255,0.2);
+  background:rgba(255,255,255,0.25);flex-shrink:0;
+}
+.input-field{
+  flex:1;border:1px solid rgba(255,255,255,0.5);
+  background:rgba(255,255,255,0.55);padding:8px 12px;
+  border-radius:8px;font-size:12px;color:var(--text);
+  outline:none;transition:all 0.2s;font-family:inherit;
+}
+.input-field:focus{border-color:var(--accent);background:#fff;}
+
+/* 调整大小手柄 */
+.resize-handle{
+  position:absolute;width:16px;height:16px;
+  right:2px;bottom:2px;cursor:nwse-resize;
+  background:linear-gradient(135deg,transparent 50%,rgba(0,0,0,0.12) 50%);
+  border-radius:0 0 12px 0;z-index:10;
+}
+
+/* ---- 最小化 ---- */
+.hajimi-widget.minimized{
+  width:54px!important;min-height:unset!important;max-height:unset!important;height:auto!important;
+}
+.hajimi-widget.minimized .widget-body-row,
+.hajimi-widget.minimized .widget-input-bar,
+.hajimi-widget.minimized .resize-handle{display:none;}
+.hajimi-widget.minimized .widget-sidebar{border-right:none;border-radius:16px;}
+.hajimi-widget.minimized .sidebar-spacer{display:none;}
+
+/* ---- 折叠气泡 ---- */
+.hajimi-widget.collapsed{
+  width:50px!important;min-height:unset!important;max-height:unset!important;
+  height:50px!important;border-radius:50%!important;
+}
+.hajimi-widget.collapsed .widget-body-row,
+.hajimi-widget.collapsed .widget-input-bar,
+.hajimi-widget.collapsed .resize-handle{display:none;}
+.hajimi-widget.collapsed::after{
+  content:'💬';position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%);font-size:22px;
+}
+.hajimi-widget.collapsed:hover{box-shadow:0 8px 32px rgba(90,158,196,0.35);cursor:pointer;}
+
+/* ---- 挂起模态 ---- */
+.modal-overlay{
+  position:absolute;top:0;left:0;width:100%;height:100%;
+  background:rgba(15,23,42,0.45);backdrop-filter:blur(5px);
+  z-index:200;display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity 0.3s;border-radius:16px;
+}
+.modal-overlay.active{opacity:1;pointer-events:auto;}
+.suspension-modal{
+  background:#fff;border-radius:12px;width:88%;padding:18px;
+  box-shadow:0 20px 25px -5px rgba(0,0,0,0.25);
+  display:flex;flex-direction:column;gap:12px;
+}
+.modal-header{display:flex;align-items:center;gap:8px;color:var(--danger);font-weight:700;font-size:13px;}
+.modal-body{font-size:12px;color:var(--text-secondary);line-height:1.5;}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;}
+
+/* ---- 主动提醒 Toast ---- */
+.proactive-toast{
+  position:fixed;right:550px;bottom:100px;
+  background:#fff;border-radius:10px;padding:12px 16px;
+  box-shadow:0 8px 30px rgba(0,0,0,0.2);
+  z-index:110;font-size:12px;
+  display:flex;align-items:flex-start;gap:10px;
+  opacity:0;transform:translateX(20px);
+  transition:all 0.35s cubic-bezier(0.25,1,0.5,1);
+  pointer-events:none;max-width:300px;
+}
+.proactive-toast.show{opacity:1;transform:translateX(0);}
+.proactive-toast .toast-icon{font-size:20px;flex-shrink:0;}
+.proactive-toast .toast-body{line-height:1.4;}
+.proactive-toast .toast-body strong{display:block;margin-bottom:2px;color:var(--text);}
+.proactive-toast .toast-body span{color:var(--text-secondary);}
+</style>
+</head>
+<body>
+
+<div class="desktop-bg">DESKTOP</div>
+
+<!-- 模拟应用窗口 -->
+<div class="mock-app-window" id="mock-store">
+  <div class="win-title"><span>Microsoft Store</span><span>搜索</span></div>
+  <div id="search-box">输入应用名称...</div>
+  <div class="app-card">
+    <div><strong>微信 (WeChat)</strong><span class="sub">腾讯科技 · 社交</span></div>
+    <div id="install-btn">获取 / 安装</div>
+  </div>
+</div>
+<div class="mock-app-window" id="mock-editor">
+  <div class="win-title"><span>无标题 — 记事本</span><span></span></div>
+  <div style="display:flex;gap:18px;font-size:12px;margin-bottom:10px;color:rgba(255,255,255,0.5);">
+    <span id="file-menu" style="cursor:pointer;position:relative;">文件(F)</span>
+    <span>编辑(E)</span><span>格式(O)</span><span>视图(V)</span>
+  </div>
+  <p style="font-size:13px;color:#94a3b8;">文本文档内容示例 ...</p>
+  <div class="editor-menu" id="file-dropdown">
+    <div class="item" id="save-option">保存 (S)</div>
+    <div class="item">另存为 (A)</div>
+    <div class="item">打印 (P)</div>
+  </div>
+</div>
+<div class="mock-taskbar">
+  <div class="task-icon" style="background:#2563eb;"></div>
+  <div class="task-icon store" id="storeIcon"></div>
+  <div class="task-icon" style="background:#16a34a;"></div>
+</div>
+
+<!-- 标注覆盖层 -->
+<div class="guide-overlay">
+  <div class="highlight-box" id="guide-box" onclick="handleDesktopTargetClick()"></div>
+  <div class="step-badge" id="guide-badge"></div>
+  <div class="guide-arrow" id="guide-arrow"></div>
+</div>
+
+<!-- 快捷测试栏 -->
+<div class="quick-test-bar">
+  <span class="hint">测试：</span>
+  <button class="test-btn" onclick="injectUseCase('wechat')">1. 软件安装 L3</button>
+  <button class="test-btn" onclick="injectUseCase('save')">2. 保存文档 L2</button>
+  <button class="test-btn" onclick="injectUseCase('redline')">3. 红线拦截</button>
+  <button class="test-btn" style="background:rgba(46,204,113,0.2);border-color:rgba(46,204,113,0.3);" onclick="triggerProactiveNotification('warn')">4. 模拟主动预警</button>
+</div>
+
+<!-- 主动提醒 Toast -->
+<div class="proactive-toast" id="proactive-toast">
+  <span class="toast-icon" id="toast-icon"></span>
+  <div class="toast-body">
+    <strong id="toast-title"></strong>
+    <span id="toast-desc"></span>
+  </div>
+</div>
+
+<!-- ================================================================
+     HAJIMI 桌面挂件 — 三栏布局
+     ================================================================ -->
+<div class="hajimi-widget" id="hajimiWidget">
+
+  <!-- 三栏主体行 -->
+  <div class="widget-body-row">
+
+  <!-- 左栏：5 个功能按钮 -->
+  <div class="widget-sidebar" id="widgetSidebar">
+    <button class="sidebar-btn active" data-panel="guide" title="操作指引">&#128172;</button>
+    <button class="sidebar-btn" data-panel="steps" title="步骤列表">&#128203;</button>
+    <button class="sidebar-btn" data-panel="blueprint" title="任务蓝图">&#128506;</button>
+    <button class="sidebar-btn" data-panel="notifications" title="提醒通知" id="btn-notifications">
+      &#128276;<span class="badge" id="notif-badge">3</span>
+    </button>
+    <button class="sidebar-btn" data-panel="settings" title="系统设置">&#9881;</button>
+    <div class="sidebar-spacer"></div>
+  </div>
+
+  <!-- 左中分栏拖拽手柄 -->
+  <div class="col-divider" id="divider-left" title="拖拽调整左侧栏宽度"></div>
+
+  <!-- 中栏：主面板 -->
+  <div class="widget-main">
+    <!-- 标题栏 -->
+    <div class="widget-chrome" id="widgetChrome">
+      <span class="chrome-dot"></span>
+      <span class="chrome-title">HAJIMI <span class="ver">V2.2</span></span>
+      <button class="chrome-btn" id="btn-detail" title="展开详情面板" onclick="toggleDetailPanel()" style="font-size:16px;">&#9776;</button>
+      <button class="chrome-btn pin-active" title="置顶" onclick="togglePin()">&#128392;</button>
+      <button class="chrome-btn" title="最小化" onclick="toggleMinimize()">&#9472;</button>
+      <button class="chrome-btn" title="折叠" onclick="toggleCollapse()">&#10005;</button>
+    </div>
+
+    <!-- 状态栏 -->
+    <div class="widget-status-bar">
+      <span style="color:var(--text-secondary);">在线</span>
+      <div id="machine-status" class="status-indicator status-idle">准备就绪</div>
+    </div>
+
+    <!-- 内容区：5 个面板视图 -->
+    <div class="widget-content" id="widget-content">
+      <!-- 面板 1：操作指引（对话） -->
+      <div class="panel-view active" id="view-guide">
+        <div class="chat-bubble bubble-system">
+          你好！我是 HAJIMI 智能桌面指引助手。<br><br>
+          拖拽标题栏可移动，点击左侧图标切换面板，右下角可调整大小。
+        </div>
+      </div>
+
+      <!-- 面板 2：步骤列表 -->
+      <div class="panel-view" id="view-steps">
+        <div style="font-size:12px;color:var(--text-tertiary);text-align:center;padding:20px;">
+          暂无活跃任务步骤。<br>请先在操作指引中发起一个任务。
+        </div>
+      </div>
+
+      <!-- 面板 3：任务蓝图 -->
+      <div class="panel-view" id="view-blueprint">
+        <div style="font-size:12px;color:var(--text-tertiary);text-align:center;padding:20px;">
+          暂无活跃蓝图。<br>发起任务后将在此显示蓝图详情、进度与预计时间。
+        </div>
+      </div>
+
+      <!-- 面板 4：提醒通知 -->
+      <div class="panel-view" id="view-notifications">
+        <div class="notif-item warn" id="notif-builtin-1">
+          <span class="notif-icon">&#9888;</span>
+          <div class="notif-body">
+            <div class="notif-title">磁盘空间不足预警</div>
+            <div class="notif-desc">C 盘剩余空间已低于 15%（当前 12.8 GB），建议运行磁盘清理。</div>
+            <div class="notif-time">10 分钟前</div>
+          </div>
+          <span class="notif-dot"></span>
+        </div>
+        <div class="notif-item" id="notif-builtin-2">
+          <span class="notif-icon">&#9989;</span>
+          <div class="notif-body">
+            <div class="notif-title">定时备份完成</div>
+            <div class="notif-desc">自动备份已于 03:00 完成，备份大小 2.4 GB，耗时 3 分钟。</div>
+            <div class="notif-time">11 小时前</div>
+          </div>
+        </div>
+        <div class="notif-item warn" id="notif-builtin-3">
+          <span class="notif-icon">&#9888;</span>
+          <div class="notif-body">
+            <div class="notif-title">网络延迟异常</div>
+            <div class="notif-desc">当前区域网络 P99 延迟升至 820ms，超过阈值 500ms。部分服务可能受影响。</div>
+            <div class="notif-time">2 小时前</div>
+          </div>
+          <span class="notif-dot"></span>
+        </div>
+      </div>
+
+      <!-- 面板 5：系统设置 -->
+      <div class="panel-view" id="view-settings">
+        <div class="setting-item">
+          <div><div class="setting-label">语音播报 (TTS)</div><div class="setting-desc">每步指引自动语音播报</div></div>
+          <div class="toggle-switch on" data-setting="tts" onclick="toggleSetting(this)"></div>
+        </div>
+        <div class="setting-item">
+          <div><div class="setting-label">屏幕标注</div><div class="setting-desc">红色高亮框 + 箭头指引目标元素</div></div>
+          <div class="toggle-switch on" data-setting="overlay" onclick="toggleSetting(this)"></div>
+        </div>
+        <div class="setting-item">
+          <div><div class="setting-label">快速路径 (L2)</div><div class="setting-desc">简单任务跳过指纹比对，直接指引</div></div>
+          <div class="toggle-switch on" data-setting="fastpath" onclick="toggleSetting(this)"></div>
+        </div>
+        <div class="setting-item">
+          <div><div class="setting-label">主动预警</div><div class="setting-desc">系统主动推送进度提醒与异常警告</div></div>
+          <div class="toggle-switch on" data-setting="proactive" onclick="toggleSetting(this)"></div>
+        </div>
+        <div class="setting-item">
+          <div><div class="setting-label">匿名上报</div><div class="setting-desc">匿名上报审计日志用于算法改进</div></div>
+          <div class="toggle-switch on" data-setting="anonymous" onclick="toggleSetting(this)"></div>
+        </div>
+        <div class="setting-item">
+          <div><div class="setting-label">隐私模式</div><div class="setting-desc">禁止截图上传，仅用本地推理</div></div>
+          <div class="toggle-switch" data-setting="privacy" onclick="toggleSetting(this)"></div>
+        </div>
+        <div style="border-top:1px solid rgba(0,0,0,0.08);padding-top:8px;margin-top:4px;">
+          <div class="setting-item" style="flex-direction:column;align-items:stretch;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div><div class="setting-label">挂件总宽度</div></div>
+              <span class="range-val" id="val-widget-w" style="font-size:12px;">520px</span>
+            </div>
+            <div class="setting-slider-row">
+              <input type="range" min="380" max="700" value="520" id="slider-widget-w" oninput="applyWidthSetting('widget',this.value)">
+            </div>
+          </div>
+          <div class="setting-item" style="flex-direction:column;align-items:stretch;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div><div class="setting-label">左侧按钮栏宽度</div></div>
+              <span class="range-val" id="val-sidebar-w" style="font-size:12px;">54px</span>
+            </div>
+            <div class="setting-slider-row">
+              <input type="range" min="40" max="80" value="54" id="slider-sidebar-w" oninput="applyWidthSetting('sidebar',this.value)">
+            </div>
+          </div>
+          <div class="setting-item" style="flex-direction:column;align-items:stretch;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div><div class="setting-label">右侧详情面板宽度</div></div>
+              <span class="range-val" id="val-detail-w" style="font-size:12px;">260px</span>
+            </div>
+            <div class="setting-slider-row">
+              <input type="range" min="180" max="400" value="260" id="slider-detail-w" oninput="applyWidthSetting('detail',this.value)">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 执行控制栏 -->
+    <div class="exec-controls" id="exec-panel" style="display:none;">
+      <span class="step-label" id="step-progress">步骤 0 / 0</span>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-secondary" onclick="executePrevStep()">上一步</button>
+        <button class="btn btn-primary" onclick="executeNextStep()">下一步</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 中右分栏拖拽手柄 -->
+  <div class="col-divider" id="divider-right" title="拖拽调整右侧详情面板宽度" style="display:none;"></div>
+
+  <!-- 右栏：详情面板 -->
+  <div class="widget-detail" id="widgetDetail">
+    <h4>步骤详情</h4>
+    <div class="detail-row"><span class="lbl">任务 ID</span><span id="det-task-id">—</span></div>
+    <div class="detail-row"><span class="lbl">蓝图名称</span><span id="det-name">—</span></div>
+    <div class="detail-row"><span class="lbl">复杂度</span><span id="det-complexity">—</span></div>
+    <div class="detail-row"><span class="lbl">预计时间</span><span id="det-estimate">—</span></div>
+    <div class="detail-row"><span class="lbl">当前进度</span><span id="det-progress">—</span></div>
+  </div>
+
+  </div><!-- /widget-body-row -->
+
+  <!-- 输入栏 -->
+  <div class="widget-input-bar">
+    <input type="text" id="user-input" class="input-field"
+      placeholder="输入操作问题..."
+      onkeydown="if(event.key==='Enter')handleUserSubmit()">
+    <button class="btn btn-primary" onclick="handleUserSubmit()">发送</button>
+  </div>
+
+  <!-- 挂起模态 -->
+  <div class="modal-overlay" id="suspension-overlay">
+    <div class="suspension-modal">
+      <div class="modal-header">屏幕指纹不匹配</div>
+      <div class="modal-body">
+        HAJIMI 检测到当前实际画面与预置蓝图期望值差异率超过 20%，可能由操作点错或弹窗干扰引起。请选择处理方式：
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="handleSuspensionResolve('skip')">忽略并跳过</button>
+        <button class="btn btn-secondary" onclick="handleSuspensionResolve('rollback')">回退上一步</button>
+        <button class="btn btn-danger" onclick="handleSuspensionResolve('abort')">终止执行</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="resize-handle" id="resizeHandle"></div>
+</div>
+
+<script>
+// ===================================================================
+// 1. 蓝图模板
+// ===================================================================
+var BLUEPRINT_TEMPLATES = {
+  wechat: {
+    name: '安装微信',
+    intent: '安装第三方应用',
+    complexity: 35,
+    targetWindow: 'mock-store',
+    estimatedTime: '约 2 分钟',
+    steps: [
+      { desc: '在系统下方任务栏上，点击商店图标打开 Microsoft Store。', selector: '#storeIcon' },
+      { desc: '在应用商店顶部搜索框中点击，输入「微信」后回车搜索。', selector: '#search-box' },
+      { desc: '在搜索结果中找到微信官方应用，点击右侧「获取/安装」按钮。', selector: '#install-btn' }
+    ]
+  },
+  save: {
+    name: '保存文档',
+    intent: '编辑文档保存',
+    complexity: 15,
+    targetWindow: 'mock-editor',
+    estimatedTime: '约 30 秒',
+    steps: [
+      { desc: '在文档窗口左上角点击「文件(F)」菜单，调出下拉选项。', selector: '#file-menu' },
+      { desc: '在展开的下拉菜单中，点击「保存 (S)」选项。', selector: '#save-option' }
+    ]
+  }
+};
+
+// ===================================================================
+// 2. 全局状态
+// ===================================================================
+var currentState = 'IDLE';
+var activeBlueprint = null;
+var currentStepIndex = 0;
+var isPinned = true;
+var currentPanel = 'guide';
+var notifCount = 3; // 初始未读通知数
+var settings = { tts: true, overlay: true, fastpath: true, proactive: true, anonymous: true, privacy: false };
+
+var widget = document.getElementById('hajimiWidget');
+var viewContent = document.getElementById('widget-content');
+var machineStatus = document.getElementById('machine-status');
+var execPanel = document.getElementById('exec-panel');
+var stepProgress = document.getElementById('step-progress');
+var suspensionOverlay = document.getElementById('suspension-overlay');
+
+// ===================================================================
+// 3. 面板切换
+// ===================================================================
+document.querySelectorAll('.sidebar-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var panel = this.dataset.panel;
+    switchPanel(panel);
+  });
+});
+
+function switchPanel(panel) {
+  currentPanel = panel;
+  // 更新按钮 active
+  document.querySelectorAll('.sidebar-btn').forEach(function(b) { b.classList.remove('active'); });
+  var targetBtn = document.querySelector('.sidebar-btn[data-panel="' + panel + '"]');
+  if (targetBtn) targetBtn.classList.add('active');
+  // 切换面板视图
+  document.querySelectorAll('.panel-view').forEach(function(v) { v.classList.remove('active'); });
+  var targetView = document.getElementById('view-' + panel);
+  if (targetView) targetView.classList.add('active');
+
+  // 如果切换到通知面板，标记全部已读
+  if (panel === 'notifications') {
+    markNotificationsRead();
+  }
+
+  // 切换到步骤/蓝图面板时刷新内容
+  if (panel === 'steps') refreshStepsPanel();
+  if (panel === 'blueprint') refreshBlueprintPanel();
+
+  // 如果有活跃蓝图，双击可展开右栏详情
+  if (activeBlueprint) {
+    updateDetailPanel();
+  }
+}
+
+// ===================================================================
+// 4. 挂件窗口控制
+// ===================================================================
+function togglePin() {
+  isPinned = !isPinned;
+  widget.style.zIndex = isPinned ? '100' : '50';
+}
+
+function toggleDetailPanel() {
+  var detail = document.getElementById('widgetDetail');
+  detail.classList.toggle('open');
+  document.getElementById('divider-right').style.display = detail.classList.contains('open') ? '' : 'none';
+  syncWidthSliderToDOM('detail');
+  syncWidthSliderToDOM('widget');
+
+  // Manually set the detail width when opening to ensure it matches slider
+  if (detail.classList.contains('open')) {
+    var sl = document.getElementById('slider-detail-w');
+    if (sl) detail.style.width = sl.value + 'px';
+  }
+}
+function openDetailPanel() {
+  var detail = document.getElementById('widgetDetail');
+  detail.classList.add('open');
+  document.getElementById('divider-right').style.display = '';
+  var sl = document.getElementById('slider-detail-w');
+  if (sl) detail.style.width = sl.value + 'px';
+  syncWidthSliderToDOM('detail');
+  syncWidthSliderToDOM('widget');
+}
+function closeDetailPanel() {
+  document.getElementById('widgetDetail').classList.remove('open');
+  document.getElementById('divider-right').style.display = 'none';
+}
+
+function toggleMinimize() {
+  widget.classList.toggle('minimized');
+  if (widget.classList.contains('collapsed')) {
+    widget.classList.remove('collapsed');
+  }
+}
+
+function toggleCollapse() {
+  if (widget.classList.contains('collapsed')) {
+    widget.classList.remove('collapsed');
+    widget.classList.remove('minimized');
+  } else {
+    widget.classList.add('collapsed');
+    widget.classList.remove('minimized');
+  }
+}
+
+// 折叠气泡点击展开
+widget.addEventListener('click', function(e) {
+  if (widget.classList.contains('collapsed') && !e.target.closest('.chrome-btn')) {
+    toggleCollapse();
+  }
+});
+
+// --- 拖拽 ---
+var chrome = document.getElementById('widgetChrome');
+var isDragging = false, dragStartX, dragStartY, widgetStartLeft, widgetStartTop;
+
+chrome.addEventListener('mousedown', function(e) {
+  if (e.target.closest('.chrome-btn')) return;
+  if (widget.classList.contains('collapsed') || widget.classList.contains('minimized')) return;
+  isDragging = true;
+  var rect = widget.getBoundingClientRect();
+  dragStartX = e.clientX; dragStartY = e.clientY;
+  widgetStartLeft = rect.left; widgetStartTop = rect.top;
+  widget.style.transition = 'none';
+  e.preventDefault();
+});
+
+document.addEventListener('mousemove', function(e) {
+  if (!isDragging) return;
+  var dx = e.clientX - dragStartX, dy = e.clientY - dragStartY;
+  var nl = Math.max(0, Math.min(widgetStartLeft + dx, window.innerWidth - widget.offsetWidth));
+  var nt = Math.max(0, Math.min(widgetStartTop + dy, window.innerHeight - widget.offsetHeight - 48));
+  widget.style.left = nl + 'px'; widget.style.top = nt + 'px';
+  widget.style.right = 'auto'; widget.style.bottom = 'auto';
+});
+
+document.addEventListener('mouseup', function() { if(isDragging){isDragging=false;widget.style.transition='';} });
+
+// --- 调整大小 ---
+var resizeHandle = document.getElementById('resizeHandle');
+var isResizing = false, rsX, rsY, wsW, wsH;
+
+resizeHandle.addEventListener('mousedown', function(e) {
+  isResizing = true; rsX = e.clientX; rsY = e.clientY;
+  wsW = widget.offsetWidth; wsH = widget.offsetHeight;
+  widget.style.transition = 'none';
+  e.preventDefault(); e.stopPropagation();
+});
+
+document.addEventListener('mousemove', function(e) {
+  if (!isResizing) return;
+  var newW = Math.max(380, Math.min(700, wsW + (e.clientX - rsX)));
+  widget.style.width = newW + 'px';
+  widget.style.height = Math.max(360, Math.min(780, wsH + (e.clientY - rsY))) + 'px';
+  // 同步更新设置面板中的宽度滑块
+  syncWidthSliderToDOM('widget');
+});
+
+document.addEventListener('mouseup', function() { if(isResizing){isResizing=false;widget.style.transition='';} });
+
+// --- 分栏拖拽 ---
+var dividerLeft = document.getElementById('divider-left');
+var dividerRight = document.getElementById('divider-right');
+var colDrag = null; // 'left' | 'right'
+var colStartX, sidebarStartW, detailStartW, widgetStartW2;
+
+function startColDrag(which, e) {
+  if (widget.classList.contains('collapsed') || widget.classList.contains('minimized')) return;
+  colDrag = which;
+  colStartX = e.clientX;
+  widgetStartW2 = widget.offsetWidth;
+  sidebarStartW = document.getElementById('widgetSidebar').offsetWidth;
+  var detailEl = document.getElementById('widgetDetail');
+  detailStartW = detailEl.classList.contains('open') ? detailEl.offsetWidth : 0;
+  if (which === 'left') dividerLeft.classList.add('dragging');
+  else dividerRight.classList.add('dragging');
+  e.preventDefault();
+}
+
+dividerLeft.addEventListener('mousedown', function(e) { startColDrag('left', e); });
+dividerRight.addEventListener('mousedown', function(e) { startColDrag('right', e); });
+
+document.addEventListener('mousemove', function(e) {
+  if (!colDrag) return;
+  var dx = e.clientX - colStartX;
+  var sidebar = document.getElementById('widgetSidebar');
+  var detail = document.getElementById('widgetDetail');
+  if (colDrag === 'left') {
+    var newSidebarW = Math.max(40, Math.min(80, sidebarStartW + dx));
+    sidebar.style.width = newSidebarW + 'px';
+    syncWidthSliderToDOM('sidebar');
+  } else {
+    var newDetailW = Math.max(180, Math.min(400, detailStartW + dx));
+    // 确保 total width 不变：调整 widget 宽度补偿
+    var dw = newDetailW - detailStartW;
+    widget.style.width = Math.max(380, Math.min(700, widgetStartW2 + dw)) + 'px';
+    detail.style.width = newDetailW + 'px';
+    syncWidthSliderToDOM('detail');
+    syncWidthSliderToDOM('widget');
+  }
+});
+
+document.addEventListener('mouseup', function() {
+  if (colDrag) {
+    dividerLeft.classList.remove('dragging');
+    dividerRight.classList.remove('dragging');
+    colDrag = null;
+  }
+});
+
+// --- 设置面板宽度控制 ---
+function applyWidthSetting(type, value) {
+  value = parseInt(value);
+  if (type === 'widget') {
+    widget.style.width = value + 'px';
+    document.getElementById('val-widget-w').textContent = value + 'px';
+  } else if (type === 'sidebar') {
+    document.getElementById('widgetSidebar').style.width = value + 'px';
+    document.getElementById('val-sidebar-w').textContent = value + 'px';
+  } else if (type === 'detail') {
+    var detail = document.getElementById('widgetDetail');
+    detail.style.width = value + 'px';
+    document.getElementById('val-detail-w').textContent = value + 'px';
+  }
+}
+
+function syncWidthSliderToDOM(type) {
+  if (type === 'widget') {
+    var w = widget.offsetWidth;
+    var sl = document.getElementById('slider-widget-w');
+    if (sl) { sl.value = w; document.getElementById('val-widget-w').textContent = w + 'px'; }
+  } else if (type === 'sidebar') {
+    var sw = document.getElementById('widgetSidebar').offsetWidth;
+    var sl = document.getElementById('slider-sidebar-w');
+    if (sl) { sl.value = sw; document.getElementById('val-sidebar-w').textContent = sw + 'px'; }
+  } else if (type === 'detail') {
+    var dw = document.getElementById('widgetDetail').offsetWidth;
+    var sl = document.getElementById('slider-detail-w');
+    if (sl) { sl.value = dw; document.getElementById('val-detail-w').textContent = dw + 'px'; }
+  }
+}
+
+// ===================================================================
+// 5. 设置 Toggle
+// ===================================================================
+function toggleSetting(el) {
+  el.classList.toggle('on');
+  var key = el.dataset.setting;
+  settings[key] = el.classList.contains('on');
+
+  // 如果关闭主动预警，清除定时器
+  if (key === 'proactive' && !settings.proactive) {
+    stopProactiveTimer();
+  } else if (key === 'proactive' && settings.proactive) {
+    startProactiveTimer();
+  }
+}
+
+// ===================================================================
+// 6. 通知系统
+// ===================================================================
+function markNotificationsRead() {
+  notifCount = 0;
+  updateNotifBadge();
+  // 隐藏所有通知红点
+  var dots = document.querySelectorAll('#view-notifications .notif-dot');
+  dots.forEach(function(d) { d.style.display = 'none'; });
+}
+
+function updateNotifBadge() {
+  var badge = document.getElementById('notif-badge');
+  if (notifCount > 0) {
+    badge.textContent = notifCount;
+    badge.classList.add('show');
+  } else {
+    badge.classList.remove('show');
+  }
+}
+
+function addNotification(title, desc, type) {
+  notifCount++;
+  updateNotifBadge();
+  var container = document.getElementById('view-notifications');
+  var iconMap = { warn: '&#9888;', danger: '&#128308;', info: '&#8505;', success: '&#9989;' };
+  var item = document.createElement('div');
+  item.className = 'notif-item' + (type ? ' ' + type : '');
+  item.innerHTML =
+    '<span class="notif-icon">' + (iconMap[type] || '&#8505;') + '</span>' +
+    '<div class="notif-body">' +
+      '<div class="notif-title">' + title + '</div>' +
+      '<div class="notif-desc">' + desc + '</div>' +
+      '<div class="notif-time">刚刚</div>' +
+    '</div>' +
+    '<span class="notif-dot"></span>';
+  container.insertBefore(item, container.firstChild);
+
+  // 限制最多显示 20 条
+  while (container.children.length > 20) {
+    container.removeChild(container.lastChild);
+  }
+}
+
+// 主动提醒 Toast
+var toastTimer = null;
+function showProactiveToast(title, desc, type) {
+  if (!settings.proactive) return;
+  var toast = document.getElementById('proactive-toast');
+  var iconMap = { warn: '&#9888;', danger: '&#128308;', info: '&#8505;', success: '&#9989;' };
+  document.getElementById('toast-icon').innerHTML = iconMap[type] || '&#8505;';
+  document.getElementById('toast-title').textContent = title;
+  document.getElementById('toast-desc').textContent = desc;
+  toast.classList.add('show');
+  // 5 秒后自动消失
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function() { toast.classList.remove('show'); }, 5000);
+}
+
+// 模拟主动提醒触发
+var proactiveInterval = null;
+var proactiveMessages = [
+  { title: '磁盘空间预警', desc: 'C 盘剩余空间已低于 15%，建议运行磁盘清理释放空间。', type: 'warn' },
+  { title: '下载完成', desc: '文件「项目文档 V2.3.zip」(156 MB) 已下载完毕。', type: 'success' },
+  { title: '内存占用偏高', desc: '当前内存使用率 87%，Chrome 占用 3.2 GB，建议关闭部分标签页。', type: 'warn' },
+  { title: '备份提醒', desc: '上次系统备份距今已超过 7 天，建议立即执行备份。', type: 'info' },
+  { title: 'CPU 温度偏高', desc: 'CPU 核心温度达 82°C，检查散热口是否堵塞。', type: 'warn' },
+  { title: '网络恢复', desc: 'Wi-Fi 连接已恢复正常，信号强度 94%。', type: 'success' },
+  { title: '新版本可用', desc: 'HAJIMI 桌面挂件 V2.3 已发布，修复 3 项已知问题。', type: 'info' },
+  { title: '长时间未锁屏', desc: '桌面已持续活跃 4 小时，建议休息或锁定屏幕。', type: 'info' }
+];
+var proactiveIdx = 0;
+
+function triggerProactiveNotification(type) {
+  var msg;
+  if (type === 'warn') msg = proactiveMessages[proactiveIdx % 3]; // pick a warn type
+  else msg = proactiveMessages[Math.floor(Math.random() * proactiveMessages.length)];
+
+  showProactiveToast(msg.title, msg.desc, msg.type);
+  addNotification(msg.title, msg.desc, msg.type);
+  proactiveIdx++;
+}
+
+function startProactiveTimer() {
+  if (proactiveInterval) return;
+  proactiveInterval = setInterval(function() {
+    if (!settings.proactive) return;
+    var msg = proactiveMessages[proactiveIdx % proactiveMessages.length];
+    showProactiveToast(msg.title, msg.desc, msg.type);
+    addNotification(msg.title, msg.desc, msg.type);
+    proactiveIdx++;
+  }, 25000); // 每 25 秒一条主动提醒
+}
+
+function stopProactiveTimer() {
+  if (proactiveInterval) { clearInterval(proactiveInterval); proactiveInterval = null; }
+}
+
+// ===================================================================
+// 7. 状态切换
+// ===================================================================
+function transitionTo(state) {
+  currentState = state;
+  if (state === 'IDLE') {
+    machineStatus.className = 'status-indicator status-idle';
+    machineStatus.innerHTML = '准备就绪';
+    execPanel.style.display = 'none';
+    clearScreenOverlays();
+    document.getElementById('file-dropdown').classList.remove('show');
+  } else if (state === 'PROCESSING') {
+    machineStatus.className = 'status-indicator status-processing';
+    machineStatus.innerHTML = '算法解析中';
+    execPanel.style.display = 'none';
+  } else if (state === 'EXECUTING') {
+    machineStatus.className = 'status-indicator status-executing';
+    machineStatus.innerHTML = '正在指引';
+    execPanel.style.display = 'flex';
+  } else if (state === 'SUSPENDED') {
+    machineStatus.className = 'status-indicator status-suspended';
+    machineStatus.innerHTML = '异常挂起';
+  }
+}
+
+// ===================================================================
+// 8. 注入测试用例 / 用户提交
+// ===================================================================
+function injectUseCase(caseKey) {
+  if (widget.classList.contains('collapsed')) toggleCollapse();
+  if (widget.classList.contains('minimized')) toggleMinimize();
+  switchPanel('guide'); // 切换到指引面板
+
+  if (caseKey === 'redline') {
+    document.getElementById('user-input').value = '';
+    appendToGuide('帮我自动点击抢票', 'user');
+    transitionTo('PROCESSING');
+    setTimeout(function() {
+      appendToGuide(
+        '触发安全红线：HAJIMI 恪守合规规范。系统检测到「自动点击/抢票」等非法操控请求，已拒绝生成执行蓝图。',
+        'system danger'
+      );
+      logAudit('REJECTED', '自动点击抢票', '触发自动点击违规红线。');
+      transitionTo('IDLE');
+      // 生成一条通知
+      addNotification('红线拦截', '检测到非法操控请求「自动点击抢票」，已拒绝并记录。', 'danger');
+      showProactiveToast('红线拦截', '检测到非法操控请求，已拒绝并记录。', 'danger');
+    }, 800);
+    return;
+  }
+
+  if (caseKey === 'wechat') {
+    document.getElementById('user-input').value = '';
+    appendToGuide('怎么安装微信？', 'user');
+  } else if (caseKey === 'save') {
+    document.getElementById('user-input').value = '';
+    appendToGuide('如何保存这个文档？', 'user');
+  }
+
+  processQuery(caseKey);
+}
+
+function handleUserSubmit() {
+  var inputField = document.getElementById('user-input');
+  var query = inputField.value.trim();
+  if (!query || currentState === 'PROCESSING') return;
+
+  inputField.value = '';
+  switchPanel('guide');
+  appendToGuide(query, 'user');
+  transitionTo('PROCESSING');
+
+  setTimeout(function() {
+    if (query.indexOf('自动点击') !== -1 || query.indexOf('抢票') !== -1 || query.indexOf('辅助代刷') !== -1) {
+      appendToGuide(
+        '触发安全红线：HAJIMI 恪守合规规范。系统检测到「自动点击/抢票」等非法操控请求，已拒绝生成执行蓝图。',
+        'system danger'
+      );
+      logAudit('REJECTED', query, '触发自动点击违规红线。');
+      addNotification('红线拦截', '检测到非法操控请求，已拒绝并记录。', 'danger');
+      showProactiveToast('红线拦截', '检测到非法操控请求，已拒绝并记录。', 'danger');
+      transitionTo('IDLE');
+      return;
+    }
+
+    var matchedKey = null;
+    if (query.indexOf('微信') !== -1 || query.indexOf('应用') !== -1) matchedKey = 'wechat';
+    else if (query.indexOf('保存') !== -1 || query.indexOf('文档') !== -1) matchedKey = 'save';
+
+    if (!matchedKey) {
+      appendToGuide('HAJIMI 未匹配到操作模板。请尝试输入「怎么安装微信？」或「如何保存文档？」', 'system');
+      transitionTo('IDLE');
+      return;
+    }
+
+    processQuery(matchedKey);
+  }, 800);
+}
+
+function processQuery(matchedKey) {
+  var matchedTemplate = BLUEPRINT_TEMPLATES[matchedKey];
+  activeBlueprint = JSON.parse(JSON.stringify(matchedTemplate));
+  currentStepIndex = 0;
+
+  document.getElementById('mock-store').style.display = (matchedKey === 'wechat') ? 'block' : 'none';
+  document.getElementById('mock-editor').style.display = (matchedKey === 'save') ? 'block' : 'none';
+  if (matchedKey === 'save') document.getElementById('file-dropdown').classList.remove('show');
+
+  var isL3 = activeBlueprint.complexity >= 30;
+  appendToGuide(
+    '<div class="router-log">' +
+      '<div class="title">HAJIMI 核心路由决策引擎</div>' +
+      '判定意图：<b style="color:var(--accent)">' + activeBlueprint.intent + '</b><br>' +
+      '复杂度打分：<b>' + activeBlueprint.complexity + '</b>（阈值: 30）<br>' +
+      '路由决策：<span style="color:' + (isL3 ? 'var(--danger)' : 'var(--success)') + ';font-weight:700;">' +
+        (isL3 ? 'L3 慢路径（全指纹比对）' : 'L2 快路径（轻量引导）') +
+      '</span>' +
+    '</div>',
+    'widget'
+  );
+
+  transitionTo('EXECUTING');
+  openDetailPanel();
+  renderBlueprintCards();
+  renderCurrentStepGuide();
+  updateDetailPanel();
+  refreshStepsPanel();
+  refreshBlueprintPanel();
+
+  // 主动提示
+  if (isL3) {
+    showProactiveToast('L3 慢路径已激活', '该任务需要全指纹比对，执行中若屏幕变化较大可能会触发挂起确认。', 'info');
+  }
+}
+
+// ===================================================================
+// 9. 蓝图卡片渲染
+// ===================================================================
+function renderBlueprintCards() {
+  var old = document.getElementById('blueprint-box');
+  if (old) old.remove();
+
+  var html = '<div class="blueprint-container" id="blueprint-box">';
+  for (var i = 0; i < activeBlueprint.steps.length; i++) {
+    html +=
+      '<div class="step-card" id="step-card-' + i + '">' +
+        '<div class="step-num">' + (i + 1) + '</div>' +
+        '<div class="step-text">' + activeBlueprint.steps[i].desc + '</div>' +
+      '</div>';
+  }
+  html += '</div>';
+  appendToGuide(html, 'widget');
+}
+
+function renderCurrentStepGuide() {
+  if (!activeBlueprint || currentStepIndex >= activeBlueprint.steps.length) return;
+
+  // 更新步骤卡片
+  for (var i = 0; i < activeBlueprint.steps.length; i++) {
+    var card = document.getElementById('step-card-' + i);
+    if (!card) continue;
+    card.className = 'step-card';
+    if (i < currentStepIndex) card.classList.add('completed');
+    if (i === currentStepIndex) card.classList.add('active');
+  }
+
+  stepProgress.innerText = '步骤 ' + (currentStepIndex + 1) + ' / ' + activeBlueprint.steps.length;
+
+  // 编辑器下拉菜单逻辑
+  var dropdown = document.getElementById('file-dropdown');
+  if (activeBlueprint.targetWindow === 'mock-editor') {
+    if (currentStepIndex === 0) dropdown.classList.remove('show');
+    else if (currentStepIndex === 1) {
+      dropdown.classList.add('show');
+      var saveItem = document.getElementById('save-option');
+      if (saveItem) saveItem.classList.add('highlight');
+    }
+  } else { dropdown.classList.remove('show'); }
+
+  // 屏幕标注
+  if (settings.overlay) {
+    var stepData = activeBlueprint.steps[currentStepIndex];
+    var targetEl = document.querySelector(stepData.selector);
+    if (targetEl) {
+      var targetRect = targetEl.getBoundingClientRect();
+      var box = document.getElementById('guide-box');
+      var badge = document.getElementById('guide-badge');
+      var arrow = document.getElementById('guide-arrow');
+
+      box.style.opacity = '1';
+      box.style.left = targetRect.left + 'px';
+      box.style.top = targetRect.top + 'px';
+      box.style.width = targetRect.width + 'px';
+      box.style.height = targetRect.height + 'px';
+
+      badge.style.opacity = '1';
+      badge.style.left = (targetRect.left + targetRect.width / 2) + 'px';
+      badge.style.top = (targetRect.top - 12) + 'px';
+      badge.innerHTML = '目标 ~' + (currentStepIndex + 1);
+
+      arrow.style.opacity = '1';
+      arrow.style.left = (targetRect.right + 24) + 'px';
+      arrow.style.top = (targetRect.bottom + 6) + 'px';
+      arrow.style.transform = 'translate(-50%, 10px) rotate(-30deg)';
+    }
+  }
+
+  // TTS
+  if (settings.tts) {
+    removeOldTTSBars();
+    var activeCard = document.getElementById('step-card-' + currentStepIndex);
+    if (activeCard) {
+      var ttsEl = document.createElement('div');
+      ttsEl.className = 'tts-bar';
+      ttsEl.id = 'active-tts';
+      ttsEl.innerHTML =
+        '<div class="tts-wave"><span></span><span></span><span></span></div>' +
+        '<span>TTS 播报：' + activeBlueprint.steps[currentStepIndex].desc + '</span>';
+      activeCard.appendChild(ttsEl);
+    }
+  }
+
+  updateDetailPanel();
+  refreshStepsPanel();
+  refreshBlueprintPanel();
+}
+
+// ===================================================================
+// 10. 步骤/蓝图面板刷新
+// ===================================================================
+function refreshStepsPanel() {
+  var container = document.getElementById('view-steps');
+  if (!activeBlueprint) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary);text-align:center;padding:20px;">暂无活跃任务步骤。</div>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < activeBlueprint.steps.length; i++) {
+    var statusCls = '';
+    var statusIcon = '';
+    if (i < currentStepIndex) { statusCls = 'completed'; statusIcon = ' ✓'; }
+    else if (i === currentStepIndex) { statusCls = 'active'; statusIcon = ' ▶'; }
+    html +=
+      '<div class="step-card ' + statusCls + '">' +
+        '<div class="step-num">' + (i + 1) + '</div>' +
+        '<div class="step-text">' + activeBlueprint.steps[i].desc + statusIcon + '</div>' +
+      '</div>';
+  }
+  container.innerHTML = html;
+}
+
+function refreshBlueprintPanel() {
+  var container = document.getElementById('view-blueprint');
+  if (!activeBlueprint) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--text-tertiary);text-align:center;padding:20px;">暂无活跃蓝图。</div>';
+    return;
+  }
+  var total = activeBlueprint.steps.length;
+  var done = currentStepIndex;
+  var pct = total > 0 ? Math.round(done / total * 100) : 0;
+  container.innerHTML =
+    '<div style="background:rgba(255,255,255,0.5);border-radius:10px;padding:16px;">' +
+      '<h4 style="margin-bottom:8px;font-size:14px;">' + activeBlueprint.name + '</h4>' +
+      '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">步骤总数：<b>' + total + '</b></div>' +
+      '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">预计时间：<b>' + activeBlueprint.estimatedTime + '</b></div>' +
+      '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;">复杂度：<b style="color:' + (activeBlueprint.complexity >= 30 ? 'var(--danger)' : 'var(--success)') + '">' + (activeBlueprint.complexity >= 30 ? 'L3（慢路径）' : 'L2（快路径）') + '</b></div>' +
+      '<div style="background:#e2e8f0;border-radius:4px;height:8px;overflow:hidden;margin-bottom:4px;">' +
+        '<div style="background:var(--accent);height:100%;width:' + pct + '%;transition:width 0.3s;"></div>' +
+      '</div>' +
+      '<div style="font-size:10px;color:var(--text-tertiary);text-align:right;">' + pct + '% 完成（' + done + '/' + total + '）</div>' +
+      '<div style="display:flex;gap:6px;margin-top:12px;">' +
+        '<button class="btn btn-secondary" style="font-size:11px;" onclick="executePrevStep()">回退</button>' +
+        '<button class="btn btn-danger" style="font-size:11px;" onclick="handleSuspensionResolve(\'abort\')">终止</button>' +
+      '</div>' +
+    '</div>';
+}
+
+function updateDetailPanel() {
+  if (!activeBlueprint) return;
+  document.getElementById('det-task-id').textContent = 'task_' + Math.random().toString(36).slice(2, 8);
+  document.getElementById('det-name').textContent = activeBlueprint.name;
+  document.getElementById('det-complexity').textContent = activeBlueprint.complexity + '（' + (activeBlueprint.complexity >= 30 ? 'L3慢路径' : 'L2快路径') + '）';
+  document.getElementById('det-estimate').textContent = activeBlueprint.estimatedTime;
+  document.getElementById('det-progress').textContent = (currentStepIndex) + ' / ' + activeBlueprint.steps.length;
+}
+
+// ===================================================================
+// 11. 步骤控制
+// ===================================================================
+function handleDesktopTargetClick() {
+  if (currentState === 'EXECUTING') {
+    console.log('[Desktop Click] Target ~' + (currentStepIndex + 1));
+    executeNextStep();
+  }
+}
+
+function executeNextStep() {
+  if (!activeBlueprint) return;
+  if (activeBlueprint.complexity < 30 || !settings.fastpath) {
+    proceedToNextLogic();
+  } else {
+    if (Math.random() >= 0.20) { proceedToNextLogic(); }
+    else {
+      transitionTo('SUSPENDED');
+      suspensionOverlay.classList.add('active');
+    }
+  }
+}
+
+function proceedToNextLogic() {
+  currentStepIndex++;
+  if (currentStepIndex < activeBlueprint.steps.length) {
+    renderCurrentStepGuide();
+    // 主动播报进度
+    if (settings.proactive) {
+      showProactiveToast(
+        '步骤 ' + currentStepIndex + ' 已完成',
+        '下一步：' + activeBlueprint.steps[currentStepIndex].desc,
+        'success'
+      );
+    }
+  } else {
+    appendToGuide('全部指引步骤已完成！审计日志已离线同步至数据中心。', 'system');
+    logAudit('SUCCESS', activeBlueprint.intent, '蓝图流水完美闭环。');
+    addNotification('任务完成', '「' + activeBlueprint.name + '」全部步骤已执行完毕。', 'success');
+    showProactiveToast('任务完成', '「' + activeBlueprint.name + '」全部步骤已执行完毕。', 'success');
+    closeDetailPanel();
+    transitionTo('IDLE');
+    refreshStepsPanel();
+    refreshBlueprintPanel();
+  }
+}
+
+function executePrevStep() {
+  if (currentStepIndex > 0) {
+    currentStepIndex--;
+    renderCurrentStepGuide();
+  }
+}
+
+// ===================================================================
+// 12. 挂起处理
+// ===================================================================
+function handleSuspensionResolve(action) {
+  suspensionOverlay.classList.remove('active');
+  if (action === 'skip') {
+    appendToGuide('用户干预：忽略屏幕差异，继续执行。', 'system');
+    transitionTo('EXECUTING');
+    proceedToNextLogic();
+  } else if (action === 'rollback') {
+    appendToGuide('用户干预：回退至上一步。', 'system');
+    transitionTo('EXECUTING');
+    executePrevStep();
+  } else if (action === 'abort') {
+    appendToGuide('用户干预：已终止当前指引流。状态机已重置。', 'system danger');
+    logAudit('ABORTED', activeBlueprint.intent, '步骤 ' + (currentStepIndex + 1) + ' 被用户终止。');
+    addNotification('任务已终止', '「' + (activeBlueprint ? activeBlueprint.name : '未知') + '」在步骤 ' + (currentStepIndex + 1) + ' 被终止。', 'danger');
+    activeBlueprint = null; currentStepIndex = 0;
+    closeDetailPanel();
+    transitionTo('IDLE');
+    refreshStepsPanel(); refreshBlueprintPanel();
+  }
+}
+
+// ===================================================================
+// 13. UI 辅助
+// ===================================================================
+function appendToGuide(text, type) {
+  var container = document.getElementById('view-guide');
+  if (type === 'widget') {
+    var wrapper = document.createElement('div');
+    wrapper.innerHTML = text;
+    container.appendChild(wrapper.firstElementChild);
+  } else {
+    var bubble = document.createElement('div');
+    bubble.className = 'chat-bubble bubble-' + type;
+    bubble.innerText = text;
+    container.appendChild(bubble);
+  }
+  container.scrollTop = container.scrollHeight;
+}
+
+function clearScreenOverlays() {
+  document.getElementById('guide-box').style.opacity = '0';
+  document.getElementById('guide-badge').style.opacity = '0';
+  document.getElementById('guide-arrow').style.opacity = '0';
+  removeOldTTSBars();
+}
+
+function removeOldTTSBars() {
+  var oldBar = document.getElementById('active-tts');
+  if (oldBar) oldBar.remove();
+}
+
+function logAudit(status, intent, remark) {
+  console.log('[HAJIMI AUDIT] ' + status + ' | ' + intent + ' | ' + remark + ' | ' + new Date().toLocaleString());
+}
+
+// ===================================================================
+// 14. 商店 & 文件菜单
+// ===================================================================
+document.getElementById('storeIcon').addEventListener('click', function() {
+  var w = document.getElementById('mock-store');
+  w.style.display = w.style.display === 'none' ? 'block' : 'none';
+});
+
+document.getElementById('file-menu').addEventListener('click', function(e) {
+  e.stopPropagation();
+  var dd = document.getElementById('file-dropdown');
+  dd.classList.toggle('show');
+  var rect = this.getBoundingClientRect();
+  dd.style.left = rect.left + 'px';
+  dd.style.top = (rect.bottom + 2) + 'px';
+});
+
+document.addEventListener('click', function(e) {
+  var dd = document.getElementById('file-dropdown');
+  if (!dd.contains(e.target) && e.target.id !== 'file-menu') {
+    dd.classList.remove('show');
+  }
+});
+
+// ===================================================================
+// 15. 窗口 resize
+// ===================================================================
+window.addEventListener('resize', function() {
+  if (currentState === 'EXECUTING' && activeBlueprint && currentStepIndex < activeBlueprint.steps.length) {
+    renderCurrentStepGuide();
+  }
+});
+
+// ===================================================================
+// 16. 初始加载
+// ===================================================================
+window.addEventListener('load', function() {
+  updateNotifBadge();
+  startProactiveTimer();
+  console.log('HAJIMI Desktop Widget V2.2 ready — 三栏布局 + 5面板 + 主动提醒');
+  // 自动演示
+  setTimeout(function() { injectUseCase('wechat'); }, 600);
+});
+</script>
+</body>
+</html>

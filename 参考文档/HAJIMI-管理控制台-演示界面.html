@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HAJIMI — 管理控制台 V2.1</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --brand:#409EFF;--success:#27ae60;--warning:#e67e22;--danger:#e74c3c;
+  --bg:#f0f2f5;--card-bg:#fff;--text:#303133;--text-secondary:#909399;
+  --border:#ebeef5;--shadow:0 2px 12px rgba(0,0,0,0.06);--radius:8px;
+  --sidebar-w:220px;--header-h:56px;
+}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'Microsoft YaHei','Segoe UI',sans-serif;
+  background:var(--bg);color:var(--text);display:flex;min-height:100vh;
+}
+
+/* Sidebar */
+.sidebar{
+  width:var(--sidebar-w);background:#1d1e2c;color:#bfc4d4;display:flex;
+  flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:100;
+}
+.sidebar-logo{
+  padding:16px 20px;display:flex;align-items:center;gap:10px;
+  border-bottom:1px solid rgba(255,255,255,0.08);
+}
+.sidebar-logo .icon{width:32px;height:32px;background:var(--brand);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;}
+.sidebar-logo h1{font-size:15px;font-weight:600;color:#fff;letter-spacing:1px;}
+.sidebar-nav{flex:1;padding:12px 0;overflow-y:auto;}
+.nav-item{
+  display:flex;align-items:center;gap:10px;padding:11px 20px;cursor:pointer;
+  transition:all 0.2s;border-left:3px solid transparent;font-size:14px;
+}
+.nav-item:hover{background:rgba(255,255,255,0.04);color:#e0e4ec}
+.nav-item.active{background:rgba(64,158,255,0.12);color:#fff;border-left-color:var(--brand);}
+.nav-item .emoji{font-size:18px;width:24px;text-align:center;}
+.sidebar-footer{padding:12px 20px;border-top:1px solid rgba(255,255,255,0.08);font-size:12px;color:#6b7084}
+
+/* Main */
+.main{flex:1;margin-left:var(--sidebar-w);display:flex;flex-direction:column;min-height:100vh;}
+.header{
+  height:var(--header-h);background:var(--card-bg);display:flex;align-items:center;
+  justify-content:space-between;padding:0 24px;box-shadow:var(--shadow);position:sticky;top:0;z-index:50;
+}
+.header-left{display:flex;align-items:center;gap:12px}
+.header-left h2{font-size:18px;font-weight:600}
+.header-badge{font-size:11px;background:#e8f4fd;color:var(--brand);padding:3px 8px;border-radius:4px}
+.header-right{display:flex;align-items:center;gap:16px;font-size:13px;color:var(--text-secondary)}
+.header-dot{width:8px;height:8px;background:var(--success);border-radius:50%;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.content{padding:20px 24px;flex:1;overflow-y:auto}
+
+/* Page */
+.page{display:none}
+.page.active{display:block}
+
+/* KPI Cards */
+.kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:20px}
+.kpi-card{
+  background:var(--card-bg);border-radius:var(--radius);padding:18px 20px;
+  box-shadow:var(--shadow);position:relative;overflow:hidden;
+}
+.kpi-card .kpi-label{font-size:12px;color:var(--text-secondary);margin-bottom:6px}
+.kpi-card .kpi-value{font-size:28px;font-weight:700;letter-spacing:-0.5px}
+.kpi-card .kpi-change{font-size:12px;margin-top:4px}
+.kpi-card .kpi-change.up{color:var(--success)}
+.kpi-card .kpi-change.down{color:var(--danger)}
+.kpi-card::after{content:'';position:absolute;top:0;right:0;width:4px;height:100%}
+.kpi-card.accent-blue::after{background:var(--brand)}
+.kpi-card.accent-green::after{background:var(--success)}
+.kpi-card.accent-orange::after{background:var(--warning)}
+.kpi-card.accent-red::after{background:var(--danger)}
+
+/* Chart rows */
+.chart-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+.chart-row.single{grid-template-columns:1fr}
+.chart-card{
+  background:var(--card-bg);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);
+}
+.chart-card h3{font-size:14px;font-weight:600;margin-bottom:12px;color:var(--text)}
+.chart-box{width:100%;height:280px}
+
+/* Data flow mini cards */
+.flow-mini-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+.flow-mini-card{
+  background:var(--card-bg);border-radius:var(--radius);padding:18px 20px;
+  box-shadow:var(--shadow);display:flex;align-items:center;gap:16px;
+  transition:border-color 0.3s;
+}
+.flow-mini-card.warn{border:2px solid var(--danger)}
+.flow-mini-card .mini-chart{width:100px;height:56px}
+.flow-mini-card .mini-info h4{font-size:12px;color:var(--text-secondary);margin-bottom:4px}
+.flow-mini-card .mini-info .big{font-size:24px;font-weight:700}
+
+/* Rank row */
+.rank-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+
+/* Filters */
+.filter-bar{
+  background:var(--card-bg);border-radius:var(--radius);padding:14px 20px;
+  box-shadow:var(--shadow);margin-bottom:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+}
+.filter-bar label{font-size:13px;color:var(--text-secondary)}
+.filter-bar select,.filter-bar input{
+  border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-size:13px;
+  outline:none;font-family:inherit;
+}
+.filter-bar select:focus,.filter-bar input:focus{border-color:var(--brand)}
+.btn{
+  padding:7px 16px;border-radius:4px;font-size:13px;cursor:pointer;border:1px solid var(--border);
+  background:#fff;font-family:inherit;transition:all 0.2s;
+}
+.btn:hover{opacity:0.85}
+.btn-primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+.btn-success{background:var(--success);color:#fff;border-color:var(--success)}
+.btn-warning{background:var(--warning);color:#fff;border-color:var(--warning)}
+.btn-danger{background:var(--danger);color:#fff;border-color:var(--danger)}
+.btn-outline{background:transparent;color:var(--brand);border-color:var(--brand)}
+
+/* Tables / Lists */
+.list-header{
+  background:var(--card-bg);padding:10px 20px;border-radius:var(--radius) var(--radius) 0 0;
+  box-shadow:var(--shadow);border-bottom:1px solid var(--border);font-size:13px;color:var(--text-secondary);
+}
+.list-table{width:100%;background:var(--card-bg);border-radius:0 0 var(--radius) var(--radius);box-shadow:var(--shadow);}
+.list-table th{
+  text-align:left;padding:12px 16px;font-size:12px;color:var(--text-secondary);
+  border-bottom:1px solid var(--border);background:#fafbfc;
+}
+.list-table td{padding:11px 16px;font-size:13px;border-bottom:1px solid var(--border)}
+.list-table tr:last-child td{border-bottom:none}
+.list-table tr:hover td{background:#f5f7fa}
+.text-danger{color:var(--danger)}
+.text-warning{color:var(--warning)}
+.text-success{color:var(--success)}
+
+/* Slide panel */
+.overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.35);z-index:200;display:none}
+.overlay.show{display:block}
+.slide-panel{
+  position:fixed;top:0;right:-500px;width:480px;height:100vh;background:var(--card-bg);
+  box-shadow:-4px 0 24px rgba(0,0,0,0.12);z-index:201;transition:right 0.3s;overflow-y:auto;padding:24px;
+}
+.slide-panel.open{right:0}
+.slide-panel h3{font-size:16px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.slide-panel .close-btn{position:absolute;top:16px;right:20px;background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-secondary)}
+.slide-panel .detail-row{display:flex;margin-bottom:10px;font-size:13px}
+.slide-panel .detail-row .lbl{width:100px;color:var(--text-secondary);flex-shrink:0}
+.slide-panel .fingerprint{background:#fafbfc;border:1px solid var(--border);border-radius:4px;padding:10px;font-size:12px;font-family:monospace;margin:8px 0}
+.slide-panel .mismatch{background:#fff0f0;color:var(--danger);padding:2px 6px;border-radius:3px}
+.slide-panel .collapsible{margin:8px 0}
+.slide-panel .collapsible .toggle{
+  width:100%;text-align:left;padding:8px 12px;background:#f5f7fa;border:1px solid var(--border);
+  border-radius:4px;cursor:pointer;font-size:13px;font-family:inherit;
+}
+.slide-panel .collapsible .body{display:none;background:#fafbfc;border:1px solid var(--border);border-radius:4px;padding:12px;margin-top:4px;font-size:12px;font-family:monospace;white-space:pre-wrap;max-height:300px;overflow-y:auto}
+.slide-panel .collapsible .body.open{display:block}
+
+/* Config page */
+.config-section{background:var(--card-bg);border-radius:var(--radius);padding:24px;box-shadow:var(--shadow);margin-bottom:20px}
+.config-section h3{font-size:15px;margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.form-row{display:flex;align-items:center;margin-bottom:16px;gap:12px}
+.form-row .form-label{width:180px;font-size:13px;color:var(--text-secondary);flex-shrink:0;text-align:right}
+.form-row input[type=text],.form-row input[type=number],.form-row select{flex:1;max-width:360px;border:1px solid var(--border);border-radius:4px;padding:8px 12px;font-size:13px;outline:none;font-family:inherit}
+.form-row input:focus,.form-row select:focus{border-color:var(--brand)}
+.form-row input[type=range]{flex:1;max-width:360px}
+.form-row .range-val{font-size:12px;color:var(--brand);min-width:36px}
+.json-editor{width:100%;min-height:180px;font-family:'Cascadia Code','Fira Code',monospace;font-size:13px;border:1px solid var(--border);border-radius:4px;padding:12px;resize:vertical;outline:none}
+.json-editor:focus{border-color:var(--brand)}
+.json-toolbar{display:flex;gap:8px;margin-bottom:8px;justify-content:flex-end}
+.config-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+
+/* Health page */
+.component-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+.component-card{
+  background:var(--card-bg);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);
+  display:flex;align-items:center;gap:14px;
+}
+.component-card .status-dot{
+  width:14px;height:14px;border-radius:50%;flex-shrink:0;
+}
+.component-card .status-dot.green{background:var(--success);box-shadow:0 0 8px rgba(39,174,96,0.4)}
+.component-card .status-dot.orange{background:var(--warning);box-shadow:0 0 8px rgba(230,126,34,0.4)}
+.component-card .status-dot.red{background:var(--danger);box-shadow:0 0 8px rgba(231,76,60,0.4)}
+.component-card .comp-info h4{font-size:14px;margin-bottom:2px}
+.component-card .comp-info p{font-size:12px;color:var(--text-secondary)}
+
+/* Alert list */
+.alert-item{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);font-size:13px}
+.alert-item:last-child{border-bottom:none}
+.alert-sev{padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600;white-space:nowrap}
+.alert-sev.critical{background:#fde2e2;color:#c0392b}
+.alert-sev.warning{background:#fef3e2;color:#d68910}
+.alert-sev.info{background:#e8f4fd;color:var(--brand)}
+
+/* Topology */
+.topo-card{background:var(--card-bg);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);margin-bottom:20px}
+.topo-box{width:100%;height:220px}
+
+/* Event stream */
+.event-item{padding:10px 14px;border-radius:4px;margin-bottom:6px;font-size:12px;font-family:monospace;display:flex;gap:8px}
+.event-item.warn{background:#fef9e7;border-left:3px solid var(--warning)}
+.event-item.error{background:#fdedec;border-left:3px solid var(--danger)}
+.event-item.info{background:#eaf2f8;border-left:3px solid var(--brand)}
+
+/* Scroll hint */
+.scroll-hint{text-align:center;padding:12px;font-size:12px;color:var(--text-secondary);cursor:pointer}
+.scroll-hint:hover{color:var(--brand)}
+
+/* Toast */
+.toast{position:fixed;top:20px;right:20px;background:#303133;color:#fff;padding:12px 20px;border-radius:6px;z-index:999;font-size:13px;opacity:0;transition:opacity 0.3s}
+.toast.show{opacity:1}
+
+/* Confirm modal */
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:300;display:none;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal-box{background:#fff;border-radius:var(--radius);padding:28px;max-width:420px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.18)}
+.modal-box h3{font-size:16px;margin-bottom:12px}
+.modal-box p{font-size:13px;color:var(--text-secondary);margin-bottom:20px}
+.modal-box .modal-actions{display:flex;gap:10px;justify-content:flex-end}
+
+@media (max-width:1440px){.kpi-row{grid-template-columns:repeat(3,1fr)}.kpi-row .kpi-card:last-child{grid-column:1/-1}}
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="icon">H</div>
+    <h1>HAJIMI</h1>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-item active" data-page="overview">
+      <span class="emoji">📊</span> 总览
+    </div>
+    <div class="nav-item" data-page="failure">
+      <span class="emoji">🔍</span> 失败归因
+    </div>
+    <div class="nav-item" data-page="flow">
+      <span class="emoji">📡</span> 数据流监控
+    </div>
+    <div class="nav-item" data-page="config">
+      <span class="emoji">⚙️</span> 系统配置
+    </div>
+    <div class="nav-item" data-page="health">
+      <span class="emoji">❤️</span> 健康监控
+    </div>
+  </nav>
+  <div class="sidebar-footer">HAJIMI Console v2.1</div>
+</aside>
+
+<!-- Main -->
+<div class="main">
+  <header class="header">
+    <div class="header-left">
+      <h2 id="pageTitle">📊 总览</h2>
+      <span class="header-badge">v2.1</span>
+    </div>
+    <div class="header-right">
+      <span class="header-dot"></span> 系统运行中
+      <span>管理员：调参师</span>
+      <span style="color:var(--text-secondary)">2026-06-29 14:32:15</span>
+    </div>
+  </header>
+  <div class="content">
+
+    <!-- ============ PAGE 1: 总览 ============ -->
+    <div class="page active" id="page-overview">
+      <!-- KPI Cards -->
+      <div class="kpi-row">
+        <div class="kpi-card accent-blue">
+          <div class="kpi-label">今日事务量</div>
+          <div class="kpi-value">1,247</div>
+          <div class="kpi-change up">↑ 12% 环比昨日</div>
+        </div>
+        <div class="kpi-card accent-green">
+          <div class="kpi-label">实时在线客户端</div>
+          <div class="kpi-value">42 <span style="font-size:14px;color:var(--text-secondary)">台</span></div>
+          <div class="kpi-change up">WebSocket 长连接</div>
+        </div>
+        <div class="kpi-card accent-green">
+          <div class="kpi-label">整体有用率</div>
+          <div class="kpi-value">89%</div>
+          <div class="kpi-change up">近 7 天滑动平均</div>
+        </div>
+        <div class="kpi-card accent-orange">
+          <div class="kpi-label">整体失败率</div>
+          <div class="kpi-value">3.2%</div>
+          <div class="kpi-change down">近 7 天滑动平均</div>
+        </div>
+        <div class="kpi-card accent-blue">
+          <div class="kpi-label">本月 API 预估费用</div>
+          <div class="kpi-value">$96.50</div>
+          <div class="kpi-change" style="color:var(--text-secondary)">基于 Token 用量换算</div>
+        </div>
+      </div>
+
+      <!-- Pie charts -->
+      <div class="chart-row">
+        <div class="chart-card"><h3>用户反馈分布</h3><div class="chart-box" id="chart-feedback"></div></div>
+        <div class="chart-card"><h3>L2 vs L3 处理路径占比</h3><div class="chart-box" id="chart-path"></div></div>
+      </div>
+
+      <!-- Trend charts -->
+      <div class="chart-row">
+        <div class="chart-card"><h3>24小时事务量趋势</h3><div class="chart-box" id="chart-volume"></div></div>
+        <div class="chart-card"><h3>24小时平均响应时长趋势</h3><div class="chart-box" id="chart-latency"></div></div>
+      </div>
+
+      <!-- Data flow mini widgets -->
+      <div class="flow-mini-row">
+        <div class="flow-mini-card" id="mini-audit">
+          <div class="mini-chart" id="mini-chart-audit"></div>
+          <div class="mini-info"><h4>审计上报成功率（近 24h）</h4><span class="big" style="color:var(--success)">99.8%</span></div>
+        </div>
+        <div class="flow-mini-card" id="mini-version">
+          <div class="mini-chart" id="mini-chart-version"></div>
+          <div class="mini-info"><h4>客户端配置版本分布</h4><span class="big">v2.1.0: 80%</span></div>
+        </div>
+      </div>
+
+      <!-- Rankings -->
+      <div class="rank-row">
+        <div class="chart-card"><h3>高频操作任务 TOP 10</h3><div class="chart-box" id="chart-tasks"></div></div>
+        <div class="chart-card"><h3>红线拦截统计 TOP 5</h3><div class="chart-box" id="chart-redline"></div></div>
+      </div>
+    </div>
+
+    <!-- ============ PAGE 2: 失败归因 ============ -->
+    <div class="page" id="page-failure">
+      <div class="filter-bar">
+        <label>时间窗口：</label>
+        <select id="fail-time-range">
+          <option>近 1 小时</option>
+          <option>近 6 小时</option>
+          <option selected>近 24 小时</option>
+          <option>近 7 天</option>
+          <option>自定义</option>
+        </select>
+        <label>失败类型：</label>
+        <select id="fail-type">
+          <option>全部</option>
+          <option>蓝图不匹配</option>
+          <option>LLM 超时</option>
+          <option>解析错误</option>
+          <option>红线拦截</option>
+          <option>用户中止</option>
+        </select>
+        <button class="btn btn-outline" onclick="showToast('正在生成 CSV…')">导出 CSV</button>
+      </div>
+
+      <div class="chart-row">
+        <div class="chart-card"><h3>失败类型分布（点击柱子下钻）</h3><div class="chart-box" id="chart-fail-dist"></div></div>
+        <div class="chart-card"><h3>失败趋势（按小时聚合）</h3><div class="chart-box" id="chart-fail-trend"></div></div>
+      </div>
+
+      <div class="list-header" id="fail-list-header">
+        筛选条件：近 24 小时，类型：全部。共 <strong id="fail-total">156</strong> 条失败记录，已加载 <strong id="fail-loaded">20</strong> 条。
+      </div>
+      <table class="list-table" id="fail-table">
+        <thead><tr><th>失败时间</th><th>任务名称</th><th>失败步骤</th><th>错误摘要</th><th>操作</th></tr></thead>
+        <tbody id="fail-tbody"></tbody>
+      </table>
+      <div class="scroll-hint" id="fail-load-more" onclick="loadMoreFailures()">▼ 滚动加载更多（每次 +20 条）</div>
+    </div>
+
+    <!-- ============ PAGE 3: 数据流监控 ============ -->
+    <div class="page" id="page-flow">
+      <div class="kpi-row" style="grid-template-columns:repeat(4,1fr)">
+        <div class="kpi-card accent-blue">
+          <div class="kpi-label">上行吞吐量</div><div class="kpi-value">24.6 <span style="font-size:14px">MB</span></div>
+          <div class="kpi-change" style="color:var(--text-secondary)">今日累计上报数据量</div>
+        </div>
+        <div class="kpi-card accent-green">
+          <div class="kpi-label">下行吞吐量</div><div class="kpi-value">8.2 <span style="font-size:14px">MB</span></div>
+          <div class="kpi-change" style="color:var(--text-secondary)">今日累计下发数据量</div>
+        </div>
+        <div class="kpi-card accent-green">
+          <div class="kpi-label">上报成功率</div><div class="kpi-value">99.8%</div>
+          <div class="kpi-change" style="color:var(--text-secondary)">近 1 小时滑动窗口</div>
+        </div>
+        <div class="kpi-card accent-orange">
+          <div class="kpi-label">当前队列积压估算</div><div class="kpi-value">1,234 <span style="font-size:14px">条</span></div>
+          <div class="kpi-change down">⚠ 关键预警指标</div>
+        </div>
+      </div>
+
+      <!-- Topology -->
+      <div class="topo-card"><h3>数据流向拓扑图</h3><div class="topo-box" id="chart-topo"></div></div>
+
+      <!-- Interface QPS -->
+      <div class="chart-row">
+        <div class="chart-card"><h3>/api/audit/report 调用趋势（QPS + 成功率）</h3><div class="chart-box" id="chart-audit-api"></div></div>
+        <div class="chart-card"><h3>/api/templates/match 调用趋势（QPS + 命中率）</h3><div class="chart-box" id="chart-match-api"></div></div>
+      </div>
+
+      <!-- Version & Pull distribution -->
+      <div class="chart-row">
+        <div class="chart-card"><h3>客户端版本号占比</h3><div class="chart-box" id="chart-version-pie"></div></div>
+        <div class="chart-card"><h3>配置拉取频率分布</h3><div class="chart-box" id="chart-pull-hist"></div></div>
+      </div>
+
+      <!-- Event stream -->
+      <div class="chart-card" style="margin-bottom:20px">
+        <h3>异常事件流（最近 20 条）</h3>
+        <div id="event-stream">
+          <div class="event-item warn">[WARN] 14:28:03 — 客户端 #c12a 连续 3 次上报失败，触发指数退避重试。</div>
+          <div class="event-item error">[ERROR] 14:15:47 — 区域 /24 网络超时率升至 15%，触发熔断。</div>
+          <div class="event-item info">[INFO] 14:02:11 — 批量上报积压队列已清空，恢复正常。</div>
+          <div class="event-item warn">[WARN] 13:48:32 — 客户端 #d07f 配置版本滞后（v1.9.0），已超过 48 小时未更新。</div>
+          <div class="event-item info">[INFO] 13:30:05 — 新客户端 #e3b1 首次注册，版本 v2.1.0。</div>
+          <div class="event-item warn">[WARN] 13:12:59 — /api/audit/report 接口 P99 延迟升至 820ms（阈值 500ms）。</div>
+          <div class="event-item error">[ERROR] 12:55:40 — 数据库连接池耗尽，3 条上报丢失，已触发自动重试。</div>
+          <div class="event-item info">[INFO] 12:40:18 — LLM API 响应恢复正常，熔断器已关闭。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ PAGE 4: 系统配置 ============ -->
+    <div class="page" id="page-config">
+      <div class="config-section">
+        <h3>参数配置</h3>
+        <div class="form-row">
+          <span class="form-label">置信度阈值</span>
+          <input type="range" min="50" max="100" value="80" oninput="this.nextElementSibling.textContent=this.value+'%'">
+          <span class="range-val">80%</span>
+        </div>
+        <div class="form-row">
+          <span class="form-label">LLM API 端点</span>
+          <input type="text" value="https://api.openai.com/v1">
+        </div>
+        <div class="form-row">
+          <span class="form-label">LLM 模型名称</span>
+          <select><option>gpt-4-vision-preview</option><option>gpt-4o</option><option>qwen-vl-max</option></select>
+        </div>
+        <div class="form-row">
+          <span class="form-label">模板匹配相似度阈值</span>
+          <input type="range" min="50" max="100" value="90" oninput="this.nextElementSibling.textContent=this.value+'%'">
+          <span class="range-val">90%</span>
+        </div>
+        <div class="form-row">
+          <span class="form-label">最大蓝图步骤数</span>
+          <input type="number" value="15" min="1" max="50">
+        </div>
+        <div class="form-row">
+          <span class="form-label">Token 超限阈值</span>
+          <input type="number" value="8000" min="1000" max="32000">
+        </div>
+        <div class="form-row">
+          <span class="form-label">客户端配置拉取间隔（分钟）</span>
+          <input type="number" value="30" min="5" max="1440">
+        </div>
+        <div class="form-row">
+          <span class="form-label">审计上报批量大小（条）</span>
+          <input type="number" value="10" min="1" max="100">
+        </div>
+        <div class="form-row">
+          <span class="form-label">离线 TTS 引擎</span>
+          <select><option>pyttsx3</option><option>Vosk</option></select>
+        </div>
+        <div class="form-row" style="align-items:flex-start">
+          <span class="form-label" style="margin-top:8px">L2/L3 路由复杂度评分规则</span>
+          <div style="flex:1;max-width:600px">
+            <div class="json-toolbar">
+              <button class="btn" onclick="formatJSON()">格式化 JSON</button>
+              <button class="btn" onclick="validateJSON()">校验 JSON</button>
+            </div>
+            <textarea class="json-editor" id="json-rules" spellcheck="false">{
+  "length_weight": 0.3,
+  "verb_weight": 8,
+  "cross_app_bonus": 10,
+  "threshold_score": 30,
+  "custom_keywords": ["安装", "配置", "设置"]
+}</textarea>
+            <div id="json-error" style="font-size:12px;color:var(--danger);margin-top:4px"></div>
+          </div>
+        </div>
+      </div>
+      <div class="config-actions">
+        <button class="btn" onclick="showToast('已恢复默认配置')">恢复默认</button>
+        <button class="btn btn-primary" id="btn-deploy" onclick="confirmDeploy()">热部署 &gt;&gt;</button>
+      </div>
+    </div>
+
+    <!-- ============ PAGE 5: 健康监控 ============ -->
+    <div class="page" id="page-health">
+      <div class="kpi-row" style="grid-template-columns:repeat(4,1fr)">
+        <div class="kpi-card accent-blue">
+          <div class="kpi-label">CPU 占用</div>
+          <div class="kpi-value" style="font-size:24px">42<span style="font-size:14px">%</span></div>
+          <div class="kpi-change up">1 分钟趋势 ▁▂▃▄▄</div>
+        </div>
+        <div class="kpi-card accent-green">
+          <div class="kpi-label">内存占用</div>
+          <div class="kpi-value" style="font-size:24px">3.2<span style="font-size:14px"> GB</span></div>
+          <div class="kpi-change up">1 分钟趋势 ▂▃▃▄▃</div>
+        </div>
+        <div class="kpi-card accent-blue">
+          <div class="kpi-label">磁盘可用空间</div>
+          <div class="kpi-value" style="font-size:24px">128<span style="font-size:14px"> GB</span></div>
+          <div class="kpi-change" style="color:var(--text-secondary)">/data 分区</div>
+        </div>
+        <div class="kpi-card accent-green">
+          <div class="kpi-label">服务运行时长</div>
+          <div class="kpi-value" style="font-size:24px">14d 7h 23m</div>
+          <div class="kpi-change" style="color:var(--text-secondary)">自上次部署至今</div>
+        </div>
+      </div>
+
+      <div class="chart-card" style="margin-bottom:20px">
+        <h3>组件状态指示灯</h3>
+        <div class="component-grid" style="margin-top:12px">
+          <div class="component-card">
+            <div class="status-dot green"></div>
+            <div class="comp-info"><h4>PostgreSQL</h4><p>🟢 正常 &nbsp; 连接池 8/20</p></div>
+          </div>
+          <div class="component-card">
+            <div class="status-dot green"></div>
+            <div class="comp-info"><h4>Redis</h4><p>🟢 正常 &nbsp; 命中率 94%</p></div>
+          </div>
+          <div class="component-card">
+            <div class="status-dot orange"></div>
+            <div class="comp-info"><h4>LLM API</h4><p>🟡 告警 &nbsp; 平均延迟 4.2s（超阈值 3s）</p></div>
+          </div>
+          <div class="component-card">
+            <div class="status-dot green"></div>
+            <div class="comp-info"><h4>Nginx</h4><p>🟢 正常 &nbsp; QPS 120</p></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h3 style="margin-bottom:0">告警列表（最近 20 条）</h3>
+          <div style="display:flex;gap:8px">
+            <button class="btn" onclick="showToast('已全部标记已读')">全部标记已读</button>
+            <button class="btn btn-outline" onclick="showToast('正在导出告警日志…')">导出告警日志</button>
+          </div>
+        </div>
+        <div id="alert-list">
+          <div class="alert-item">
+            <span class="alert-sev warning">警告</span>
+            <span style="flex:1">LLM API 平均延迟 4.2s 超过阈值 3s，持续 15 分钟</span>
+            <span style="color:var(--text-secondary);font-size:12px">14:20:33</span>
+            <span style="color:var(--warning);font-size:11px">● 未读</span>
+          </div>
+          <div class="alert-item">
+            <span class="alert-sev warning">警告</span>
+            <span style="flex:1">Redis 内存使用率达到 82%，建议扩容</span>
+            <span style="color:var(--text-secondary);font-size:12px">13:45:10</span>
+            <span style="color:var(--text-secondary);font-size:11px">已读</span>
+          </div>
+          <div class="alert-item">
+            <span class="alert-sev info">信息</span>
+            <span style="flex:1">新版本 v2.1.0 热部署完成，42 台客户端已更新</span>
+            <span style="color:var(--text-secondary);font-size:12px">12:00:00</span>
+            <span style="color:var(--text-secondary);font-size:11px">已读</span>
+          </div>
+          <div class="alert-item">
+            <span class="alert-sev critical">严重</span>
+            <span style="flex:1">数据库连接池耗尽（20/20），3 条上报丢失已自动重试</span>
+            <span style="color:var(--text-secondary);font-size:12px">11:55:40</span>
+            <span style="color:var(--text-secondary);font-size:11px">已读</span>
+          </div>
+          <div class="alert-item">
+            <span class="alert-sev info">信息</span>
+            <span style="flex:1">自动备份完成，备份大小 2.4 GB，耗时 3m 12s</span>
+            <span style="color:var(--text-secondary);font-size:12px">03:00:05</span>
+            <span style="color:var(--text-secondary);font-size:11px">已读</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Slide-out Detail Panel -->
+<div class="overlay" id="overlay" onclick="closePanel()"></div>
+<div class="slide-panel" id="slidePanel">
+  <button class="close-btn" onclick="closePanel()">✕</button>
+  <h3>失败详情</h3>
+  <div class="detail-row"><span class="lbl">任务 ID</span><span id="det-task-id">task_8a3f2c</span></div>
+  <div class="detail-row"><span class="lbl">用户 ID</span><span id="det-user-id">user_d07f1b</span></div>
+  <div class="detail-row"><span class="lbl">处理路径</span><span id="det-path">L3 慢路径</span></div>
+  <div class="detail-row"><span class="lbl">失败时间</span><span id="det-time">2026-06-29 14:22:10</span></div>
+  <div style="margin-top:16px;font-size:13px;font-weight:600">预期指纹 vs 实际指纹</div>
+  <div class="fingerprint">
+    <div>预期：<code>{"app":"vscode","action":"edit_file",<span class="mismatch">"verb":"write"</span>}</code></div>
+    <div style="margin-top:6px">实际：<code>{"app":"vscode","action":"edit_file",<span class="mismatch">"verb":"delete"</span>}</code></div>
+  </div>
+  <div class="collapsible">
+    <button class="toggle" onclick="this.nextElementSibling.classList.toggle('open')">▶ LLM 输入快照（脱敏后）</button>
+    <div class="body">{
+  "model": "gpt-4-vision-preview",
+  "messages": [
+    {"role": "system", "content": "You are a visual task analyzer..."},
+    {"role": "user", "content": "[screenshot: 1920x1080, 245KB] Execute the user's intent..."}
+  ],
+  "temperature": 0.7,
+  "max_tokens": 4096
+}</div>
+  </div>
+  <div class="collapsible">
+    <button class="toggle" onclick="this.nextElementSibling.classList.toggle('open')">▶ LLM 输出快照（脱敏后）</button>
+    <div class="body">{
+  "blueprint": {
+    "steps": [
+      {"action": "click", "target": "file_menu"},
+      {"action": "type", "target": "search_box", "value": "config.json"},
+      {"error": "timeout waiting for element #file_list"}
+    ]
+  },
+  "finish_reason": "error"
+}</div>
+  </div>
+  <div style="display:flex;gap:10px;margin-top:20px">
+    <button class="btn" onclick="closePanel()">关闭</button>
+    <button class="btn btn-outline" onclick="showToast('快照已复制')">复制快照</button>
+  </div>
+</div>
+
+<!-- Confirm Modal -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal-box">
+    <h3>确认热部署</h3>
+    <p>确认将当前配置下发至所有 42 台在线客户端？此操作将立即生效，可能影响正在执行中的任务。</p>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="doDeploy()">确认下发</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ==================== Navigation ====================
+const pageTitleMap = {
+  overview:'📊 总览', failure:'🔍 失败归因', flow:'📡 数据流监控', config:'⚙️ 系统配置', health:'❤️ 健康监控'
+};
+
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+    item.classList.add('active');
+    const page = item.dataset.page;
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-' + page).classList.add('active');
+    document.getElementById('pageTitle').textContent = pageTitleMap[page];
+    // Resize charts when switching pages
+    setTimeout(() => {
+      Object.values(charts).forEach(c => { if(c && !c.isDisposed()) c.resize(); });
+    }, 100);
+  });
+});
+
+// ==================== Toast ====================
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+// ==================== Slide Panel ====================
+function openPanel(taskId) {
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('slidePanel').classList.add('open');
+  // Mock data
+  const tasks = {
+    'task_8a3f2c': {tid:'task_8a3f2c',uid:'user_d07f1b',path:'L3 慢路径',time:'2026-06-29 14:22:10'},
+    'task_b7e1a9': {tid:'task_b7e1a9',uid:'user_a3c882',path:'L2 快路径',time:'2026-06-29 14:18:05'},
+    'task_f02d4a': {tid:'task_f02d4a',uid:'user_k9p331',path:'L3 慢路径',time:'2026-06-29 14:15:33'},
+    'task_c44b77': {tid:'task_c44b77',uid:'user_x2y944',path:'L2 快路径',time:'2026-06-29 14:10:20'},
+    'task_9e1f5d': {tid:'task_9e1f5d',uid:'user_w7z655',path:'L3 慢路径',time:'2026-06-29 14:05:48'},
+    'task_3a8d2c': {tid:'task_3a8d2c',uid:'user_m4n778',path:'L2 快路径',time:'2026-06-29 14:00:12'},
+  };
+  const d = tasks[taskId] || tasks['task_8a3f2c'];
+  document.getElementById('det-task-id').textContent = d.tid;
+  document.getElementById('det-user-id').textContent = d.uid;
+  document.getElementById('det-path').textContent = d.path;
+  document.getElementById('det-time').textContent = d.time;
+}
+function closePanel() {
+  document.getElementById('overlay').classList.remove('show');
+  document.getElementById('slidePanel').classList.remove('open');
+}
+
+// ==================== Modal ====================
+function confirmDeploy() {
+  const err = document.getElementById('json-error');
+  try { JSON.parse(document.getElementById('json-rules').value); err.textContent = ''; }
+  catch(e) { err.textContent = 'JSON 格式错误：' + e.message; return; }
+  document.getElementById('confirmModal').classList.add('show');
+}
+function closeModal() { document.getElementById('confirmModal').classList.remove('show'); }
+function doDeploy() {
+  closeModal();
+  showToast('✅ 配置已下发至所有在线客户端（42 台）');
+}
+
+// ==================== JSON Editor ====================
+function formatJSON() {
+  const ta = document.getElementById('json-rules');
+  try { ta.value = JSON.stringify(JSON.parse(ta.value), null, 2); document.getElementById('json-error').textContent = ''; }
+  catch(e) { document.getElementById('json-error').textContent = 'JSON 格式错误，无法格式化：' + e.message; }
+}
+function validateJSON() {
+  const err = document.getElementById('json-error');
+  try { JSON.parse(document.getElementById('json-rules').value); err.textContent = '✅ JSON 格式正确'; err.style.color = 'var(--success)'; }
+  catch(e) { err.textContent = '❌ JSON 格式错误：' + e.message; err.style.color = 'var(--danger)'; }
+}
+
+// ==================== Failure List ====================
+const failTypes = ['蓝图不匹配','LLM 超时','解析错误','红线拦截','用户中止'];
+const failSteps = ['步骤 2: 指纹匹配','步骤 4: LLM 推理','步骤 1: 意图解析','步骤 5: 返回结果','步骤 3: 模板匹配'];
+let failCursor = 20;
+function genFailRow(i) {
+  const t = failTypes[i % 5];
+  const s = failSteps[(i * 3 + 1) % 5];
+  const tid = 'task_' + Math.random().toString(36).slice(2, 8);
+  const time = new Date(2026, 5, 29, 14, 0, 0).getTime() - i * 120000;
+  const ts = new Date(time).toTimeString().slice(0, 8);
+  return `<tr>
+    <td>${ts}</td><td>${['打开 VSCode 编辑文件','配置 Python 环境','分析数据报表','整理文档结构','调试前端代码'][i%5]}</td>
+    <td>${s}</td>
+    <td class="${i%3===0?'text-danger':i%3===1?'text-warning':''}">${['蓝图 verb 不匹配','LLM 响应超时 (15s)','用户意图解析失败','红线规则触发: 系统命令','任务被用户中止'][i%5]}</td>
+    <td><a href="javascript:void(0)" onclick="openPanel('${tid}')" style="color:var(--brand);cursor:pointer">查看详情</a></td>
+  </tr>`;
+}
+function renderFailRows(count) {
+  let html = '';
+  for (let i = 0; i < count; i++) html += genFailRow(i);
+  document.getElementById('fail-tbody').innerHTML = html;
+}
+function loadMoreFailures() {
+  const total = 156;
+  if (failCursor >= total) { showToast('已加载全部 ' + total + ' 条记录'); return; }
+  const next = Math.min(failCursor + 20, total);
+  let html = document.getElementById('fail-tbody').innerHTML;
+  for (let i = failCursor; i < next; i++) html += genFailRow(i);
+  document.getElementById('fail-tbody').innerHTML = html;
+  failCursor = next;
+  document.getElementById('fail-loaded').textContent = failCursor;
+  if (failCursor >= total) {
+    document.getElementById('fail-load-more').textContent = '✓ 全部 156 条已加载完毕';
+  }
+}
+renderFailRows(20);
+
+document.getElementById('fail-type').addEventListener('change', function() {
+  const type = this.value;
+  const header = document.getElementById('fail-list-header');
+  const counts = {全部:156,'蓝图不匹配':48,'LLM 超时':32,'解析错误':28,'红线拦截':25,'用户中止':23};
+  const total = counts[type] || 156;
+  document.getElementById('fail-total').textContent = total;
+  document.getElementById('fail-loaded').textContent = '20';
+  header.innerHTML = header.innerHTML.replace(/共 <strong>.*?<\/strong>/, '共 <strong>'+total+'</strong>');
+  failCursor = 20;
+  renderFailRows(Math.min(20, total));
+  document.getElementById('fail-load-more').textContent = total > 20 ? '▼ 滚动加载更多（每次 +20 条）' : '✓ 全部 ' + total + ' 条已加载完毕';
+});
+
+// ==================== Charts ====================
+const charts = {};
+function initChart(id) {
+  const dom = document.getElementById(id);
+  if (!dom) return null;
+  if (charts[id]) { charts[id].dispose(); }
+  const c = echarts.init(dom);
+  charts[id] = c;
+  return c;
+}
+
+// --- Pie: Feedback ---
+(function() {
+  const c = initChart('chart-feedback');
+  if (!c) return;
+  c.setOption({
+    tooltip:{trigger:'item'},
+    legend:{bottom:0},
+    series:[{type:'pie',radius:['45%','70%'],center:['50%','45%'],avoidLabelOverlap:false,
+      label:{show:true,formatter:'{b}\n{d}%'},emphasis:{label:{fontSize:16,fontWeight:'bold'}},
+      data:[
+        {value:89,name:'有用',itemStyle:{color:'#27ae60'}},
+        {value:6,name:'无用',itemStyle:{color:'#e74c3c'}},
+        {value:5,name:'中立',itemStyle:{color:'#bdc3c7'}}
+      ]
+    }]
+  });
+})();
+
+// --- Pie: L2/L3 ---
+(function() {
+  const c = initChart('chart-path');
+  if (!c) return;
+  c.setOption({
+    tooltip:{trigger:'item'},
+    legend:{bottom:0},
+    series:[{type:'pie',radius:['45%','70%'],center:['50%','45%'],avoidLabelOverlap:false,
+      label:{show:true,formatter:'{b}\n{d}%'},
+      data:[
+        {value:70,name:'L2 快路径',itemStyle:{color:'#409EFF'}},
+        {value:30,name:'L3 慢路径',itemStyle:{color:'#e67e22'}}
+      ]
+    }]
+  });
+})();
+
+// --- Line: Volume trend ---
+(function() {
+  const c = initChart('chart-volume');
+  if (!c) return;
+  const hours = ['00','01','02','03','04','05','06','07','08','09','10','11','12','13','14'];
+  const data = [12,8,5,3,2,4,15,38,65,89,95,102,110,108,105];
+  c.setOption({
+    tooltip:{trigger:'axis'},
+    xAxis:{type:'category',data:hours,name:'时间（时）'},
+    yAxis:{type:'value',name:'事务数'},
+    series:[{type:'line',data:data,smooth:true,lineStyle:{color:'#409EFF'},itemStyle:{color:'#409EFF'},
+      areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[
+        {offset:0,color:'rgba(64,158,255,0.25)'},{offset:1,color:'rgba(64,158,255,0.02)'}
+      ])},
+      markPoint:{data:[{coord:['12',110],value:'峰值 12:00',label:{formatter:'峰值\n12:00'}}]}
+    }],
+    grid:{top:30,right:30,bottom:30,left:50}
+  });
+})();
+
+// --- Line: Latency trend ---
+(function() {
+  const c = initChart('chart-latency');
+  if (!c) return;
+  const hours = ['00','01','02','03','04','05','06','07','08','09','10','11','12','13','14'];
+  const data = [2.1,2.3,2.0,1.9,2.1,2.5,3.2,4.8,5.6,6.1,5.8,5.3,5.9,6.3,6.0];
+  c.setOption({
+    tooltip:{trigger:'axis'},
+    xAxis:{type:'category',data:hours,name:'时间（时）'},
+    yAxis:{type:'value',name:'响应时长（秒）'},
+    series:[
+      {type:'line',data:data,smooth:true,lineStyle:{color:'#e67e22'},itemStyle:{color:'#e67e22'},
+        areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[
+          {offset:0,color:'rgba(230,126,34,0.2)'},{offset:1,color:'rgba(230,126,34,0.02)'}
+        ])}
+      },
+      {type:'line',data:Array(15).fill(3),lineStyle:{color:'#27ae60',type:'dashed',width:1.5},symbol:'none',name:'L2 基准线 (3s)'},
+      {type:'line',data:Array(15).fill(10),lineStyle:{color:'#e74c3c',type:'dashed',width:1.5},symbol:'none',name:'L3 基准线 (10s)'}
+    ],
+    grid:{top:30,right:30,bottom:30,left:50}
+  });
+})();
+
+// --- Mini: Audit success rate ---
+(function() {
+  const c = initChart('mini-chart-audit');
+  if (!c) return;
+  c.setOption({
+    grid:{top:2,right:2,bottom:2,left:2},
+    xAxis:{show:false,data:Array(24).fill('')},
+    yAxis:{show:false,min:98,max:100},
+    series:[{type:'line',data:[99.8,99.7,99.9,99.8,99.6,99.8,99.9,99.7,99.8,99.9,99.7,99.8,99.9,99.8,99.7,99.8,99.9,99.8,99.7,99.9,99.8,99.7,99.8,99.8],
+      smooth:true,lineStyle:{color:'#27ae60',width:1.5},symbol:'none',areaStyle:{color:'rgba(39,174,96,0.12)'}}]
+  });
+})();
+
+// --- Mini: Version pie ---
+(function() {
+  const c = initChart('mini-chart-version');
+  if (!c) return;
+  c.setOption({
+    grid:{top:2,right:2,bottom:2,left:2},
+    series:[{type:'pie',radius:['55%','75%'],center:['50%','50%'],
+      data:[
+        {value:34,name:'v2.1.0',itemStyle:{color:'#409EFF'}},
+        {value:6,name:'v2.0.5',itemStyle:{color:'#a0cfff'}},
+        {value:2,name:'v1.9.0',itemStyle:{color:'#dcdfe6'}}
+      ],
+      label:{show:false},emphasis:{scale:false}
+    }]
+  });
+})();
+
+// --- Bar: Top tasks ---
+(function() {
+  const c = initChart('chart-tasks');
+  if (!c) return;
+  c.setOption({
+    tooltip:{trigger:'axis'},
+    xAxis:{type:'value'},
+    yAxis:{type:'category',inverse:true,data:['VSCode 编辑文件','Chrome 浏览网页','发送邮件','Excel 数据处理','文件管理','系统设置','截图标注','PDF 阅读','代码调试','格式转换']},
+    series:[{type:'bar',data:[245,198,156,134,112,98,76,65,52,41],
+      itemStyle:{color:new echarts.graphic.LinearGradient(0,0,1,0,[
+        {offset:0,color:'#409EFF'},{offset:1,color:'#79bbff'}
+      ])},
+      label:{show:true,position:'right'}
+    }],
+    grid:{top:10,right:40,bottom:20,left:110}
+  });
+  c.on('click', function() { showToast('跳转至数据流监控 — 查看"高频操作任务"使用详情'); });
+})();
+
+// --- Bar: Redline ---
+(function() {
+  const c = initChart('chart-redline');
+  if (!c) return;
+  c.setOption({
+    tooltip:{trigger:'axis'},
+    xAxis:{type:'value'},
+    yAxis:{type:'category',inverse:true,data:['自动点击请求','扫描硬盘请求','系统命令注入','批量删除尝试','未授权 API 调用']},
+    series:[{type:'bar',data:[67,45,32,21,15],
+      itemStyle:{color:new echarts.graphic.LinearGradient(0,0,1,0,[
+        {offset:0,color:'#e74c3c'},{offset:1,color:'#f1948a'}
+      ])},
+      label:{show:true,position:'right'}
+    }],
+    grid:{top:10,right:40,bottom:20,left:130}
+  });
+})();
+
+// --- Failure distribution ---
+(function() {
+  const c = initChart('chart-fail-dist');
+  if (!c) return;
+  c.setOption({
+    tooltip:{trigger:'axis'},
+    xAxis:{type:'category',data:['蓝图不匹配','LLM 超时','解析错误','红线拦截','用户中止']},
+    yAxis:{type:'value'},
+    series:[{type:'bar',data:[48,32,28,25,23],
+      itemStyle:{color:'#e74c3c',borderRadius:[4,4,0,0]}
+    }],
+    grid:{top:20,right:20,bottom:30,left:50}
+  });
+  c.on('click', function(params) {
+    const types = ['蓝图不匹配','LLM 超时','解析错误','红线拦截','用户中止'];
+    document.getElementById('fail-type').value = types[params.dataIndex];
+    document.getElementById('fail-type').dispatchEvent(new Event('change'));
+  });
+})();
+
+// --- Failure trend ---
+(function() {
+  const c = initChart('chart-fail-trend');
+  if (!c) return;
+  const hours = ['09','10','11','12','13','14'];
+  c.setOption({
+    tooltip:{trigger:'axis'},
+    xAxis:{type:'category',data:hours,name:'时间（时）'},
+    yAxis:{type:'value',name:'失败数'},
+    series:[{type:'line',data:[18,22,28,35,30,23],smooth:true,lineStyle:{color:'#e74c3c'},itemStyle:{color:'#e74c3c'},
+      areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[
+        {offset:0,color:'rgba(231,76,60,0.2)'},{offset:1,color:'rgba(231,76,60,0.02)'}
+      ])}
+    }],
+    grid:{top:20,right:20,bottom:30,left:50}
+  });
+})();
+
+// --- Topology (custom graph) ---
+(function() {
+  const c = initChart('chart-topo');
+  if (!c) return;
+  const data = [
+    {name:'客户端\n#c12a',x:80,y:30},{name:'客户端\n#d07f',x:80,y:80},{name:'客户端\n#e3b1',x:80,y:130},{name:'客户端\n#f9a2',x:80,y:180},
+    {name:'HAJIMI\nAPI Gateway',x:280,y:105},
+    {name:'PostgreSQL',x:460,y:50},{name:'LLM API\n(gpt-4o)',x:460,y:160}
+  ];
+  const links = [
+    {source:'客户端\n#c12a',target:'HAJIMI\nAPI Gateway',label:'QPS 12 | 45ms',color:'#27ae60'},
+    {source:'客户端\n#d07f',target:'HAJIMI\nAPI Gateway',label:'QPS 8 | 52ms',color:'#27ae60'},
+    {source:'客户端\n#e3b1',target:'HAJIMI\nAPI Gateway',label:'QPS 15 | 38ms',color:'#27ae60'},
+    {source:'客户端\n#f9a2',target:'HAJIMI\nAPI Gateway',label:'QPS 5 | 210ms',color:'#e67e22'},
+    {source:'HAJIMI\nAPI Gateway',target:'PostgreSQL',label:'QPS 30 | 12ms',color:'#27ae60'},
+    {source:'HAJIMI\nAPI Gateway',target:'LLM API\n(gpt-4o)',label:'QPS 8 | 4.2s',color:'#e67e22'}
+  ];
+  c.setOption({
+    tooltip:{trigger:'item',formatter:'{b}'},
+    series:[{
+      type:'graph',layout:'force',force:{repulsion:300,edgeLength:[200,300],gravity:0.08},
+      roam:false,draggable:false,
+      data:data.map(d => ({
+        name:d.name,x:d.x,y:d.y,symbolSize:52,
+        itemStyle:{color:d.name.includes('客户端')?'#409EFF':d.name.includes('Gateway')?'#e67e22':'#27ae60'},
+        label:{show:true,fontSize:11,color:'#303133'}
+      })),
+      links:links.map(l => ({
+        source:l.source,target:l.target,
+        lineStyle:{color:l.color,width:2,curveness:0.2},
+        label:{show:true,fontSize:10,color:l.color,formatter:l.label}
+      })),
+      edgeSymbol:['none','arrow'],
+      edgeSymbolSize:8
+    }]
+  });
+})();
+
+// --- Audit API QPS ---
+(function() {
+  const c = initChart('chart-audit-api');
+  if (!c) return;
+  const hours = ['09','10','11','12','13','14'];
+  c.setOption({
+    tooltip:{trigger:'axis'},
+    legend:{data:['QPS','成功率']},
+    xAxis:{type:'category',data:hours},
+    yAxis:[
+      {type:'value',name:'QPS'},{type:'value',name:'成功率 %',min:95,max:100}
+    ],
+    series:[
+      {name:'QPS',type:'bar',data:[28,32,35,42,38,30],itemStyle:{color:'#409EFF',borderRadius:[3,3,0,0]}},
+      {name:'成功率',type:'line',yAxisIndex:1,data:[99.9,99.8,99.7,99.8,99.9,99.8],lineStyle:{color:'#27ae60'},itemStyle:{color:'#27ae60'},smooth:true}
+    ],
+    grid:{top:30,right:30,bottom:30,left:50}
+  });
+})();
+
+// --- Match API QPS ---
+(function() {
+  const c = initChart('chart-match-api');
+  if (!c) return;
+  const hours = ['09','10','11','12','13','14'];
+  c.setOption({
+    tooltip:{trigger:'axis'},
+    legend:{data:['QPS','命中率']},
+    xAxis:{type:'category',data:hours},
+    yAxis:[
+      {type:'value',name:'QPS'},{type:'value',name:'命中率 %',min:70,max:100}
+    ],
+    series:[
+      {name:'QPS',type:'bar',data:[45,52,48,58,55,50],itemStyle:{color:'#e67e22',borderRadius:[3,3,0,0]}},
+      {name:'命中率',type:'line',yAxisIndex:1,data:[92,93,90,91,94,92],lineStyle:{color:'#409EFF'},itemStyle:{color:'#409EFF'},smooth:true}
+    ],
+    grid:{top:30,right:30,bottom:30,left:50}
+  });
+})();
+
+// --- Version Pie ---
+(function() {
+  const c = initChart('chart-version-pie');
+  if (!c) return;
+  c.setOption({
+    tooltip:{trigger:'item'},
+    series:[{type:'pie',radius:['40%','65%'],center:['50%','50%'],
+      label:{formatter:'{b}\n{d}%'},
+      data:[
+        {value:34,name:'v2.1.0',itemStyle:{color:'#409EFF'}},
+        {value:6,name:'v2.0.5',itemStyle:{color:'#a0cfff'}},
+        {value:2,name:'v1.9.0',itemStyle:{color:'#dcdfe6'}}
+      ]
+    }]
+  });
+})();
+
+// --- Pull histogram ---
+(function() {
+  const c = initChart('chart-pull-hist');
+  if (!c) return;
+  c.setOption({
+    tooltip:{trigger:'axis'},
+    xAxis:{type:'category',data:['0-5min','5-15min','15-30min','>30min']},
+    yAxis:{type:'value',name:'客户端数'},
+    series:[{type:'bar',data:[30,8,3,1],
+      itemStyle:{color:function(p){return p.dataIndex===3?'#e74c3c':'#409EFF';},borderRadius:[4,4,0,0]}
+    }],
+    grid:{top:20,right:20,bottom:30,left:50}
+  });
+})();
+
+// ==================== Responsive resize ====================
+window.addEventListener('resize', () => {
+  Object.values(charts).forEach(c => { if(c && !c.isDisposed()) c.resize(); });
+});
+
+// ==================== Simulate real-time update ====================
+setInterval(() => {
+  const now = new Date();
+  document.querySelector('.header-right span:last-child').textContent =
+    now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0')+' '+
+    now.toTimeString().slice(0,8);
+}, 10000);
+</script>
+</body>
+</html>
