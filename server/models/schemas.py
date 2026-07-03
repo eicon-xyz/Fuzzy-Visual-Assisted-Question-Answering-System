@@ -59,6 +59,7 @@ class Annotation(BaseModel):
     highlight_bbox: Optional[List[int]] = Field(None, min_length=4, max_length=4)
     label_position: Optional[List[int]] = Field(None, min_length=2, max_length=2)
     label_text: Optional[str] = None
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="坐标置信度，源于 coordinate_validator 后处理")
 
 
 class Step(BaseModel):
@@ -73,6 +74,7 @@ class Step(BaseModel):
         pattern="^(pending|active|done|skipped|failed)$",
     )
     annotation: Optional[Annotation] = None
+    risk_score: Optional[int] = Field(None, ge=1, le=5, description="步骤风险评分 1-5（1=安全，5=不可逆危险）")
 
 
 class Blueprint(BaseModel):
@@ -102,6 +104,18 @@ class ErrorResponse(BaseModel):
     error: ErrorDetail
 
 
+class RedlineInfo(BaseModel):
+    """红线检测结果 — 嵌入 ProcessResponse，触发时不为 None"""
+
+    triggered: bool = False
+    category: str = ""
+    message: str = ""
+    action: str = Field(
+        "reject",
+        pattern="^(reject|guided_reject|degrade)$",
+    )
+
+
 # ────────────────────────── 请求/响应模型 ──────────────────────────
 
 
@@ -129,6 +143,18 @@ class ProcessResponse(BaseModel):
     )
     blueprint: Blueprint
     steps: List[Step]
+    constraints: Optional[dict] = Field(
+        None, description="从用户输入提取的约束条件（如安装路径、保存位置）"
+    )
+    reference_resolution: Optional[List[int]] = Field(
+        None, description="截图物理像素 [w, h]，供 B 端坐标映射"
+    )
+    detection_meta: Optional[dict] = Field(
+        None, description="{latency_ms, element_count, backend}"
+    )
+    redline: Optional[RedlineInfo] = Field(
+        None, description="红线检测结果，触发时不为 None"
+    )
 
 
 class StepRequest(BaseModel):
@@ -141,6 +167,19 @@ class StepRequest(BaseModel):
     )
     step_index: Optional[int] = Field(None, ge=1)
     fingerprint: Optional[str] = None
+    image: Optional[str] = Field(
+        None,
+        description="新截图 Base64；用于无绑定步骤的动态重规划",
+    )
+    trust_level: Optional[str] = Field(
+        "balanced",
+        pattern="^(paranoid|balanced|autopilot)$",
+        description="信任级别：paranoid=每步审批，balanced=高风险审批，autopilot=全自动",
+    )
+    force: Optional[bool] = Field(
+        False,
+        description="设为 true 跳过风险/评估检查，强制推进",
+    )
 
 
 class StepResponse(BaseModel):
@@ -149,12 +188,18 @@ class StepResponse(BaseModel):
     task_id: str
     action: str = Field(
         ...,
-        pattern="^(advance|rollback|skip|suspended|complete|terminated)$",
+        pattern="^(advance|rollback|skip|suspended|complete|terminated|paused)$",
     )
     current_step: int = Field(..., ge=1)
     blueprint_state: str
     next_step: Optional[Step] = None
     message: Optional[str] = None
+    requires_approval: Optional[bool] = Field(
+        None, description="是否需要用户审批（仅 action=paused 时返回）"
+    )
+    evaluation: Optional[dict] = Field(
+        None, description="步骤评估结果 {status, confidence, rationale}，仅开启 evaluator 时返回"
+    )
 
 
 class ClarifyRequest(BaseModel):
@@ -201,3 +246,56 @@ class HealthResponse(BaseModel):
 
     status: str
     version: str
+    detector_backend: Optional[str] = None
+    omniparser_ready: Optional[bool] = None
+
+
+class RelocateRequest(BaseModel):
+    """重新定位请求 — 当前画面找不到目标元素时手动截图重新定位"""
+
+    task_id: str
+    step_index: int = Field(..., ge=1)
+    image: str = Field(
+        ...,
+        description="新截图 Base64，含 data URI 前缀",
+    )
+
+
+class RelocateResponse(BaseModel):
+    """重新定位响应 — 返回更新后的标注与全量元素"""
+
+    task_id: str
+    step_index: int
+    target_element_id: Optional[str] = None
+    annotation: Optional[Annotation] = None
+    ui_elements: List[UIElement] = []
+
+
+class InspectRequest(BaseModel):
+    """检验模式请求 — 立即检测当前屏幕，不生成 task/steps"""
+
+    image: str = Field(
+        ...,
+        description="Base64 截图，含 data URI 前缀",
+    )
+    screen_width: Optional[int] = Field(
+        None, description="屏幕物理宽度（像素）"
+    )
+    screen_height: Optional[int] = Field(
+        None, description="屏幕物理高度（像素）"
+    )
+
+
+class InspectResponse(BaseModel):
+    """检验模式响应 — 全量 UI 元素 + SoM 标注图"""
+
+    ui_elements: List[UIElement] = []
+    annotated_image: Optional[str] = Field(
+        None, description="带 SoM 编号标注的截图 Base64"
+    )
+    reference_resolution: Optional[List[int]] = Field(
+        None, description="截图物理像素 [w, h]，供 B 端坐标映射"
+    )
+    detection_meta: Optional[dict] = Field(
+        None, description="{latency_ms, element_count, backend}"
+    )

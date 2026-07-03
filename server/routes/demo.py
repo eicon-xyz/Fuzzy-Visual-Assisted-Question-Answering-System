@@ -15,13 +15,23 @@ from server.models.schemas import (
     ClarifyResponse,
     ReportRequest,
     ReportResponse,
+    RelocateRequest,
+    RelocateResponse,
+    InspectRequest,
+    InspectResponse,
     HealthResponse,
     ErrorResponse,
     Intent,
 )
 from server.storage.memory import task_store
-from server.services.blueprint import BlueprintEngine
+from server.services.planning.blueprint_engine import BlueprintEngine
 from server.services.llm_ai import process_query, get_clarification_question
+from server.services.omniparser_client import parse_screenshot, parse_screenshot_full
+from server.services.planning.replanner import replan_steps
+from server.services.planning.router import relocate_step
+from server.database.repository import (
+    TaskRepository, RedlineRepository, FeedbackRepository, FailureRepository,
+)
 
 
 router = APIRouter(prefix="/api/demo", tags=["Demo Core"])
@@ -56,7 +66,22 @@ def verify_demo_key(x_demo_key: Optional[str] = Header(None)) -> str:
     description="供前端启动时探测后端是否可用，无需认证。",
 )
 async def health_check():
-    return HealthResponse(status="ok", version="1.0.0")
+    # 探测 OmniParser 是否可达
+    omniparser_ready = False
+    try:
+        import httpx
+        with httpx.Client(timeout=3) as client:
+            r = client.get(settings.OMNIPARSER_URL.rstrip("/"))
+            omniparser_ready = r.status_code < 500
+    except Exception:
+        pass
+
+    return HealthResponse(
+        status="ok",
+        version="1.0.0",
+        detector_backend="local_omniparser",
+        omniparser_ready=omniparser_ready,
+    )
 
 
 @router.post(
@@ -72,11 +97,41 @@ async def process(
     # 1. 调用 AI 服务生成响应（传入截图供本地 OmniParser 解析）
     response = process_query(request.query, request.image)
 
-    # 2. 如果需要澄清，仍然保存任务状态，但返回需要澄清的意图
-    # 3. 保存任务状态到内存
+    # 2. 红线拦截 → 记录日志，不创建任务
+    if response.redline and response.redline.triggered:
+        RedlineRepository.log(
+            query=request.query,
+            category=response.redline.category,
+            action=response.redline.action,
+            message=response.redline.message,
+        )
+        return response
+
+    # 3. 成功任务 → 内存 + 数据库双写
     task_store.create(response, request.query)
+    TaskRepository.create_from_response(response, request.query)
 
     return response
+
+
+@router.post(
+    "/inspect",
+    response_model=InspectResponse,
+    summary="立即检测当前屏幕",
+    description="仅检测 UI 元素，不生成 task/steps。供 Settings「立即检测当前屏幕」使用。",
+)
+async def inspect(
+    request: InspectRequest,
+    demo_key: str = Depends(verify_demo_key),
+):
+    result = parse_screenshot_full(request.image)
+
+    return InspectResponse(
+        ui_elements=result.elements,
+        annotated_image=result.annotated_image,
+        reference_resolution=result.reference_resolution,
+        detection_meta=result.detection_meta,
+    )
 
 
 @router.post(
@@ -121,9 +176,98 @@ async def step(
     message = None
 
     if request.action == "advance":
-        action, next_step = engine.advance(state, settings.STRICT_FINGERPRINT)
+        # ── HITL 审批检查（1.1.0 新增）──
+        current_step = state.steps[state.blueprint.current_step - 1] if state.steps else None
+        if not request.force and BlueprintEngine.should_pause(
+            current_step,
+            trust_level=request.trust_level or "balanced",
+        ):
+            return StepResponse(
+                task_id=state.task_id,
+                action="paused",
+                current_step=state.blueprint.current_step,
+                blueprint_state=state.blueprint.state,
+                next_step=current_step,
+                message="高风险步骤 — 请确认后继续",
+                requires_approval=True,
+            )
+
+        # ── 步骤评估（1.1.0 新增，可选）──
+        evaluation = None
+        if request.image and current_step:
+            from server.services.planning.evaluator import StepEvaluator
+            eval_result = StepEvaluator.evaluate(
+                goal=state.blueprint.name,
+                step_title=current_step.action,
+                instruction=current_step.description,
+                success_criteria="",
+                user_note="",
+                image_base64=request.image,
+            )
+            if eval_result["suggested_action"] == "replan":
+                # 触发 replan 而非推进
+                from server.services.planning.replanner import replan_steps as do_replan
+                new_elements = parse_screenshot(request.image)
+                if new_elements:
+                    updated_steps = do_replan(
+                        original_query=state.query,
+                        current_step_index=state.blueprint.current_step - 1,
+                        all_steps=state.steps,
+                        new_elements=new_elements,
+                    )
+                    for j, updated in enumerate(updated_steps):
+                        if state.blueprint.current_step - 1 <= j < len(state.steps):
+                            state.steps[j] = updated
+                task_store.update(state)
+                return StepResponse(
+                    task_id=state.task_id,
+                    action="advance",
+                    current_step=state.blueprint.current_step,
+                    blueprint_state=state.blueprint.state,
+                    next_step=state.steps[state.blueprint.current_step - 1],
+                    message=f"已重规划：{eval_result['assistant_response']}",
+                    evaluation=eval_result,
+                )
+            elif eval_result["suggested_action"] == "repeat_guidance":
+                # 不推进，返回当前步骤
+                task_store.update(state)
+                return StepResponse(
+                    task_id=state.task_id,
+                    action="advance",
+                    current_step=state.blueprint.current_step,
+                    blueprint_state=state.blueprint.state,
+                    next_step=current_step,
+                    message=eval_result.get("assistant_response", "请再试一次"),
+                    evaluation=eval_result,
+                )
+            evaluation = eval_result
+
+        action, next_step = engine.advance(
+            state, settings.STRICT_FINGERPRINT,
+            force=bool(request.force),
+        )
         if action == "complete":
             message = "任务已完成"
+
+        # === 动态重规划 ===
+        if (
+            action == "advance"
+            and request.image
+            and next_step
+            and not next_step.target_element_id
+        ):
+            new_elements = parse_screenshot(request.image)
+            if new_elements:
+                updated_steps = replan_steps(
+                    original_query=state.query,
+                    current_step_index=state.blueprint.current_step - 1,
+                    all_steps=state.steps,
+                    new_elements=new_elements,
+                )
+                for i, updated in enumerate(updated_steps):
+                    if state.blueprint.current_step - 1 <= i < len(state.steps):
+                        state.steps[i] = updated
+                next_step = state.steps[state.blueprint.current_step - 1]
     elif request.action == "rollback":
         action, next_step = engine.rollback(state)
         message = "已回退一步"
@@ -150,13 +294,81 @@ async def step(
     state.fingerprint = request.fingerprint
     task_store.update(state)
 
-    return StepResponse(
+    resp_kwargs = {
+        "task_id": state.task_id,
+        "action": action,
+        "current_step": state.blueprint.current_step,
+        "blueprint_state": state.blueprint.state,
+        "next_step": next_step,
+        "message": message,
+    }
+    if evaluation:
+        resp_kwargs["evaluation"] = evaluation
+    return StepResponse(**resp_kwargs)
+
+
+@router.post(
+    "/relocate",
+    response_model=RelocateResponse,
+    summary="重新定位步骤",
+    description="当前画面找不到目标元素时，用户手动完成操作后上传新截图重新定位。",
+)
+async def relocate(
+    request: RelocateRequest,
+    demo_key: str = Depends(verify_demo_key),
+):
+    # 1. 查找任务
+    state = task_store.get(request.task_id)
+    if not state:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": f"task_id {request.task_id} 不存在",
+                    "details": {},
+                }
+            },
+        )
+
+    # 2. 查找目标步骤
+    step_index = request.step_index
+    if step_index < 1 or step_index > len(state.steps):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "INVALID_STEP_INDEX",
+                    "message": f"step_index {step_index} 超出范围 (1–{len(state.steps)})",
+                    "details": {},
+                }
+            },
+        )
+
+    target_step = state.steps[step_index - 1]
+
+    # 3. 对新截图重定位
+    target_element_id, annotation, elements = relocate_step(
+        step_action=target_step.action,
+        step_description=target_step.description,
+        image_base64=request.image,
+    )
+
+    # 4. 更新步骤绑定
+    if target_element_id:
+        target_step.target_element_id = target_element_id
+        target_step.annotation = annotation
+        target_step.status = "active"
+
+    # 5. 持久化
+    task_store.update(state)
+
+    return RelocateResponse(
         task_id=state.task_id,
-        action=action,
-        current_step=state.blueprint.current_step,
-        blueprint_state=state.blueprint.state,
-        next_step=next_step,
-        message=message,
+        step_index=step_index,
+        target_element_id=target_element_id,
+        annotation=annotation,
+        ui_elements=elements,
     )
 
 
@@ -230,5 +442,19 @@ async def report(
         request.feedback_type,
         request.duration_ms,
     )
+
+    # 3. 持久化反馈 + 更新任务结果
+    if request.feedback_type:
+        FeedbackRepository.create(
+            task_id=request.task_id,
+            feedback_type=request.feedback_type,
+            comment=request.comment,
+        )
+    if request.result:
+        TaskRepository.update_result(
+            task_id=request.task_id,
+            result=request.result,
+            duration_ms=request.duration_ms,
+        )
 
     return ReportResponse(received=True)

@@ -73,31 +73,23 @@ server/
 
 ### 🔴 P0 紧急 — 缺失端点
 
-#### 15.1 `POST /api/demo/relocate` 端点未实现
+#### 15.1 `POST /api/demo/relocate` 端点 — 已实现（2026-07-01）
 
 **来源**：[B端接口总结-对A与对C.md](../项目文档/B端接口总结-对A与对C.md) §3.2 将 `/relocate` 列为 A 端已有端点，B 端已实现 `core/relocate_worker.py` 并预期此端点可用。
 
-**当前状态**：`server/routes/demo.py` 仅有 5 个路由（health/process/step/clarify/report），无 relocate。
+**当前状态**：✅ 已实现
+- `server/routes/demo.py:238-300` — `/api/demo/relocate` 路由已实现
+- `server/models/schemas.py:236-254` — `RelocateRequest` / `RelocateResponse` 已定义
+- `server/services/planning/router.py:348-407` — `relocate_step()` 函数已实现（LLM 匹配 + 文本关键词 fallback）
 
-**B 端期望请求**：
-```json
-{
-  "task_id": "550e8400-...",
-  "step_index": 2,
-  "image": "data:image/png;base64,..."
-}
-```
+**实现逻辑**：
+1. 对新截图调用 OmniParser 解析
+2. 尝试 LLM 匹配目标元素（`_RELOCATE_PROMPT`）
+3. LLM 失败则降级为文本关键词匹配
+4. 更新步骤的 `target_element_id`、`annotation`，status 设为 `"active"`
+5. 持久化到内存存储
 
-**B 端期望响应**：更新当前步的 `annotation`、`target_element_id`、`ui_elements`。
-
-**影响**：B 端的「我已完成，重新定位」PrepareStep banner 功能无法工作。
-
-**预估工时**：2-3h
-
-**涉及文件**：
-- `models/schemas.py` — 新增 `RelocateRequest` / `RelocateResponse`
-- `routes/demo.py` — 新增 `/relocate` 路由
-- `services/planning/` — 新增定位逻辑（调用 OmniParser + LLM 绑定）
+**影响**：B 端的「我已完成，重新定位」PrepareStep banner 功能可正常工作。
 
 ---
 
@@ -184,18 +176,27 @@ server/
 
 ### 📊 汇总
 
-| # | 任务 | 优先级 | 工时 | 类型 |
-|---|------|--------|------|------|
-| 15.1 | `/relocate` 端点实现 | 🔴 P0 | 2-3h | 缺失功能 |
-| 15.2 | `README.md` 更新 | 🟡 P1 | 0.5h | 文档债务 |
-| 15.3 | `router.py:20` TODO 删除 | 🟡 P1 | 1min | 代码清理 |
-| 15.4 | CHANGELOG-A端 待办项 | 🟡 P1 | 3-5h | 文档 + 评估 |
-| 15.5 | A_实现优先级 过期描述 | 🟡 P1 | ✅ 已修正 | 文档 |
-| 15.6 | GroundingDINO 级联补漏 | 🟢 P2 | 8-12h | 新功能 |
-| 15.7 | A-C 管理端 API | 🟢 P2 | 多天 | 新功能 |
-| **合计** | | | **13-20h + 多天** | |
+| # | 任务 | 优先级 | 状态 | 工时 | 说明 |
+|---|------|--------|------|------|------|
+| 15.1 | `/relocate` 端点实现 | 🔴 P0 | ✅ 已完成（2026-07-01） | — | `demo.py:238-300` + `router.py:348-407` |
+| 15.2 | `README.md` 更新 | 🟡 P1 | ✅ 已完成 | — | 模块描述、端点表、环境变量表已同步 |
+| 15.3 | `router.py:20` TODO 删除 | 🟡 P1 | ✅ 已完成 | — | 已核查，无误时 TODO |
+| 15.4 | CHANGELOG-A端 待办项 | 🟡 P1 | ✅ 已完成 | — | README 与 `reference_resolution` example 已同步；SeeClick/YOLO 评估报告已完成 |
+| 15.5 | `A_实现优先级.md` 过期描述 | 🟡 P1 | ✅ 已完成 | — | 已修正 |
+| 15.6 | GroundingDINO 级联补漏 | 🟢 P2 | ❌ 未开始 | 8-12h | 需部署 GroundingDINO + 元素合并逻辑 |
+| 15.7 | A-C 管理端 API（9个端点） | 🟢 P2 | ❌ 未开始 | 多天 | 见 §15.7 端点清单 |
+| 15.8 | LLM 管线升级 | 🟡 P1 | ✅ 已完成（2026-07-02） | — | Qwen3.6 多模态 + SiliconCloud |
 
-> **注**：P0-P4 核心 AI 功能（元素感知、意图分类、蓝图状态机、动态重规划、约束提取、旧代码清理）已全部完成并合并至 main。剩余工作主要是 B 端对接缺口（relocate）和文档同步，以及长期路线图中的 GroundingDINO 和管理端 API。
+> **注**：P0-P4 核心 AI 功能（元素感知、意图分类、蓝图状态机、动态重规划、约束提取、旧代码清理）已全部完成并合并至 main。2026-07-02 完成 LLM 管线升级（DeepSeek → Qwen3.6 多模态，SiliconCloud），`/relocate` 端点已实现，README 和 `.env.example` 已同步更新。
+>
+> **2026-07-02 代码核查更新**：
+> - ✅ 15.1 `/relocate` 端点已确认实现（`demo.py:238-300`）
+> - ✅ 15.3 `router.py` 第20行附近无误时 TODO（已核查）
+> - ✅ 15.2 `README.md` 已全面同步（模块描述、端点表、环境变量表）
+> - ✅ 15.4 `api-contract-demo.yaml` 已补充 `reference_resolution`、`detection_meta`、`redline` 及 `/inspect`、`/relocate` 端点
+> - ✅ 15.4 SeeClick / YOLO 评估已完成，报告见 `项目文档/SeeClick-YOLO-评估报告.md`；结论：暂不入主链路，优先 GroundingDINO 级联
+> - ❌ 15.6 GroundingDINO 级联补漏未开始
+> - ❌ 15.7 A-C 管理端 API 9个端点未实现
 
 ---
 

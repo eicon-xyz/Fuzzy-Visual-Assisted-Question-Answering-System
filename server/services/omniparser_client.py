@@ -5,7 +5,11 @@ The OmniParser API server is deployed separately (D:\\ominprester) and exposes
 POST /parse, which returns structured UI elements for a base64-encoded image.
 This module converts those elements into the HAJIMI UIElement schema.
 """
+import base64
+import io
 import re
+import time
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 import httpx
@@ -29,24 +33,54 @@ def _clean_base64(image_base64: Optional[str]) -> Optional[str]:
     return cleaned.strip().replace("\n", "").replace("\r", "")
 
 
+def _decode_image_resolution(payload_base64: str) -> Optional[List[int]]:
+    """Try to decode image dimensions from base64 using PIL as fallback."""
+    try:
+        from PIL import Image
+        raw = base64.b64decode(payload_base64)
+        with Image.open(io.BytesIO(raw)) as img:
+            return [img.width, img.height]
+    except Exception:
+        return None
+
+
+@dataclass
+class ParseResult:
+    """Full result from OmniParser parse call."""
+    elements: List[UIElement] = field(default_factory=list)
+    annotated_image: Optional[str] = None
+    reference_resolution: Optional[List[int]] = None
+    detection_meta: Optional[dict] = None
+
+
 def parse_screenshot(image_base64: Optional[str]) -> List[UIElement]:
     """
     Call the local OmniParser V2 API and return HAJIMI-style UIElement list.
+
+    Delegates to parse_screenshot_full() to avoid code duplication.
+    """
+    return parse_screenshot_full(image_base64).elements
+
+
+def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
+    """
+    Call the local OmniParser V2 API and return a full ParseResult with metadata.
 
     Args:
         image_base64: Base64 image, with or without a data URI prefix.
 
     Returns:
-        List of UIElement. Returns an empty list if no image is provided,
-        the parser is unreachable, or parsing fails.
+        ParseResult with elements, annotated_image, reference_resolution, detection_meta.
+        Returns an empty ParseResult if no image is provided or parsing fails.
     """
     payload_base64 = _clean_base64(image_base64)
     if not payload_base64:
-        return []
+        return ParseResult()
 
     url = f"{_OMNIPARSER_URL}/parse"
     payload = {"image": payload_base64}
 
+    t_start = time.time()
     try:
         with httpx.Client(timeout=_OMNIPARSER_TIMEOUT) as client:
             response = client.post(url, json=payload)
@@ -54,15 +88,15 @@ def parse_screenshot(image_base64: Optional[str]) -> List[UIElement]:
             data = response.json()
     except Exception as exc:
         print(f"[OmniParser Client] parser unavailable or request failed: {exc}")
-        return []
+        return ParseResult()
+    finally:
+        latency_ms = int((time.time() - t_start) * 1000)
 
     if data.get("error"):
         print(f"[OmniParser Client] parser returned error: {data['error']}")
-        return []
+        return ParseResult()
 
     raw_elements = data.get("elements") or []
-    if not raw_elements:
-        return []
 
     elements: List[UIElement] = []
     for item in raw_elements:
@@ -78,7 +112,6 @@ def parse_screenshot(image_base64: Optional[str]) -> List[UIElement]:
         x1, y1, x2, y2 = bbox
         center = item.get("center") or [(x1 + x2) // 2, (y1 + y2) // 2]
 
-        # Make sure element_type stays within the allowed schema values
         raw_type = item.get("type", "other")
         allowed_types = {"button", "input", "icon", "menu", "checkbox", "dropdown", "text", "other"}
         element_type = raw_type if raw_type in allowed_types else "other"
@@ -94,4 +127,42 @@ def parse_screenshot(image_base64: Optional[str]) -> List[UIElement]:
             )
         )
 
-    return elements
+    # ── 提取 SoM 标注图 ──
+    annotated_image = None
+    for key in ("annotated_image", "labeled_image", "som_image", "som_base64"):
+        val = data.get(key)
+        if isinstance(val, str) and val:
+            annotated_image = val
+            break
+
+    # ── 提取 / 推导 reference_resolution ──
+    reference_resolution = None
+    # 优先从 OmniParser 响应取
+    for w_key, h_key in (
+        ("width", "height"),
+        ("image_width", "image_height"),
+        ("img_width", "img_height"),
+    ):
+        w = data.get(w_key)
+        h = data.get(h_key)
+        if isinstance(w, (int, float)) and isinstance(h, (int, float)):
+            reference_resolution = [int(w), int(h)]
+            break
+
+    # 回退到 PIL 解码
+    if reference_resolution is None:
+        reference_resolution = _decode_image_resolution(payload_base64)
+
+    # ── 检测元信息 ──
+    detection_meta = {
+        "latency_ms": latency_ms,
+        "element_count": len(elements),
+        "backend": "local_omniparser",
+    }
+
+    return ParseResult(
+        elements=elements,
+        annotated_image=annotated_image,
+        reference_resolution=reference_resolution,
+        detection_meta=detection_meta,
+    )
