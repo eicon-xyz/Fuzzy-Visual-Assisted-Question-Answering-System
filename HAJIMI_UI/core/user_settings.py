@@ -14,6 +14,12 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "shell_alpha_compact": 89,
     "font_size": 13,
     "crystal_shadow_strength": 0,
+    "title_art_mode": "gradient",
+    "top_light_mode": "dual",
+    "top_light_peak": 34,
+    "qss_body_mode": "solid",
+    "qss_highlight_mode": "dual_lite",
+    "qss_highlight_peak": 34,
     "a_end_url": "http://127.0.0.1:8010",
     "demo_key": "hajimi-demo-2026",
     "llm": {
@@ -56,6 +62,17 @@ def _merge_defaults(data: dict) -> dict:
         SHELL_STYLE_IDS,
         default_crystal_shadow_strength,
     )
+    from ui.native.shell_paint import (
+        DEFAULT_LIGHT_MODE,
+        DEFAULT_QSS_BODY,
+        DEFAULT_QSS_HIGHLIGHT,
+        DEFAULT_QSS_HIGHLIGHT_PEAK,
+        DEFAULT_TOP_LIGHT_PEAK,
+        LIGHT_MODE_IDS,
+        QSS_BODY_MODE_IDS,
+        QSS_HIGHLIGHT_MODE_IDS,
+    )
+    from ui.native.title_art import DEFAULT_TITLE_ART, TITLE_ART_MODE_IDS
 
     shell_style = data.get("shell_style", DEFAULT_SHELL_STYLE)
     if shell_style in SHELL_STYLE_IDS:
@@ -79,6 +96,28 @@ def _merge_defaults(data: dict) -> dict:
         )
     else:
         out["crystal_shadow_strength"] = default_crystal_shadow_strength(out["shell_style"])
+    title_art = data.get("title_art_mode", DEFAULT_TITLE_ART)
+    if title_art == "glass":
+        title_art = DEFAULT_TITLE_ART
+    if title_art in TITLE_ART_MODE_IDS:
+        out["title_art_mode"] = title_art
+    top_light_mode = data.get("top_light_mode", DEFAULT_LIGHT_MODE)
+    if top_light_mode in LIGHT_MODE_IDS:
+        out["top_light_mode"] = top_light_mode
+    out["top_light_peak"] = max(
+        0,
+        min(SHADOW_STRENGTH_MAX, int(data.get("top_light_peak", DEFAULT_TOP_LIGHT_PEAK))),
+    )
+    qss_body = data.get("qss_body_mode", DEFAULT_QSS_BODY)
+    if qss_body in QSS_BODY_MODE_IDS:
+        out["qss_body_mode"] = qss_body
+    qss_highlight = data.get("qss_highlight_mode", DEFAULT_QSS_HIGHLIGHT)
+    if qss_highlight in QSS_HIGHLIGHT_MODE_IDS:
+        out["qss_highlight_mode"] = qss_highlight
+    out["qss_highlight_peak"] = max(
+        0,
+        min(SHADOW_STRENGTH_MAX, int(data.get("qss_highlight_peak", DEFAULT_QSS_HIGHLIGHT_PEAK))),
+    )
     for key in ("a_end_url", "demo_key"):
         if data.get(key):
             out[key] = str(data[key]).strip()

@@ -38,7 +38,9 @@ Shell console: **QSS 实底** / **Crystal · 纯细边** / **Crystal · 极轻�
 
 Controls: accent A/B/C, shell three presets, **QSS 页面高光**（实底 solid/vertical_grad · 高光 pro/band/dual-lite · peak 0–60 默认 34）, **Crystal 顶光**（pro/dual/crystal · peak 默认 45 不变）, base color A/B/C, medium/compact alpha sliders (0.80–0.95), simulate processing.
 
-**生产设置（`python main.py` → 系统设置 → 主题外观）：** 面板风格 QSS/Crystal 三档 + 配色变体 B/C + 中/小窗透明度 80–95% + 全局字号 11–15 + Crystal 阴影 0–60；保存并应用后写入 `%LOCALAPPDATA%/HAJIMI/user_settings.json`（`shell_style`, `shell_alpha_medium`, `shell_alpha_compact`, `font_size`, `crystal_shadow_strength`, `ui_theme`）。艺术字 / 顶光试验 / QSS 页面高光 **仍仅 Demo**。
+**生产设置（`python main.py` → 系统设置 → 主题外观）：** 面板风格 QSS/Crystal 三档 + 配色变体 B/C + 中/小窗透明度 80–95% + 全局字号 11–15 + Crystal 阴影 0–60 + **顶栏艺术字**（渐变 / Logo+渐变 / 展示字体，默认 gradient）+ **Crystal 顶光** + **QSS 页面高光**。在 **主题外观卡片底部** 点 **保存并应用** 生效（滑条/单选不即时预览）；模型 API 卡片底部仍保留同一保存入口。壳层由 **透明 `shell_crystal.qss`（variant 缺失时回退 current）+ QPainter** 绘制；apply 后对 shell 子树 `unpolish/polish`。配色变体联动顶栏渐变 accent（`visual_tokens.accent_for_theme`）。**MenuBtn 固定 34×34**。顶栏 **A 端不可达** 时显示 `TopErrorChip`；**processing** 时状态徽章呼吸灯 pulse。
+
+**如何验证主题已切换（保存并应用后）：** 顶栏 HAJIMI 渐变 accent（current `#7c8fd4` / variant_b `#6b8cce` / variant_c `#5ab89e`）、主题外观卡片底部反馈行、「保存并应用」主按钮同色、窗口圆角壳层（QSS vs Crystal）。自动化：`python scripts/verify_theme_apply.py`。
 
 ```bash
 python -m ui.style_preview_demo
@@ -46,7 +48,70 @@ python -m ui.style_preview_demo
 
 Source: [`ui/style_preview_demo.py`](../ui/style_preview_demo.py). Production dimensions remain **480×520** until demo sign-off and separate size PR.
 
-**顶栏标题（Round 8.1）：** 艺术字 `TitleArtWidget` **仅 Demo**；第一行 HAJIMI 三档（渐变 / Logo+渐变 / 展示字体），第二行 `TopSub` 固定「操作指引」。生产端仍为 [`topbar_layout.py`](../ui/native/layout/topbar_layout.py) 的 `QLabel#TopTitle` + `QLabel#TopSub`（随面板切换文案），艺术字上生产待单独 PR。
+**顶栏标题（Round 8.1+）：** 生产端 [`title_art.py`](../ui/native/title_art.py) `TitleArtWidget` — **三种模式**（A 渐变 / B Logo+渐变 / C 展示字体，默认 A）；**无底框**，仅文字渐变/Logo；accent 随 **配色方案** 变化。`MenuBtn` 34×34 固定。**第一行水平排列：** `HAJIMI · 模块名`（`TopSub` 随面板切换）；`ModePill` L1/L2/L3 仅在窗口宽 **>700px** 显示。
+
+### 轻奢 A/B/C Demo 对比（仅 Demo，不进生产）
+
+**范围：** 仅 [`ui/style_preview_demo.py`](../ui/style_preview_demo.py) 控制台「轻奢对比 A/B/C」+ 本文档；**不写** `themes/variant_luxury`、不进设置页。
+
+**运行：** `python -m ui.style_preview_demo` → 右侧选 **轻奢对比 A/B/C**（一键切换 base + accent）。
+
+| ID | 名称 | bg-primary | accent | 说明 |
+|----|------|------------|--------|------|
+| **luxury_a** | 黑金轻奢（主） | `#0C0B0A` | `#C9A84C` | 暖近黑 + 克制金；定稿后优先迁入生产 |
+| **luxury_b** | 香槟编辑 | `#0F0D0B` | `#8C7B65` | muted 青铜 CTA |
+| **luxury_c** | 冷调轻奢 | `#0f172a` | `#B8A9C9` | 沿用工程冷底，仅换 accent |
+
+| Token | luxury_a | luxury_b | luxury_c |
+|-------|----------|----------|----------|
+| text-primary | `#F2F0EB` | `#F5F0EB` | `#f1f5f9` |
+| text-secondary | `#A8A29E` | `#A8A29E` | `#94a3b8` |
+| glass-border | `rgba(255,248,240,0.12)` | `rgba(255,248,240,0.10)` | `rgba(255,255,255,0.12)` |
+| accent-soft | `rgba(201,168,76,0.14)` | `rgba(232,213,183,0.12)` | `rgba(184,169,201,0.15)` |
+
+参考：[NoirLuxe](https://designmd.ai/chef/noirluxe) · [Champagne Truffle (MioKit)](https://cdn.jsdelivr.net/npm/miokit@2.0.11/skills/mio-uiux/packs/champagne-truffle/DESIGN.md)
+
+**验收：** 三组 preset 并排切换时，顶栏渐变、主按钮、壳底色同步变化；工程默认（紫蓝 + 冷蓝黑）仍可通过「强调色 / 壳底色」单独选回。
+
+### Round 11 · 轻奢 v2 大改（Demo only）
+
+**范围：** [`ui/demo/luxury_paint.py`](../ui/demo/luxury_paint.py)、[`ui/demo/luxury_icons.py`](../ui/demo/luxury_icons.py)、[`ui/style_preview_demo.py`](../ui/style_preview_demo.py) 控制台「轻奢 v2 大改」；**不进**生产 `themes/` / `main.py`。
+
+**设计：** 70% `#0A0908` 主黑 · 20% `#EBE4D8` 辅色 · 10% `#C9A84C` 金（仅 icon 左上光晕、主按钮细边、渐变末端）。
+
+| 控件 | 选项 |
+|------|------|
+| 启用 v2 | 勾选后叠加 luxury_a 色板 + 自有星空壳 |
+| 背景质感 | 磨砂黑 / 牛皮纸黑 |
+| 壳 × 星空 | S-A 半透明 · S-B 实色顶条 · S-C 铺满细线 |
+| 星空强度 | 0–100（默认 60） |
+| 圆角 | 10px / 6px（S-C 默认 6） |
+| 顶栏标题 | **克制白字（默认）** / 渐变艺术字（对比） |
+| 主按钮 | **常驻金边** / **hover 金边**（发送钮 + 两枚示例钮） |
+
+**运行：** `python -m ui.style_preview_demo` → 勾选「启用轻奢 v2 皮肤」。
+
+**验收：** 星空上半屏渐隐；金不做大面积铺底；白线 icon 带左上金晕；关闭 v2 后恢复水晶 demo。
+
+### Round 12 · 星空渐隐 + 鎏金签名标题（Demo only）
+
+**范围：** [`ui/demo/luxury_paint.py`](../ui/demo/luxury_paint.py)、[`ui/demo/luxury_title.py`](../ui/demo/luxury_title.py)、[`assets/fonts/`](../assets/fonts/)、[`ui/style_preview_demo.py`](../ui/style_preview_demo.py)。
+
+**星空：**
+- 磨砂黑：星点按 y 向 **smoothstep 渐隐至 75% 高度**，无硬切 clip；略加柔光晕
+- 牛皮纸黑：**不绘制星空**（避免与纸纹冲突）；控制台星空滑杆在此模式下禁用
+
+**顶栏 HAJIMI（四模式 + 三鎏金）：**
+
+| 控件 | 选项 |
+|------|------|
+| 顶栏标题 | 克制白字 / 渐变艺术字 / **鎏金 · Great Vibes（默认）** / 鎏金 · Pinyon 细线 |
+| 鎏金渐变 | 横向扫光 / 斜向扫光 / 双层鎏金 |
+| 字体 | Great Vibes（飘逸签名）/ Pinyon Script（细线 Copperplate，更清晰） |
+
+**运行：** `python -m ui.style_preview_demo` → 启用 v2 或点击子控件自动启用。
+
+**验收：** 牛皮纸无星；磨砂星空自然淡出；默认鎏金签名 HAJIMI；三鎏金 radio 可切换；`main.py` 无变化。
 
 ### Round 9 · QSS 实底 · 页面玻璃高光（Demo 定稿试验）
 

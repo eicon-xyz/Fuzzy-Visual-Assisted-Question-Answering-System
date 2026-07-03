@@ -20,6 +20,7 @@ from ui.native.layout_tokens import (
     TOP_BAR_SPACING,
     TOP_BAR_TITLE_GAP,
 )
+from ui.native.title_art import TitleArtWidget
 from ui.native.widgets import MenuButton
 
 
@@ -27,7 +28,9 @@ from ui.native.widgets import MenuButton
 class TopBarLayoutResult:
     bar: QWidget
     menu_btn: MenuButton
+    title_art: TitleArtWidget
     panel_sub: QLabel
+    error_chip: QLabel
     mode_pills: QWidget
     mode_pill_labels: List[QLabel]
     status_badge: QLabel
@@ -47,26 +50,34 @@ def build_topbar(parent: QWidget | None = None) -> TopBarLayoutResult:
     layout.setSpacing(TOP_BAR_SPACING)
 
     menu_btn = MenuButton(bar)
+    menu_btn.setFixedSize(34, 34)
+    menu_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
     layout.addWidget(menu_btn)
 
     text_wrap = QWidget(bar)
     text_wrap.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
-    text_col = QVBoxLayout(text_wrap)
-    text_col.setContentsMargins(0, 0, 0, 0)
-    text_col.setSpacing(TOP_BAR_TITLE_GAP)
-    title = QLabel("HAJIMI", text_wrap)
-    title.setObjectName("TopTitle")
-    title.setMinimumWidth(0)
-    title.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+    text_row = QHBoxLayout(text_wrap)
+    text_row.setContentsMargins(0, 0, 0, 0)
+    text_row.setSpacing(TOP_BAR_TITLE_GAP)
+    title_art = TitleArtWidget(text_wrap)
+    text_row.addWidget(title_art)
+    title_sep = QLabel("·", text_wrap)
+    title_sep.setObjectName("TopTitleSep")
+    title_sep.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+    text_row.addWidget(title_sep)
     panel_sub = QLabel("操作指引", text_wrap)
     panel_sub.setObjectName("TopSub")
     panel_sub.setMinimumWidth(0)
     panel_sub.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-    text_col.addWidget(title)
-    text_col.addWidget(panel_sub)
+    text_row.addWidget(panel_sub)
     layout.addWidget(text_wrap)
 
     layout.addStretch(1)
+
+    error_chip = QLabel("● A端连接失败", bar)
+    error_chip.setObjectName("TopErrorChip")
+    error_chip.hide()
+    layout.addWidget(error_chip)
 
     right_wrap = QWidget(bar)
     right_wrap.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
@@ -101,7 +112,9 @@ def build_topbar(parent: QWidget | None = None) -> TopBarLayoutResult:
     return TopBarLayoutResult(
         bar=bar,
         menu_btn=menu_btn,
+        title_art=title_art,
         panel_sub=panel_sub,
+        error_chip=error_chip,
         mode_pills=mode_pills,
         mode_pill_labels=mode_pill_labels,
         status_badge=status_badge,

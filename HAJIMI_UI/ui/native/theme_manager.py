@@ -12,15 +12,14 @@ from ui.native.shell_appearance import (
     AppearanceSettings,
     appearance_override_qss,
     apply_crystal_drop_shadow,
-    crystal_fill_alpha_from_percent,
     is_crystal_shell,
 )
 from ui.native.shell_renderer import apply_shell_renderer
-from ui.native.widgets import apply_shell_shadow
 
 ShellMode = Literal["qss", "crystal"]
 
 _THEMES_DIR = os.path.join(os.path.dirname(__file__), "themes")
+_SHELL_CRYSTAL_FALLBACK = os.path.join(_THEMES_DIR, "current", "shell_crystal.qss")
 
 THEME_IDS = ("current", "variant_b", "variant_c")
 
@@ -51,30 +50,41 @@ def _read_qss(path: str) -> str:
         return f.read()
 
 
+def _transparent_shell_qss(theme_id: str) -> str:
+    """Always load transparent shell QSS — never fallback to opaque shell.qss."""
+    theme_path = os.path.join(_THEMES_DIR, theme_id, "shell_crystal.qss")
+    if os.path.isfile(theme_path):
+        return _read_qss(theme_path)
+    return _read_qss(_SHELL_CRYSTAL_FALLBACK)
+
+
 def compose_stylesheet(
     theme_id: str,
     appearance: AppearanceSettings | None = None,
 ) -> str:
-    """Concatenate _base + theme shell/topbar/content QSS + appearance overrides."""
+    """Concatenate _base + transparent shell + topbar/content QSS + appearance overrides."""
     if theme_id not in THEME_IDS:
         theme_id = "current"
     appearance = appearance or AppearanceSettings()
+    theme_dir = os.path.join(_THEMES_DIR, theme_id)
     parts = [
         _read_qss(os.path.join(_THEMES_DIR, "_base.qss")),
+        _transparent_shell_qss(theme_id),
+        _read_qss(os.path.join(theme_dir, "topbar.qss")),
+        _read_qss(os.path.join(theme_dir, "content.qss")),
+        appearance_override_qss(appearance),
     ]
-    theme_dir = os.path.join(_THEMES_DIR, theme_id)
-    shell_name = (
-        "shell_crystal.qss"
-        if is_crystal_shell(appearance.shell_style)
-        else "shell.qss"
-    )
-    shell_path = os.path.join(theme_dir, shell_name)
-    if not os.path.isfile(shell_path):
-        shell_path = os.path.join(theme_dir, "shell.qss")
-    for name in (os.path.basename(shell_path), "topbar.qss", "content.qss"):
-        parts.append(_read_qss(os.path.join(theme_dir, name)))
-    parts.append(appearance_override_qss(appearance))
     return "\n\n".join(p for p in parts if p.strip())
+
+
+def _repolish_subtree(root: QWidget) -> None:
+    style = root.style()
+    style.unpolish(root)
+    style.polish(root)
+    for child in root.findChildren(QWidget):
+        style.unpolish(child)
+        style.polish(child)
+        child.update()
 
 
 class ThemeManager:
@@ -117,24 +127,26 @@ class ThemeManager:
 
         for widget, compact in self._shells:
             if is_crystal_shell(self._appearance.shell_style):
-                alpha_pct = (
-                    self._appearance.shell_alpha_compact
-                    if compact
-                    else self._appearance.shell_alpha_medium
-                )
-                fill_alpha = crystal_fill_alpha_from_percent(alpha_pct)
                 apply_shell_renderer(
                     widget,
                     "crystal",
                     compact=compact,
-                    fill_alpha=fill_alpha,
+                    appearance=self._appearance,
                 )
                 apply_crystal_drop_shadow(
                     widget, self._appearance.crystal_shadow_strength
                 )
             else:
-                apply_shell_renderer(widget, "qss", compact=compact)
+                apply_shell_renderer(
+                    widget,
+                    "qss",
+                    compact=compact,
+                    appearance=self._appearance,
+                )
+            _repolish_subtree(widget)
+            widget.repaint()
 
+        self._app.processEvents()
         return self._theme_id
 
 

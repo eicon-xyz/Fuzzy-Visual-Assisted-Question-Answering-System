@@ -32,6 +32,9 @@ from ui.native.layout_tokens import (
 )
 from ui.native.layout.topbar_layout import build_topbar
 from ui.native.nav_icons import nav_icon, svg_icon, action_icon
+from ui.native.shell_appearance import AppearanceSettings
+from ui.native.status_badge_fx import BadgeBreathController
+from ui.native.visual_tokens import accent_for_theme
 from ui.native.widgets import (
     NavBackdrop,
     NotifRow,
@@ -109,6 +112,7 @@ class MediumPanel(QWidget):
 
         self._drawer_visible = False
         self._current_panel = "guide"
+        self._connection_error = False
         self._settings_scroll = None
         self._settings_inner = None
 
@@ -124,6 +128,7 @@ class MediumPanel(QWidget):
         self._topbar = self._build_topbar()
         make_widget_transparent(self._topbar)
         main_col.addWidget(self._topbar)
+        self._badge_breath = BadgeBreathController(self._status_badge, self)
 
         self._thinking_strip = QWidget()
         self._thinking_strip.setObjectName("ThinkingStrip")
@@ -275,7 +280,9 @@ class MediumPanel(QWidget):
         result = build_topbar(self)
         self._menu_btn = result.menu_btn
         self._menu_btn.clicked.connect(self._toggle_drawer)
+        self._title_art = result.title_art
         self._panel_sub = result.panel_sub
+        self._error_chip = result.error_chip
         self._mode_pills = result.mode_pills
         self._mode_pill_labels = result.mode_pill_labels
         self._status_badge = result.status_badge
@@ -436,6 +443,7 @@ class MediumPanel(QWidget):
         il.addWidget(self._deployment_mode)
 
         self._appearance_group = UiAppearanceGroup()
+        self._appearance_group.save_requested.connect(self._save_settings)
         il.addWidget(self._appearance_group)
 
         api_card = QFrame()
@@ -577,6 +585,7 @@ class MediumPanel(QWidget):
         data = load_user_settings()
         self._deployment_mode.set_mode(data.get("deployment_mode", "local"))
         self._appearance_group.set_appearance(data)
+        self._appearance_group.sync_mode_sections()
         self._field_a_url.set_text(data.get("a_end_url", ""))
         self._field_demo_key.set_text(data.get("demo_key", ""))
         llm = data.get("llm") or {}
@@ -614,7 +623,9 @@ class MediumPanel(QWidget):
         try:
             data = self._collect_settings_data()
         except ValueError as exc:
-            self._settings_feedback.setText(str(exc))
+            msg = str(exc)
+            self._settings_feedback.setText(msg)
+            self._appearance_group.set_feedback(msg)
             return
         self.settings_saved.emit(data)
 
@@ -642,9 +653,34 @@ class MediumPanel(QWidget):
         self._api_lbl.setText(f"A 端地址：{API_BASE_URL}")
 
     def on_settings_applied(self, data: dict, success_msg: str = "") -> None:
-        self._settings_feedback.setText(success_msg or "已保存并应用")
+        feedback = success_msg or "已保存并应用"
+        self._settings_feedback.setText(feedback)
+        self._appearance_group.set_feedback(feedback)
         self._apply_deployment_mode_ui(data.get("deployment_mode", "local"))
         self._update_api_url_label()
+
+    def apply_appearance(
+        self,
+        appearance: AppearanceSettings | dict | None = None,
+        *,
+        ui_theme: str | None = None,
+    ) -> None:
+        if appearance is None:
+            data = load_user_settings()
+            appearance = AppearanceSettings.from_user_settings(data)
+            if ui_theme is None:
+                ui_theme = data.get("ui_theme", "current")
+        elif isinstance(appearance, dict):
+            if ui_theme is None:
+                ui_theme = appearance.get("ui_theme", "current")
+            appearance = AppearanceSettings.from_user_settings(appearance)
+        theme_id = ui_theme or "current"
+        if hasattr(self, "_title_art"):
+            self._title_art.set_mode(appearance.title_art_mode)
+            self._title_art.set_accent(accent_for_theme(theme_id))
+            self._title_art.repaint()
+        if hasattr(self, "_topbar"):
+            self._topbar.repaint()
 
     def _build_prepare_banner(self) -> QWidget:
         bar = QWidget()
@@ -870,15 +906,35 @@ self._topbar.sizeHint().height()
         sb = self._content_scroll.verticalScrollBar()
         sb.setValue(sb.maximum())
 
+    def set_connection_error(self, visible: bool, tooltip: str = "") -> None:
+        self._connection_error = visible
+        if visible:
+            self._error_chip.setToolTip(tooltip)
+            self._error_chip.show()
+            self._badge_breath.stop()
+        else:
+            self._error_chip.hide()
+            self._error_chip.setToolTip("")
+
     def set_status_badge(self, status: str, label: str):
         self._status_badge.setText(f"● {label}")
         self._status_badge.setProperty("status", status)
         self._status_badge.style().unpolish(self._status_badge)
         self._status_badge.style().polish(self._status_badge)
+        if self._connection_error:
+            self._badge_breath.stop()
+            if status == "processing":
+                self._thinking_strip.show()
+            else:
+                self._thinking_strip.hide()
+                self.set_stage_hint("")
+            return
         if status == "processing":
             self._thinking_strip.show()
+            self._badge_breath.start()
         else:
             self._thinking_strip.hide()
+            self._badge_breath.stop()
             self.set_stage_hint("")
 
     def set_stage_hint(self, text: str):

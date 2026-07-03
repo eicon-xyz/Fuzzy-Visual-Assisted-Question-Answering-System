@@ -62,6 +62,7 @@ from ui.native.window_state import (
 )
 from ui.native.theme_manager import get_theme_manager, THEME_LABELS
 from ui.native.shell_appearance import AppearanceSettings, SHELL_STYLES
+from ui.native.title_art import TITLE_ART_MODES
 
 
 class MainWidget(QWidget):
@@ -179,8 +180,15 @@ class MainWidget(QWidget):
 
     def _apply_native_appearance(self, settings: dict | None = None) -> None:
         data = settings if settings is not None else load_user_settings()
+        ui_theme = data.get("ui_theme", "current")
         appearance = AppearanceSettings.from_user_settings(data)
-        get_theme_manager().apply(data.get("ui_theme", "current"), appearance)
+        get_theme_manager().apply(ui_theme, appearance)
+        if hasattr(self, "medium_panel"):
+            self.medium_panel.apply_appearance(appearance, ui_theme=ui_theme)
+        if hasattr(self, "stack"):
+            self.stack.update()
+        if hasattr(self, "medium_panel"):
+            self.medium_panel.update()
 
     def _install_resize_tracking(self):
         """Forward edge mouse events from panel children to resize handler."""
@@ -409,7 +417,8 @@ class MainWidget(QWidget):
         text, msg_type = get_api_status_message()
         is_error = "danger" in msg_type
         if hasattr(self, "medium_panel"):
-            self.medium_panel.set_service_status(text if not is_error else text)
+            self.medium_panel.set_service_status(text)
+            self.medium_panel.set_connection_error(is_error, text if is_error else "")
         if not is_error or self._startup_health_attempt >= STARTUP_HEALTH_MAX_RETRIES:
             self.controller.message_added.emit(text, msg_type)
             return
@@ -451,6 +460,8 @@ class MainWidget(QWidget):
         text, msg_type = get_api_status_message()
         if hasattr(self, "medium_panel"):
             self.medium_panel.set_service_status(text)
+            is_error = "danger" in msg_type
+            self.medium_panel.set_connection_error(is_error, text if is_error else "")
         return text, msg_type
 
     def _on_settings_saved(self, data: dict):
@@ -464,9 +475,12 @@ class MainWidget(QWidget):
             theme_label = THEME_LABELS.get(merged.get("ui_theme", "current"), "默认")
             shell_label = SHELL_STYLES.get(merged.get("shell_style", "qss"), "QSS 实底")
             font_size = merged.get("font_size", 13)
+            art_label = TITLE_ART_MODES.get(
+                merged.get("title_art_mode", "gradient"), "渐变艺术字"
+            )
             self.medium_panel.on_settings_applied(
                 merged,
-                f"已保存，当前会话：{mode_label} · {shell_label} · {theme_label} · 字号 {font_size}px",
+                f"已保存，当前会话：{mode_label} · {shell_label} · {theme_label} · {art_label} · 字号 {font_size}px",
             )
             text, msg_type = self._refresh_api_status()
             self.controller.message_added.emit("配置已保存并应用", "system")

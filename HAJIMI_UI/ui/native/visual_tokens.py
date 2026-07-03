@@ -13,6 +13,16 @@ TEXT_TERTIARY = "#64748b"
 ACCENT = "#7c8fd4"
 ACCENT_SOFT = "rgba(124, 143, 212, 0.15)"
 ACCENT_HOVER = "#8fa0dc"
+
+THEME_ACCENTS: dict[str, str] = {
+    "current": "#7c8fd4",
+    "variant_b": "#6b8cce",
+    "variant_c": "#5ab89e",
+}
+
+
+def accent_for_theme(theme_id: str) -> str:
+    return THEME_ACCENTS.get(theme_id, THEME_ACCENTS["current"])
 DANGER = "#e74c3c"
 DANGER_SOFT = "rgba(231, 76, 60, 0.15)"
 SUCCESS = "#2ecc71"
