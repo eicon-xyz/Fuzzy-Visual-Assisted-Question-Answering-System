@@ -69,6 +69,14 @@ async def audit_report(
     try:
         for rec in request.batch:
             try:
+                # 检查是否已存在，存在则跳过
+                existing = db.query(Transaction).filter(
+                    Transaction.task_id == rec.task_id
+                ).first()
+                if existing:
+                    saved += 1  # 已存在也算成功
+                    continue
+
                 tx = Transaction(
                     task_id=rec.task_id,
                     user_query=rec.query,
