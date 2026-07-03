@@ -13,7 +13,7 @@ class Config:
 
     # 服务
     HOST: str = os.getenv("HAJIMI_HOST", "0.0.0.0")
-    PORT: int = int(os.getenv("HAJIMI_PORT", "8000"))
+    PORT: int = int(os.getenv("HAJIMI_PORT", "8010"))
     DEBUG: bool = os.getenv("HAJIMI_DEBUG", "true").lower() == "true"
 
     # Demo 认证
@@ -35,14 +35,24 @@ class Config:
     DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
     DEEPSEEK_TIMEOUT: int = int(os.getenv("DEEPSEEK_TIMEOUT", "30"))
 
-    # OmniParser GPU API (校园网 GPU 服务器 :9800)
-    # 详见 项目文档/GPU-API接入指南-配置修改.md
+    # Multi-Provider LLM (1.1.0 新增)
+    # 可选 Provider: deepseek | openai | claude | openrouter | ollama
+    # 默认为 deepseek（向后兼容）
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "deepseek")
+    LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "4096"))
+    LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.3"))
+
+    # P1 改造开关 (1.1.0 新增)
+    EVALUATE_STEPS: bool = (
+        os.getenv("HAJIMI_EVALUATE_STEPS", "0") == "1"
+    )
+    TRUST_LEVEL: str = os.getenv("HAJIMI_TRUST_LEVEL", "balanced")
+
+    # Local OmniParser V2 API (deployed at D:\ominprester)
     OMNIPARSER_URL: str = os.getenv(
         "OMNIPARSER_URL", "http://127.0.0.1:9800"
     )
     OMNIPARSER_TIMEOUT: int = int(os.getenv("OMNIPARSER_TIMEOUT", "30"))
-    OMNIPARSER_RETRY: int = int(os.getenv("OMNIPARSER_RETRY", "1"))
-    OMNIPARSER_RETRY_DELAY: float = float(os.getenv("OMNIPARSER_RETRY_DELAY", "3.0"))
 
     # Demo 简化开关
     USE_REAL_LLM: bool = os.getenv("USE_REAL_LLM", "true").lower() == "true"

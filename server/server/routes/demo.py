@@ -176,7 +176,76 @@ async def step(
     message = None
 
     if request.action == "advance":
-        action, next_step = engine.advance(state, settings.STRICT_FINGERPRINT)
+        # ── HITL 审批检查（1.1.0 新增）──
+        current_step = state.steps[state.blueprint.current_step - 1] if state.steps else None
+        if not request.force and BlueprintEngine.should_pause(
+            current_step,
+            trust_level=request.trust_level or "balanced",
+        ):
+            return StepResponse(
+                task_id=state.task_id,
+                action="paused",
+                current_step=state.blueprint.current_step,
+                blueprint_state=state.blueprint.state,
+                next_step=current_step,
+                message="高风险步骤 — 请确认后继续",
+                requires_approval=True,
+            )
+
+        # ── 步骤评估（1.1.0 新增，可选）──
+        evaluation = None
+        if request.image and current_step:
+            from server.services.planning.evaluator import StepEvaluator
+            eval_result = StepEvaluator.evaluate(
+                goal=state.blueprint.name,
+                step_title=current_step.action,
+                instruction=current_step.description,
+                success_criteria="",
+                user_note="",
+                image_base64=request.image,
+            )
+            if eval_result["suggested_action"] == "replan":
+                # 触发 replan 而非推进
+                from server.services.planning.replanner import replan_steps as do_replan
+                new_elements = parse_screenshot(request.image)
+                if new_elements:
+                    updated_steps = do_replan(
+                        original_query=state.query,
+                        current_step_index=state.blueprint.current_step - 1,
+                        all_steps=state.steps,
+                        new_elements=new_elements,
+                    )
+                    for j, updated in enumerate(updated_steps):
+                        if state.blueprint.current_step - 1 <= j < len(state.steps):
+                            state.steps[j] = updated
+                task_store.update(state)
+                return StepResponse(
+                    task_id=state.task_id,
+                    action="advance",
+                    current_step=state.blueprint.current_step,
+                    blueprint_state=state.blueprint.state,
+                    next_step=state.steps[state.blueprint.current_step - 1],
+                    message=f"已重规划：{eval_result['assistant_response']}",
+                    evaluation=eval_result,
+                )
+            elif eval_result["suggested_action"] == "repeat_guidance":
+                # 不推进，返回当前步骤
+                task_store.update(state)
+                return StepResponse(
+                    task_id=state.task_id,
+                    action="advance",
+                    current_step=state.blueprint.current_step,
+                    blueprint_state=state.blueprint.state,
+                    next_step=current_step,
+                    message=eval_result.get("assistant_response", "请再试一次"),
+                    evaluation=eval_result,
+                )
+            evaluation = eval_result
+
+        action, next_step = engine.advance(
+            state, settings.STRICT_FINGERPRINT,
+            force=bool(request.force),
+        )
         if action == "complete":
             message = "任务已完成"
 
@@ -225,14 +294,17 @@ async def step(
     state.fingerprint = request.fingerprint
     task_store.update(state)
 
-    return StepResponse(
-        task_id=state.task_id,
-        action=action,
-        current_step=state.blueprint.current_step,
-        blueprint_state=state.blueprint.state,
-        next_step=next_step,
-        message=message,
-    )
+    resp_kwargs = {
+        "task_id": state.task_id,
+        "action": action,
+        "current_step": state.blueprint.current_step,
+        "blueprint_state": state.blueprint.state,
+        "next_step": next_step,
+        "message": message,
+    }
+    if evaluation:
+        resp_kwargs["evaluation"] = evaluation
+    return StepResponse(**resp_kwargs)
 
 
 @router.post(

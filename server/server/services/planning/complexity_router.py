@@ -1,12 +1,16 @@
 """
-复杂度评分与二级路由（L2/L3）
+复杂度评分与二级路由（L2/L3）+ 能力路由（1.1.0 新增）
 
 L2（快路径）：复杂度 < 30，模板规则生成，不调用 LLM，<3s
 L3（慢路径）：复杂度 ≥ 30，完整 OmniParser + LLM 流水线
 
-参考：设计文档 §4.3.2、§6.1
+能力路由：快速关键词匹配，判断任务应委托给哪个能力模块
+  guide / browser / cli
+
+参考：设计文档 §4.3.2、§6.1；OpenGuider intent-router.js
 """
 import re
+from enum import Enum
 from typing import List, Optional, Tuple
 
 from server.models.schemas import UIElement
@@ -160,3 +164,49 @@ def generate_l2_steps(query: str, elements: Optional[List[UIElement]] = None) ->
         步骤列表，或 None（无法匹配时降级到 L3）
     """
     return _extract_template_match(query)
+
+
+# ────────────────────────── 能力路由（1.1.0 新增） ──────────────────────────
+
+class Capability(str, Enum):
+    """任务能力域 — 参考 OpenGuider intent-router.js RouteSchema.plugin"""
+    GUIDE = "guide"      # 纯桌面指引（默认）
+    BROWSER = "browser"  # 浏览器任务（预留）
+    CLI = "cli"          # 终端任务（预留）
+
+
+# 关键词正则 → 能力快速映射（纯规则，0 延迟，不调 LLM）
+_CAPABILITY_PATTERNS: List[Tuple[Capability, re.Pattern]] = [
+    (Capability.BROWSER, re.compile(
+        r"(浏览器|网页|网址|网站|网店|登录.*网站|打开.*搜索|"
+        r"amazon|google|youtube|淘宝|京东|购物|下单|结账|"
+        r"填写.*表单|注册.*账号|查看.*网页)",
+        re.IGNORECASE,
+    )),
+    (Capability.CLI, re.compile(
+        r"(命令行|终端|cmd|powershell|bash|pip\s|npm\s|git\s|"
+        r"conda\s|docker|ssh|scp|wget|curl)",
+        re.IGNORECASE,
+    )),
+]
+
+
+def route_capability(query: str) -> Capability:
+    """
+    快速判断任务应委托给哪个能力模块。
+    纯规则匹配，< 1ms，可在热路径中调用。
+
+    Args:
+        query: 用户查询
+
+    Returns:
+        Capability 枚举值。未匹配时默认返回 GUIDE。
+    """
+    if not query or not query.strip():
+        return Capability.GUIDE
+
+    for cap, pat in _CAPABILITY_PATTERNS:
+        if pat.search(query):
+            return cap
+
+    return Capability.GUIDE

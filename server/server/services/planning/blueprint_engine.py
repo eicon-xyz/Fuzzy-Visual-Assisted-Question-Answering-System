@@ -1,11 +1,19 @@
 """
 HAJIMI Demo 蓝图状态机
 实现 advance / rollback / skip / terminate / suspend 五种操作
+v1.1.0: 新增 should_pause 审批决策 + force 参数
 """
 from typing import Tuple, Optional, Dict, Any
+from enum import Enum
 
 from server.storage.memory import TaskState
 from server.models.schemas import Blueprint, Step
+
+
+class TrustLevel(str, Enum):
+    PARANOID = "paranoid"
+    BALANCED = "balanced"
+    AUTOPILOT = "autopilot"
 
 
 def _build_constraint_hint(constraints: Optional[Dict[str, Any]], step_description: str) -> str:
@@ -32,13 +40,36 @@ class BlueprintEngine:
     """蓝图状态机引擎"""
 
     @staticmethod
+    def should_pause(step: Optional[Step], trust_level: str = "balanced") -> bool:
+        """
+        判断当前步骤是否需要暂停等待用户审批。
+        参考 OpenGuider trust-manager.js 的三级预设。
+
+        paranoid:  所有步骤都暂停
+        balanced:  risk_score >= 3 时暂停
+        autopilot: 永不暂停
+        """
+        if trust_level == TrustLevel.AUTOPILOT.value:
+            return False
+        if trust_level == TrustLevel.PARANOID.value:
+            return True
+
+        # balanced: 高风险暂停
+        risk = getattr(step, 'risk_score', None)
+        if risk is None:
+            risk = 2  # 缺失时默认低风险
+        return risk >= 3
+
+    @staticmethod
     def advance(
         state: TaskState,
         strict_fingerprint: bool = False,
         fingerprint: Optional[str] = None,
+        force: bool = False,
     ) -> Tuple[str, Optional[Step]]:
         """
         推进到下一步
+        force=True 时跳过指纹比对（审批后重调用）
         返回: (action, next_step)
         """
         bp = state.blueprint
@@ -57,8 +88,8 @@ class BlueprintEngine:
                 return "advance", steps[current_idx]
             return "advance", None
 
-        # 真实指纹比对：不匹配则挂起当前步骤
-        if strict_fingerprint:
+        # 真实指纹比对：不匹配则挂起当前步骤（force 模式跳过）
+        if strict_fingerprint and not force:
             if (
                 fingerprint is not None
                 and state.fingerprint is not None
