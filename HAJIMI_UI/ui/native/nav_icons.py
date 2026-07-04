@@ -1,7 +1,14 @@
 """Nav SVG icons — paths from ui/web/index.html viewMedium nav."""
 from PyQt5.QtCore import QByteArray, QSize, Qt
 from PyQt5.QtGui import QIcon, QPixmap, QPainter
-from PyQt5.QtSvg import QSvgRenderer
+
+try:
+    from PyQt5.QtSvg import QSvgRenderer
+
+    _HAS_SVG = True
+except ImportError:
+    QSvgRenderer = None  # type: ignore[misc, assignment]
+    _HAS_SVG = False
 
 from ui.native.visual_tokens import ACCENT, TEXT_SECONDARY, TEXT_TERTIARY
 
@@ -73,6 +80,8 @@ _NAV_SVGS = {
 
 
 def svg_icon(key: str, size: int = 18, color: str = TEXT_SECONDARY) -> QIcon:
+    if not _HAS_SVG:
+        return QIcon()
     tpl = _NAV_SVGS.get(key, _NAV_SVGS["guide"])
     svg = tpl.format(color=color).encode("utf-8")
     renderer = QSvgRenderer(QByteArray(svg))

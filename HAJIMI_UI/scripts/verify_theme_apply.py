@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import QApplication
 
 from core.user_settings import _merge_defaults
 from ui.native.compact_bar import CompactBar
+from ui.native.luxury.title import DEFAULT_SCRIPT_FONT_ID, ensure_luxury_fonts
 from ui.native.medium_panel import MediumPanel
 from ui.native.shell_appearance import AppearanceSettings
 from ui.native.theme_manager import compose_stylesheet, get_theme_manager
@@ -30,6 +31,16 @@ def main() -> int:
         _check_theme(tid, "qss")
         _check_theme(tid, "crystal_light")
 
+    luxury_merged = _merge_defaults({"ui_theme": "variant_luxury"})
+    luxury_qss = compose_stylesheet(
+        "variant_luxury",
+        AppearanceSettings.from_user_settings(luxury_merged),
+    )
+    assert "SendBtnLuxHover" in luxury_qss
+    assert "border-radius: 10px" in luxury_qss
+    assert "#NavDrawer" in luxury_qss
+    assert "background: transparent" in luxury_qss or "background-color: transparent" in luxury_qss
+
     merged = _merge_defaults({"ui_theme": "variant_b", "shell_style": "crystal_light"})
     app = QApplication(sys.argv)
     panel = MediumPanel()
@@ -48,8 +59,22 @@ def main() -> int:
     assert panel.paintEvent.__func__.__name__ == "_shell_paint_event"
     assert panel._title_art._accent == accent_for_theme("variant_b")
 
+    luxury_appearance = AppearanceSettings.from_user_settings(luxury_merged)
+    mgr.apply("variant_luxury", luxury_appearance)
+    panel.apply_appearance(luxury_appearance, ui_theme="variant_luxury")
+    assert getattr(panel, "_hajimi_shell_mode", None) == "luxury"
+    assert panel._luxury_theme is True
+    assert not panel._title_script.isHidden()
+    assert panel._title_art.isHidden()
+    ensure_luxury_fonts()
+    panel._title_script.set_font_id(DEFAULT_SCRIPT_FONT_ID)
+    assert panel._title_script.sizeHint().width() > 0
+
     mgr.apply("current", AppearanceSettings(shell_style="qss"))
     assert getattr(panel, "_hajimi_shell_mode", None) == "qss"
+    panel.apply_appearance(AppearanceSettings(shell_style="qss"), ui_theme="current")
+    assert panel._title_script.isHidden()
+    assert not panel._title_art.isHidden()
 
     print("verify_theme_apply: ok")
     return 0

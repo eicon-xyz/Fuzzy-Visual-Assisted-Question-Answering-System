@@ -1,4 +1,11 @@
+# HAJIMI B-end UI dependencies (PyQt5 native client)
+# A-end (FastAPI) is separate: pip install -r server/requirements.txt
+# GPU deploy scripts: pip install -r requirements-dev.txt
+
 Pillow>=9.0
 mss>=6.0
 opencv-python>=4.5
 PyQt5>=5.15
+
+# PyQt5 wheel includes QtSvg (used by ui/native/luxury/icons.py).
+# If ImportError on PyQt5.QtSvg, reinstall: pip install --force-reinstall PyQt5

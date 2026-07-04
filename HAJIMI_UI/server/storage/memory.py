@@ -23,6 +23,7 @@ class TaskState(BaseModel):
     created_at: str
     updated_at: str
     fingerprint: Optional[str] = None
+    constraints: Optional[dict] = None
 
 
 class TaskStore:
@@ -44,6 +45,7 @@ class TaskStore:
             ui_elements=[e.model_dump() for e in response.ui_elements],
             created_at=now,
             updated_at=now,
+            constraints=response.constraints,
         )
         with self._lock:
             self._store[state.task_id] = state

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  ui-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install system libs for PyQt5
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-xinerama0 libgl1 libxkbcommon-x11-0 libegl1
+      - name: Install B-end dependencies
+        run: pip install -r requirements.txt
+      - name: Check UI runtime deps
+        run: python scripts/check_ui_env.py
+      - name: Headless import smoke
+        env:
+          PYTHONPATH: .
+          QT_QPA_PLATFORM: offscreen
+          HAJIMI_MOCK_ONLY: "1"
+        run: |
+          python -c "
+          from PyQt5.QtWidgets import QApplication
+          QApplication([])
+          from ui.main_widget import MainWidget
+          print('MainWidget import OK')
+          "
+
+  server-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install server test dependencies
+        run: pip install -r server/requirements.txt pytest httpx
+      - name: Run server regression tests
+        env:
+          PYTHONPATH: .
+        run: |
+          pytest server/tests/test_intent.py server/tests/test_redline.py \
+            server/tests/test_blueprint.py -v --tb=short

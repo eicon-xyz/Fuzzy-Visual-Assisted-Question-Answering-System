@@ -6,10 +6,17 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
+from PyQt5.QtCore import QRect
 from PyQt5.QtWidgets import QApplication, QWidget
 
-from config import MEDIUM_WIDTH, MEDIUM_HEIGHT
-from ui.native.layout_tokens import MEDIUM_MIN_W, MEDIUM_MIN_H
+from config import MEDIUM_WIDTH, MEDIUM_HEIGHT, COMPACT_WIDTH
+from ui.native.layout_tokens import (
+    MEDIUM_MIN_H,
+    MEDIUM_MIN_W,
+    COMPACT_MIN_W,
+    COMPACT_MAX_W,
+)
+from ui.native.window_clip import clamp_geometry_to_screen
 
 # Previous default before 480×520 layout alignment
 _LEGACY_MEDIUM_SIZES = frozenset({(370, 540)})
@@ -29,6 +36,7 @@ class WindowState:
     x: Optional[int] = None
     y: Optional[int] = None
     last_mode: str = "medium"
+    compact_width: int = COMPACT_WIDTH
     migrated_from_legacy: bool = False
 
 
@@ -47,6 +55,10 @@ def clamp_size(width: int, height: int) -> tuple[int, int]:
     return w, h
 
 
+def clamp_compact_width(width: int) -> int:
+    return max(COMPACT_MIN_W, min(COMPACT_MAX_W, int(width)))
+
+
 def load_window_state() -> Optional[WindowState]:
     path = _state_path()
     if not os.path.isfile(path):
@@ -60,6 +72,9 @@ def load_window_state() -> Optional[WindowState]:
             w, h = clamp_size(MEDIUM_WIDTH, MEDIUM_HEIGHT)
         else:
             w, h = clamp_size(raw_w, raw_h)
+        compact_w = clamp_compact_width(
+            int(data.get("compact_width", COMPACT_WIDTH))
+        )
         x = data.get("x")
         y = data.get("y")
         mode = data.get("last_mode", "medium")
@@ -71,6 +86,7 @@ def load_window_state() -> Optional[WindowState]:
             x=int(x) if x is not None else None,
             y=int(y) if y is not None else None,
             last_mode=mode,
+            compact_width=compact_w,
             migrated_from_legacy=migrated,
         )
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
@@ -83,11 +99,15 @@ def save_window_state(
     x: int,
     y: int,
     last_mode: str,
+    *,
+    compact_width: int = COMPACT_WIDTH,
 ) -> None:
     w, h = clamp_size(medium_width, medium_height)
+    cw = clamp_compact_width(compact_width)
     payload = {
         "medium_width": w,
         "medium_height": h,
+        "compact_width": cw,
         "x": int(x),
         "y": int(y),
         "last_mode": last_mode if last_mode in ("medium", "compact") else "medium",
@@ -102,6 +122,7 @@ def save_window_state(
 def apply_state_to_window(window: QWidget, state: WindowState) -> None:
     w, h = clamp_size(state.medium_width, state.medium_height)
     if state.x is not None and state.y is not None:
-        window.setGeometry(state.x, state.y, w, h)
+        geo = clamp_geometry_to_screen(QRect(state.x, state.y, w, h))
+        window.setGeometry(geo)
     else:
         window.resize(w, h)

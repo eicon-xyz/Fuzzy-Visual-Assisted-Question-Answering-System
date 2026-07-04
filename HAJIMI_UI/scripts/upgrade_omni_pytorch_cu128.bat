@@ -1,8 +1,7 @@
 @echo off
 setlocal EnableExtensions
 
-if not defined OMNI_PY set "OMNI_PY=E:\CodingSoftwards\Anaconda\envs\omni\python.exe"
-if not exist "%OMNI_PY%" (
+if not defined OMNI_PY (
     for /f "delims=" %%B in ('conda info --base 2^>nul') do set "OMNI_PY=%%B\envs\omni\python.exe"
 )
 

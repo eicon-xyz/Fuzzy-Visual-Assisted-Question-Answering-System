@@ -15,6 +15,8 @@ import uvicorn
 
 from server.config import settings
 from server.routes.demo import router as demo_router
+from server.routes.admin import router as admin_router
+from server.database import init_db
 
 
 app = FastAPI(
@@ -22,6 +24,13 @@ app = FastAPI(
     description="智能桌面指引助手 Demo 后端服务",
     version="1.0.0",
 )
+
+# ────────────────────────── 启动事件 ──────────────────────────
+
+@app.on_event("startup")
+def on_startup():
+    """初始化数据库表"""
+    init_db()
 
 # ────────────────────────── 中间件 ──────────────────────────
 
@@ -53,6 +62,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # ────────────────────────── 路由注册 ──────────────────────────
 
 app.include_router(demo_router)
+app.include_router(admin_router)
 
 
 @app.get("/")
@@ -68,7 +78,7 @@ async def root():
 
 if __name__ == "__main__":
     uvicorn.run(
-        "server.main:app",
+        "main:app",
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.DEBUG,

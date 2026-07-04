@@ -1,13 +1,14 @@
 """Layout tokens — sizes, spacing, animation. No color values."""
 
 # Panel dimensions (--panel-width, --drawer-w, --radius)
-PANEL_WIDTH = 480
+PANEL_WIDTH = 400
 PANEL_HEIGHT = 520
 COMPACT_WIDTH = 320
 COMPACT_HEIGHT = 52
 DRAWER_WIDTH = 168
 RADIUS = 16
 RADIUS_SM = 10
+SHELL_RADIUS = 10
 RADIUS_COMPACT = 26
 COMPACT_PILL_RADIUS = 999
 COMPACT_RECT_RADIUS = 16

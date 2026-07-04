@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
     QSizePolicy,
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QEvent, QSize, QTimer
+from PyQt5.QtGui import QIcon
 from config import (
     STOP_SERVICES_ON_EXIT,
     MODE_PILLS_MIN_WIDTH,
@@ -29,10 +30,13 @@ from ui.native.layout_tokens import (
     CONTENT_PAD_V,
     CONTENT_PAD_BOTTOM,
     INPUT_DOCK_PAD,
+    MEDIUM_MIN_W,
 )
-from ui.native.layout.topbar_layout import build_topbar
+from ui.native.layout.topbar_layout import build_topbar, compute_topbar_min_width
 from ui.native.nav_icons import nav_icon, svg_icon, action_icon
-from ui.native.shell_appearance import AppearanceSettings
+from ui.native.shell_appearance import AppearanceSettings, is_luxury_theme
+from ui.native.luxury.icons import apply_luxury_menu_icon, luxury_icon, luxury_nav_icon
+from ui.native.luxury.title import ensure_luxury_fonts
 from ui.native.status_badge_fx import BadgeBreathController
 from ui.native.visual_tokens import accent_for_theme
 from ui.native.widgets import (
@@ -98,6 +102,7 @@ class MediumPanel(QWidget):
     start_services_requested = pyqtSignal()
     stop_services_requested = pyqtSignal()
     settings_saved = pyqtSignal(dict)
+    appearance_preview_requested = pyqtSignal(dict)
     panel_resize_requested = pyqtSignal(int, int)
     panel_restore_size = pyqtSignal()
     prepare_banner_clicked = pyqtSignal()
@@ -111,10 +116,20 @@ class MediumPanel(QWidget):
         self.setMouseTracking(True)
 
         self._drawer_visible = False
+        self._luxury_theme = False
+        self._ui_theme = "current"
         self._current_panel = "guide"
         self._connection_error = False
+        self._connection_tooltip = ""
+        self._badge_status = "idle"
+        self._badge_label = "准备就绪"
+        self._topbar_narrow_min_w = MEDIUM_MIN_W
+        self._topbar_full_min_w = MEDIUM_MIN_W
         self._settings_scroll = None
         self._settings_inner = None
+        self._settings_size_timer = QTimer(self)
+        self._settings_size_timer.setSingleShot(True)
+        self._settings_size_timer.timeout.connect(self._emit_settings_size)
 
         self._backdrop = NavBackdrop(self)
         self._backdrop.clicked.connect(self._close_drawer)
@@ -193,6 +208,7 @@ class MediumPanel(QWidget):
         self._input_dock = self._build_input_dock()
         main_col.addWidget(self._input_dock)
         self._switch_panel("guide")
+        self._refresh_status_badge()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -204,7 +220,79 @@ class MediumPanel(QWidget):
         if vp_w > 0:
             self._content_wrap.setMaximumWidth(vp_w)
         self._reflow_chat_bubbles()
+        self._update_topbar_chrome()
+
+    def _active_title_widget(self) -> QWidget:
+        if self._luxury_theme and self._title_script.isVisible():
+            return self._title_script
+        return self._title_art
+
+    def _recompute_topbar_widths(self) -> None:
+        title = self._active_title_widget()
+        self._topbar_narrow_min_w = compute_topbar_min_width(
+            title,
+            self._panel_sub,
+            self._status_badge,
+            include_panel_sub=False,
+        )
+        self._topbar_full_min_w = compute_topbar_min_width(
+            title,
+            self._panel_sub,
+            self._status_badge,
+            include_panel_sub=True,
+            title_sep=self._title_sep,
+        )
+
+    def topbar_min_width(self, *, include_panel_sub: bool = False) -> int:
+        self._recompute_topbar_widths()
+        if include_panel_sub:
+            return self._topbar_full_min_w
+        return self._topbar_narrow_min_w
+
+    def topbar_full_width(self) -> int:
+        return self.topbar_min_width(include_panel_sub=True)
+
+    def _update_panel_sub_visibility(self) -> None:
+        self._recompute_topbar_widths()
+        show_sub = self.width() >= self._topbar_full_min_w
+        self._title_sep.setVisible(show_sub)
+        self._panel_sub.setVisible(show_sub)
+
+    def _update_topbar_chrome(self) -> None:
+        self._update_panel_sub_visibility()
         self._update_mode_pills_visibility()
+
+    def _refresh_status_badge(self) -> None:
+        if self._badge_status in ("processing", "executing", "suspended"):
+            status, label = self._badge_status, self._badge_label
+            tooltip = ""
+            breath = status == "processing" and not self._connection_error
+        elif self._connection_error:
+            status, label = "error", "A端不可达"
+            tooltip = self._connection_tooltip
+            breath = False
+        else:
+            status, label = self._badge_status, self._badge_label
+            tooltip = ""
+            breath = False
+        self._status_badge.setText(f"● {label}")
+        self._status_badge.setProperty("status", status)
+        self._status_badge.setToolTip(tooltip)
+        self._status_badge.style().unpolish(self._status_badge)
+        self._status_badge.style().polish(self._status_badge)
+        self._status_badge.adjustSize()
+        self._status_badge.setFixedWidth(self._status_badge.sizeHint().width())
+        self._status_badge.show()
+        if breath:
+            if hasattr(self, "_thinking_strip"):
+                self._thinking_strip.show()
+            self._badge_breath.start()
+        else:
+            if hasattr(self, "_thinking_strip"):
+                self._thinking_strip.hide()
+            self._badge_breath.stop()
+            if status in ("idle", "error"):
+                self.set_stage_hint("")
 
     def _build_drawer(self) -> QWidget:
         drawer = QWidget(self)
@@ -215,12 +303,12 @@ class MediumPanel(QWidget):
         layout.setSpacing(4)
 
         head = QHBoxLayout()
-        logo = QLabel()
-        logo.setPixmap(svg_icon("logo", 16).pixmap(26, 26))
-        logo.setObjectName("DrawerLogo")
-        logo.setFixedSize(26, 26)
-        logo.setAlignment(Qt.AlignCenter)
-        head.addWidget(logo)
+        self._drawer_logo = QLabel()
+        self._drawer_logo.setPixmap(svg_icon("logo", 16).pixmap(26, 26))
+        self._drawer_logo.setObjectName("DrawerLogo")
+        self._drawer_logo.setFixedSize(26, 26)
+        self._drawer_logo.setAlignment(Qt.AlignCenter)
+        head.addWidget(self._drawer_logo)
         title = QLabel("HAJIMI")
         title.setObjectName("DrawerHead")
         head.addWidget(title)
@@ -243,14 +331,14 @@ class MediumPanel(QWidget):
             layout.addWidget(btn)
             self._nav_buttons[key] = btn
             if key == "guide":
-                compact_btn = QPushButton("小窗模式")
-                compact_btn.setObjectName("NavItem")
-                compact_btn.setProperty("active", "false")
-                compact_btn.setToolTip("折叠为小窗口")
-                compact_btn.setIcon(nav_icon("compact", False))
-                compact_btn.setIconSize(QSize(18, 18))
-                compact_btn.clicked.connect(self._on_compact_nav)
-                layout.addWidget(compact_btn)
+                self._compact_nav_btn = QPushButton("小窗模式")
+                self._compact_nav_btn.setObjectName("NavItem")
+                self._compact_nav_btn.setProperty("active", "false")
+                self._compact_nav_btn.setToolTip("折叠为小窗口")
+                self._compact_nav_btn.setIcon(nav_icon("compact", False))
+                self._compact_nav_btn.setIconSize(QSize(18, 18))
+                self._compact_nav_btn.clicked.connect(self._on_compact_nav)
+                layout.addWidget(self._compact_nav_btn)
 
         layout.addStretch()
 
@@ -259,12 +347,12 @@ class MediumPanel(QWidget):
         quit_sep.setObjectName("DrawerSep")
         layout.addWidget(quit_sep)
 
-        quit_btn = QPushButton("退出")
-        quit_btn.setObjectName("NavItemQuit")
-        quit_btn.setIcon(nav_icon("logout", False))
-        quit_btn.setIconSize(QSize(18, 18))
-        quit_btn.clicked.connect(self._on_quit_nav)
-        layout.addWidget(quit_btn)
+        self._quit_nav_btn = QPushButton("退出")
+        self._quit_nav_btn.setObjectName("NavItemQuit")
+        self._quit_nav_btn.setIcon(nav_icon("logout", False))
+        self._quit_nav_btn.setIconSize(QSize(18, 18))
+        self._quit_nav_btn.clicked.connect(self._on_quit_nav)
+        layout.addWidget(self._quit_nav_btn)
 
         return drawer
 
@@ -281,11 +369,13 @@ class MediumPanel(QWidget):
         self._menu_btn = result.menu_btn
         self._menu_btn.clicked.connect(self._toggle_drawer)
         self._title_art = result.title_art
+        self._title_script = result.title_script
+        self._title_sep = result.title_sep
         self._panel_sub = result.panel_sub
-        self._error_chip = result.error_chip
         self._mode_pills = result.mode_pills
         self._mode_pill_labels = result.mode_pill_labels
         self._status_badge = result.status_badge
+        self._recompute_topbar_widths()
         return result.bar
 
     def _page_layout(self) -> QVBoxLayout:
@@ -444,6 +534,12 @@ class MediumPanel(QWidget):
 
         self._appearance_group = UiAppearanceGroup()
         self._appearance_group.save_requested.connect(self._save_settings)
+        self._appearance_group.appearance_preview_requested.connect(
+            self._forward_appearance_preview
+        )
+        self._appearance_group.preview_layout_changed.connect(
+            self._schedule_settings_size
+        )
         il.addWidget(self._appearance_group)
 
         api_card = QFrame()
@@ -597,6 +693,9 @@ class MediumPanel(QWidget):
         self._field_omni_gpu.set_text(omni.get("gpu_url", ""))
         self._apply_deployment_mode_ui(data.get("deployment_mode", "local"))
 
+    def _forward_appearance_preview(self, data: dict) -> None:
+        self.appearance_preview_requested.emit(data)
+
     def _collect_settings_data(self) -> dict:
         mode = self._deployment_mode.current_mode()
         a_url = self._field_a_url.text()
@@ -675,12 +774,72 @@ class MediumPanel(QWidget):
                 ui_theme = appearance.get("ui_theme", "current")
             appearance = AppearanceSettings.from_user_settings(appearance)
         theme_id = ui_theme or "current"
+        self._ui_theme = theme_id
+        luxury = is_luxury_theme(theme_id)
+        self._luxury_theme = luxury
         if hasattr(self, "_title_art"):
-            self._title_art.set_mode(appearance.title_art_mode)
-            self._title_art.set_accent(accent_for_theme(theme_id))
-            self._title_art.repaint()
+            self._title_art.setVisible(not luxury)
+            if not luxury:
+                self._title_art.set_mode(appearance.title_art_mode)
+                self._title_art.set_accent(accent_for_theme(theme_id))
+                self._title_art.repaint()
+        if hasattr(self, "_title_script"):
+            self._title_script.setVisible(luxury)
+            if luxury:
+                ensure_luxury_fonts()
+                self._title_script.set_font_id(appearance.luxury_script_font_id)
+                self._title_script.set_gold_mode(appearance.luxury_gold_mode)
+                self._title_script.repaint()
+        if hasattr(self, "_menu_btn"):
+            if luxury:
+                apply_luxury_menu_icon(self._menu_btn)
+            else:
+                self._menu_btn.setIcon(QIcon())
+                self._menu_btn.update()
+        if hasattr(self, "_send_btn"):
+            style = self._send_btn.style()
+            if luxury:
+                self._send_btn.setObjectName("SendBtnLuxHover")
+                self._send_btn.setIcon(luxury_icon("send", 18))
+            else:
+                self._send_btn.setObjectName("SendBtnAccent")
+                self._send_btn.setIcon(action_icon("send", accent_for_theme(theme_id)))
+            style.unpolish(self._send_btn)
+            style.polish(self._send_btn)
+            self._send_btn.update()
+        self._refresh_nav_icons()
         if hasattr(self, "_topbar"):
             self._topbar.repaint()
+        self._recompute_topbar_widths()
+        self._update_topbar_chrome()
+        self._refresh_status_badge()
+
+    def _nav_icon(self, key: str, active: bool) -> QIcon:
+        if self._luxury_theme:
+            return luxury_nav_icon(key, active)
+        return nav_icon(key, active)
+
+    def _refresh_nav_icons(self) -> None:
+        if hasattr(self, "_drawer_logo"):
+            if self._luxury_theme:
+                self._drawer_logo.setPixmap(
+                    luxury_icon("logo", 16).pixmap(26, 26)
+                )
+            else:
+                self._drawer_logo.setPixmap(
+                    svg_icon("logo", 16).pixmap(26, 26)
+                )
+        for key, btn in self._nav_buttons.items():
+            active = btn.property("active") == "true"
+            btn.setIcon(self._nav_icon(key, active))
+        if hasattr(self, "_compact_nav_btn"):
+            self._compact_nav_btn.setIcon(
+                luxury_icon("compact", 16) if self._luxury_theme else nav_icon("compact", False)
+            )
+        if hasattr(self, "_quit_nav_btn"):
+            self._quit_nav_btn.setIcon(
+                luxury_icon("logout", 16) if self._luxury_theme else nav_icon("logout", False)
+            )
 
     def _build_prepare_banner(self) -> QWidget:
         bar = QWidget()
@@ -795,16 +954,28 @@ class MediumPanel(QWidget):
         self._menu_btn.set_open(False)
         animate_drawer(self._drawer, self._backdrop, False, self)
 
+    def force_dismiss_drawer(self) -> None:
+        """Hide drawer overlay immediately (e.g. before mode switch)."""
+        self._drawer_visible = False
+        self._menu_btn.set_open(False)
+        self._backdrop.hide()
+        self._drawer.hide()
+        effect = self._backdrop.graphicsEffect()
+        if effect is not None:
+            effect.setOpacity(0.0)
+
     def _switch_panel(self, panel: str):
         prev = self._current_panel
         self._current_panel = panel
         index = NAV_KEYS.index(panel) if panel in NAV_KEYS else 0
         self._pages.setCurrentIndex(index)
         self._panel_sub.setText(PANEL_LABELS.get(panel, panel))
+        self._recompute_topbar_widths()
+        self._update_topbar_chrome()
         for key, btn in self._nav_buttons.items():
             active = key == panel
             btn.setProperty("active", "true" if active else "false")
-            btn.setIcon(nav_icon(key, active))
+            btn.setIcon(self._nav_icon(key, active))
             btn.style().unpolish(btn)
             btn.style().polish(btn)
         self._update_mode_pill_highlight(panel)
@@ -812,8 +983,9 @@ class MediumPanel(QWidget):
         if panel == "settings":
             if self._settings_scroll is not None:
                 self._settings_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-            QTimer.singleShot(0, self._emit_settings_size)
+            self._schedule_settings_size()
         elif prev == "settings":
+            self._cancel_settings_size_timer()
             if self._settings_scroll is not None:
                 self._settings_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
             self.panel_restore_size.emit()
@@ -822,10 +994,10 @@ class MediumPanel(QWidget):
         return self._current_panel
 
     def _settings_chrome_size(self) -> tuple[int, int]:
-        main_margin_h = 20
-        main_margin_v = 26
+        main_margin_h = 0
+        main_margin_v = 0
         panel_chrome_h = (
-self._topbar.sizeHint().height()
+            self._topbar.sizeHint().height()
             + self._input_dock.sizeHint().height()
             + CONTENT_PAD_V
             + CONTENT_PAD_BOTTOM
@@ -845,12 +1017,22 @@ self._topbar.sizeHint().height()
         need_h = hint.height() + chrome_h
 
         max_w, max_h = _screen_max()
-        target_w = max(MEDIUM_WIDTH, need_w)
+        target_w = max(MEDIUM_MIN_W, need_w)
         ratio_h = int(target_w * MEDIUM_HEIGHT / MEDIUM_WIDTH)
         target_h = max(need_h, ratio_h)
         return clamp_size(target_w, target_h)
 
+    def _schedule_settings_size(self) -> None:
+        if self._current_panel != "settings":
+            return
+        self._settings_size_timer.start(0)
+
+    def _cancel_settings_size_timer(self) -> None:
+        self._settings_size_timer.stop()
+
     def _emit_settings_size(self):
+        if self._current_panel != "settings":
+            return
         w, h = self._compute_settings_window_size()
         self.panel_resize_requested.emit(w, h)
 
@@ -878,11 +1060,48 @@ self._topbar.sizeHint().height()
             self._input.clear()
             self.send_clicked.emit(text)
 
+    def _press_can_drag(self, pos) -> bool:
+        target = self.childAt(pos)
+        if target is None:
+            return True
+        blocked_names = {
+            "NavDrawer",
+            "NavBackdrop",
+            "MenuBtn",
+            "SendBtnLuxHover",
+            "SendBtnAccent",
+            "InputFloat",
+            "ChatInput",
+            "SettingsInput",
+            "bubble-user",
+            "bubble-system",
+            "Card",
+            "StepBtn",
+            "StepBtnPrimary",
+            "IconBtnGhost",
+            "PrepareBannerBtn",
+            "SettingsRadio",
+            "CollapseToggle",
+        }
+        interactive_types = (
+            QPushButton,
+            QTextEdit,
+            QCheckBox,
+            QProgressBar,
+        )
+        w = target
+        while w and w is not self:
+            name = w.objectName() or ""
+            if name in blocked_names:
+                return False
+            if isinstance(w, interactive_types):
+                return False
+            w = w.parentWidget()
+        return True
+
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            y = event.pos().y()
-            if hasattr(self, "_topbar") and y <= self._topbar.height():
-                self.drag_requested.emit()
+        if event.button() == Qt.LeftButton and self._press_can_drag(event.pos()):
+            self.drag_requested.emit()
         super().mousePressEvent(event)
 
     def _reflow_chat_bubbles(self):
@@ -908,34 +1127,13 @@ self._topbar.sizeHint().height()
 
     def set_connection_error(self, visible: bool, tooltip: str = "") -> None:
         self._connection_error = visible
-        if visible:
-            self._error_chip.setToolTip(tooltip)
-            self._error_chip.show()
-            self._badge_breath.stop()
-        else:
-            self._error_chip.hide()
-            self._error_chip.setToolTip("")
+        self._connection_tooltip = tooltip if visible else ""
+        self._refresh_status_badge()
 
     def set_status_badge(self, status: str, label: str):
-        self._status_badge.setText(f"● {label}")
-        self._status_badge.setProperty("status", status)
-        self._status_badge.style().unpolish(self._status_badge)
-        self._status_badge.style().polish(self._status_badge)
-        if self._connection_error:
-            self._badge_breath.stop()
-            if status == "processing":
-                self._thinking_strip.show()
-            else:
-                self._thinking_strip.hide()
-                self.set_stage_hint("")
-            return
-        if status == "processing":
-            self._thinking_strip.show()
-            self._badge_breath.start()
-        else:
-            self._thinking_strip.hide()
-            self._badge_breath.stop()
-            self.set_stage_hint("")
+        self._badge_status = status
+        self._badge_label = label
+        self._refresh_status_badge()
 
     def set_stage_hint(self, text: str):
         if text:

@@ -1,0 +1,15 @@
+/* Crystal shell profile — transparent so QPainter luxury frame shows through */
+
+QWidget#NativeShell {
+    background: transparent;
+    background-color: transparent;
+    border: none;
+    border-radius: 16px;
+}
+
+QWidget#CompactShell {
+    background: transparent;
+    background-color: transparent;
+    border: none;
+    border-radius: 16px;
+}

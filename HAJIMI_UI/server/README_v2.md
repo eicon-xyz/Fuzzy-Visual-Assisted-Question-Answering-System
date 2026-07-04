@@ -17,18 +17,18 @@ scripts\setup_server_env.bat
 copy server\.env.example server\.env
 # 编辑 server\.env 填入 DEEPSEEK_API_KEY
 
-# 4. 启动 A 端（默认端口 8001，避开 8000 占用/WinError 10013）
+# 4. 启动 A 端（默认端口 8010）
 scripts\start_server.bat
 
-# 手动指定端口（若 8001 也被占用）
-set HAJIMI_PORT=8002
+# 手动指定端口（若 8010 被占用）
+set HAJIMI_PORT=8011
 scripts\start_server.bat
 ```
 
 等价命令：
 
 ```bash
-python -m uvicorn server.main:app --host 127.0.0.1 --port 8001
+python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
 ```
 
 ## 与 B 端（PyQt 客户端）联调
@@ -42,16 +42,16 @@ B 端环境变量（与 A 端对齐）：
 
 | 变量 | 说明 | 默认 |
 |------|------|------|
-| `HAJIMI_API_URL` | A 端地址 | `http://127.0.0.1:8001` |
+| `HAJIMI_API_URL` | A 端地址 | `http://127.0.0.1:8010` |
 | `HAJIMI_DEMO_KEY` | 认证 Key | `hajimi-demo-2026` |
 | `HAJIMI_MOCK_FALLBACK` | A 端不可达时回退本地 Mock | `0`（默认关闭） |
 | `HAJIMI_MOCK_ONLY` | 强制纯 Mock | `0` |
 
 服务启动后访问：
 
-- API 文档：http://127.0.0.1:8001/docs
-- Redoc：http://127.0.0.1:8001/redoc
-- 健康检查：http://127.0.0.1:8001/api/demo/health
+- API 文档：http://127.0.0.1:8010/docs
+- Redoc：http://127.0.0.1:8010/redoc
+- 健康检查：http://127.0.0.1:8010/api/demo/health
 
 ## 环境变量
 
@@ -62,7 +62,7 @@ B 端环境变量（与 A 端对齐）：
 | `DEEPSEEK_TIMEOUT` | LLM 调用超时（秒） | `30` |
 | `HAJIMI_DEMO_KEY` | Demo 认证 Key | `hajimi-demo-2026` |
 | `HAJIMI_HOST` | 服务监听地址 | `0.0.0.0` |
-| `HAJIMI_PORT` | 服务端口 | `8001`（8000 常被占用或 WinError 10013） |
+| `HAJIMI_PORT` | 服务端口 | `8010` |
 | `USE_REAL_LLM` | 是否调用真实 LLM | `true` |
 | `STRICT_FINGERPRINT` | 是否严格校验屏幕指纹 | `false` |
 
@@ -80,12 +80,12 @@ B 端环境变量（与 A 端对齐）：
 
 ```bash
 # 健康检查
-curl http://127.0.0.1:8001/api/demo/health
+curl http://127.0.0.1:8010/api/demo/health
 
 # 核心流程
 python -c "
 import httpx
-r = httpx.post('http://127.0.0.1:8001/api/demo/process',
+r = httpx.post('http://127.0.0.1:8010/api/demo/process',
     headers={'X-Demo-Key': 'hajimi-demo-2026'},
     json={'query': '怎么安装微信？'})
 print(r.json())

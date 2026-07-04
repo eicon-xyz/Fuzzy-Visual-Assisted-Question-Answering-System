@@ -2,21 +2,40 @@
 setlocal EnableExtensions
 
 call "%~dp0resolve_omni_root.bat"
+if not "%OMNI_ROOT_RESOLVED%"=="1" (
+    echo [ERROR] OmniParser not found.
+    echo   Set OMNI_ROOT to your OmniParser install, or clone weights into:
+    echo   %~dp0..\OmniParser
+    echo   Run scripts\setup_omniparser.bat for first-time setup.
+    exit /b 1
+)
+
 set "OMNI_SERVER=%OMNI_ROOT%\omnitool\omniparserserver"
 set "OMNI_HOST=127.0.0.1"
 if not defined OMNI_PORT set "OMNI_PORT=8002"
 
-if not defined OMNI_PY set "OMNI_PY=E:\CodingSoftwards\Anaconda\envs\omni\python.exe"
-if not exist "%OMNI_PY%" (
-    for /f "delims=" %%B in ('conda info --base 2^>nul') do set "OMNI_PY=%%B\envs\omni\python.exe"
+set "OMNI_PY="
+if defined OMNI_PY if exist "%OMNI_PY%" goto :have_omni_py
+if defined PYTHON if exist "%PYTHON%" set "OMNI_PY=%PYTHON%" & goto :have_omni_py
+for /f "delims=" %%P in ('where python 2^>nul') do (
+    if not defined OMNI_PY set "OMNI_PY=%%P"
+)
+if defined OMNI_PY goto :have_omni_py
+for /f "delims=" %%B in ('conda info --base 2^>nul') do (
+    if exist "%%B\envs\omni\python.exe" set "OMNI_PY=%%B\envs\omni\python.exe"
+)
+:have_omni_py
+
+if not defined OMNI_PY (
+    echo [ERROR] Python not found for OmniParser.
+    echo   Activate your venv/conda env, or: set OMNI_PY=C:\path\to\python.exe
+    exit /b 1
 )
 
-rem If omniparserserver is already up, do not start a second instance
 "%OMNI_PY%" -c "import urllib.request; urllib.request.urlopen('http://%OMNI_HOST%:%OMNI_PORT%/probe/', timeout=2)" >nul 2>&1
 if not errorlevel 1 (
     echo [OmniParser] Already running at http://%OMNI_HOST%:%OMNI_PORT%/
     echo [OmniParser] CPU parse takes ~2-4 min per screenshot. Do NOT click inspect again while parsing.
-    echo [OmniParser] If inspect failed, wait for current parse to finish before retrying.
     endlocal
     exit /b 0
 )
@@ -25,11 +44,6 @@ if not exist "%OMNI_SERVER%" (
     echo [ERROR] OmniParser server dir not found:
     echo   %OMNI_SERVER%
     echo Run scripts\setup_omniparser.bat first.
-    exit /b 1
-)
-
-if not exist "%OMNI_PY%" (
-    echo [ERROR] conda env omni not found: %OMNI_PY%
     exit /b 1
 )
 
@@ -44,9 +58,6 @@ set "OMNI_ROOT=%OMNI_ROOT%"
 "%OMNI_PY%" scripts\check_port.py %OMNI_HOST% %OMNI_PORT%
 if errorlevel 1 (
     echo [ERROR] Port %OMNI_PORT% is in use but /probe/ did not respond.
-    echo   Find process: netstat -ano ^| findstr ":%OMNI_PORT%"
-    echo   Kill it:     taskkill /F /PID ^<pid^>
-    echo   Or use another port: set OMNI_PORT=8003 ^&^& scripts\start_omniparser.bat
     exit /b 1
 )
 
@@ -64,10 +75,8 @@ cd /d "%OMNI_SERVER%"
 
 if /i "%OMNI_DEVICE%"=="cpu" (
     echo [OmniParser] CPU mode — parse ~2-4 min per screenshot.
-    echo [OmniParser] For campus GPU use: python scripts\b_group2_intranet_setup.py
 )
 echo [OmniParser] Starting http://%OMNI_HOST%:%OMNI_PORT% (%OMNI_DEVICE% mode) ...
-echo [OmniParser] Press Ctrl+C to stop.
 "%OMNI_PY%" -m omniparserserver --som_model_path ../../weights/icon_detect/model.pt --caption_model_name florence2 --caption_model_path ../../weights/icon_caption_florence --device %OMNI_DEVICE% --BOX_TRESHOLD 0.05 --host %OMNI_HOST% --port %OMNI_PORT%
 
 endlocal

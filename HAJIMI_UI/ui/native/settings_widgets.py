@@ -1,7 +1,7 @@
 """系统设置页可复用控件。"""
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt, QObject, QEvent, pyqtSignal
+from PyQt5.QtCore import Qt, QObject, QEvent, pyqtSignal, QTimer
 from PyQt5.QtWidgets import (
     QWidget,
     QHBoxLayout,
@@ -15,14 +15,20 @@ from PyQt5.QtWidgets import (
     QSlider,
 )
 
+from ui.native.luxury.qss import LUXURY_BG_MODES
+from ui.native.luxury.title import DEFAULT_SCRIPT_FONT_ID, script_font_labels
 from ui.native.shell_appearance import (
     DEFAULT_CRYSTAL_EDGE_SHADOW,
     DEFAULT_FONT_SIZE,
+    DEFAULT_LUXURY_BG_MODE,
+    DEFAULT_LUXURY_STAR_INTENSITY,
     DEFAULT_SHELL_ALPHA_COMPACT,
     DEFAULT_SHELL_ALPHA_MEDIUM,
     DEFAULT_SHELL_STYLE,
     FONT_SIZE_MAX,
     FONT_SIZE_MIN,
+    LUXURY_STAR_INTENSITY_MAX,
+    LUXURY_THEME_ID,
     SHADOW_STRENGTH_MAX,
     SHELL_ALPHA_MAX,
     SHELL_ALPHA_MIN,
@@ -42,6 +48,7 @@ from ui.native.shell_paint import (
 )
 from ui.native.theme_manager import THEME_LABELS
 from ui.native.title_art import DEFAULT_TITLE_ART, TITLE_ART_MODES
+from ui.native.widgets import CollapsibleSection
 
 
 class SettingsEnterFilter(QObject):
@@ -148,6 +155,8 @@ class UiAppearanceGroup(QFrame):
 
     shell_style_changed = pyqtSignal(str)
     save_requested = pyqtSignal()
+    appearance_preview_requested = pyqtSignal(dict)
+    preview_layout_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -161,14 +170,17 @@ class UiAppearanceGroup(QFrame):
         layout.addWidget(title)
 
         hint = QLabel(
-            "切换单选/滑条不会即时生效，请点「保存并应用」。保存后请看：窗口圆角壳层、"
-            "顶栏标题渐变颜色、本页「保存并应用」主按钮颜色。"
+            "配色与轻奢选项切换后可即时预览；点「保存并应用」写入磁盘并在下次启动保留。"
         )
         hint.setObjectName("HintTextSmall")
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
-        layout.addWidget(self._section_label("面板风格"))
+        self._classic_shell_section = QWidget()
+        classic_shell_l = QVBoxLayout(self._classic_shell_section)
+        classic_shell_l.setContentsMargins(0, 0, 0, 0)
+        classic_shell_l.setSpacing(4)
+        classic_shell_l.addWidget(self._section_label("面板风格"))
         self._shell_style_buttons: dict[str, QRadioButton] = {}
         self._shell_style_group = QButtonGroup(self)
         shell_col = QVBoxLayout()
@@ -180,8 +192,9 @@ class UiAppearanceGroup(QFrame):
             self._shell_style_buttons[style_id] = rb
             shell_col.addWidget(rb)
         self._shell_style_group.buttonClicked.connect(self._on_shell_style_clicked)
-        layout.addLayout(shell_col)
+        classic_shell_l.addLayout(shell_col)
         self._shell_style_buttons[DEFAULT_SHELL_STYLE].setChecked(True)
+        layout.addWidget(self._classic_shell_section)
 
         layout.addWidget(self._section_label("配色方案"))
         self._theme_buttons: dict[str, QRadioButton] = {}
@@ -196,7 +209,12 @@ class UiAppearanceGroup(QFrame):
             theme_col.addWidget(rb)
         layout.addLayout(theme_col)
         self._theme_buttons["current"].setChecked(True)
+        self._theme_group.buttonClicked.connect(self._on_theme_clicked)
 
+        self._classic_alpha_section = QWidget()
+        classic_alpha_l = QVBoxLayout(self._classic_alpha_section)
+        classic_alpha_l.setContentsMargins(0, 0, 0, 0)
+        classic_alpha_l.setSpacing(4)
         self._medium_alpha_label = QLabel()
         self._medium_alpha_label.setObjectName("HintTextSmall")
         self._medium_alpha_slider = QSlider(Qt.Horizontal)
@@ -207,7 +225,7 @@ class UiAppearanceGroup(QFrame):
         row_m.addWidget(QLabel("中窗透明度"))
         row_m.addWidget(self._medium_alpha_slider, 1)
         row_m.addWidget(self._medium_alpha_label)
-        layout.addLayout(row_m)
+        classic_alpha_l.addLayout(row_m)
 
         self._compact_alpha_label = QLabel()
         self._compact_alpha_label.setObjectName("HintTextSmall")
@@ -219,7 +237,8 @@ class UiAppearanceGroup(QFrame):
         row_c.addWidget(QLabel("小窗透明度"))
         row_c.addWidget(self._compact_alpha_slider, 1)
         row_c.addWidget(self._compact_alpha_label)
-        layout.addLayout(row_c)
+        classic_alpha_l.addLayout(row_c)
+        layout.addWidget(self._classic_alpha_section)
 
         self._font_size_label = QLabel()
         self._font_size_label.setObjectName("HintTextSmall")
@@ -233,6 +252,10 @@ class UiAppearanceGroup(QFrame):
         row_f.addWidget(self._font_size_label)
         layout.addLayout(row_f)
 
+        self._classic_shadow_section = QWidget()
+        classic_shadow_l = QVBoxLayout(self._classic_shadow_section)
+        classic_shadow_l.setContentsMargins(0, 0, 0, 0)
+        classic_shadow_l.setSpacing(4)
         self._shadow_label = QLabel()
         self._shadow_label.setObjectName("HintTextSmall")
         self._shadow_slider = QSlider(Qt.Horizontal)
@@ -243,16 +266,21 @@ class UiAppearanceGroup(QFrame):
         row_s.addWidget(QLabel("Crystal 阴影"))
         row_s.addWidget(self._shadow_slider, 1)
         row_s.addWidget(self._shadow_label)
-        layout.addLayout(row_s)
+        classic_shadow_l.addLayout(row_s)
 
         shadow_hint = QLabel(
             "纯细边建议 0，极轻阴影建议 14；仅 Crystal 面板风格生效。"
         )
         shadow_hint.setObjectName("HintTextSmall")
         shadow_hint.setWordWrap(True)
-        layout.addWidget(shadow_hint)
+        classic_shadow_l.addWidget(shadow_hint)
+        layout.addWidget(self._classic_shadow_section)
 
-        layout.addWidget(self._section_label("顶栏艺术字"))
+        self._classic_title_section = QWidget()
+        classic_title_l = QVBoxLayout(self._classic_title_section)
+        classic_title_l.setContentsMargins(0, 0, 0, 0)
+        classic_title_l.setSpacing(4)
+        classic_title_l.addWidget(self._section_label("顶栏艺术字"))
         self._title_art_buttons: dict[str, QRadioButton] = {}
         self._title_art_group = QButtonGroup(self)
         title_col = QVBoxLayout()
@@ -263,8 +291,67 @@ class UiAppearanceGroup(QFrame):
             self._title_art_group.addButton(rb, idx)
             self._title_art_buttons[mode_id] = rb
             title_col.addWidget(rb)
-        layout.addLayout(title_col)
+        classic_title_l.addLayout(title_col)
         self._title_art_buttons[DEFAULT_TITLE_ART].setChecked(True)
+        layout.addWidget(self._classic_title_section)
+
+        self._luxury_section = QWidget()
+        luxury_l = QVBoxLayout(self._luxury_section)
+        luxury_l.setContentsMargins(0, 0, 0, 0)
+        luxury_l.setSpacing(6)
+        luxury_l.addWidget(self._section_label("背景质感"))
+        self._luxury_bg_buttons: dict[str, QRadioButton] = {}
+        self._luxury_bg_group = QButtonGroup(self)
+        bg_col = QVBoxLayout()
+        bg_col.setSpacing(4)
+        for idx, (mode_id, label) in enumerate(LUXURY_BG_MODES.items()):
+            rb = QRadioButton(label)
+            rb.setObjectName("SettingsRadio")
+            self._luxury_bg_group.addButton(rb, idx)
+            self._luxury_bg_buttons[mode_id] = rb
+            bg_col.addWidget(rb)
+        self._luxury_bg_group.buttonClicked.connect(self._on_luxury_bg_clicked)
+        luxury_l.addLayout(bg_col)
+        self._luxury_bg_buttons[DEFAULT_LUXURY_BG_MODE].setChecked(True)
+
+        self._luxury_star_section = CollapsibleSection("星空强度", expanded=False)
+        self._luxury_star_label = QLabel()
+        self._luxury_star_label.setObjectName("HintTextSmall")
+        self._luxury_star_slider = QSlider(Qt.Horizontal)
+        self._luxury_star_slider.setRange(0, LUXURY_STAR_INTENSITY_MAX)
+        self._luxury_star_slider.setValue(DEFAULT_LUXURY_STAR_INTENSITY)
+        self._luxury_star_slider.valueChanged.connect(self._update_luxury_star_label)
+        self._luxury_star_slider.valueChanged.connect(self._emit_preview)
+        star_row = QHBoxLayout()
+        star_row.addWidget(QLabel("强度"))
+        star_row.addWidget(self._luxury_star_slider, 1)
+        star_row.addWidget(self._luxury_star_label)
+        self._luxury_star_section.body_layout().addLayout(star_row)
+        self._luxury_star_hint = QLabel("牛皮纸底不适用星空。")
+        self._luxury_star_hint.setObjectName("HintTextSmall")
+        self._luxury_star_hint.setWordWrap(True)
+        self._luxury_star_hint.hide()
+        self._luxury_star_section.body_layout().addWidget(self._luxury_star_hint)
+        luxury_l.addWidget(self._luxury_star_section)
+
+        self._luxury_font_section = CollapsibleSection("鎏金签名试选", expanded=False)
+        self._luxury_font_buttons: dict[str, QRadioButton] = {}
+        self._luxury_font_group = QButtonGroup(self)
+        font_col = QVBoxLayout()
+        font_col.setSpacing(4)
+        for idx, (font_id, label) in enumerate(script_font_labels().items()):
+            rb = QRadioButton(label)
+            rb.setObjectName("SettingsRadio")
+            self._luxury_font_group.addButton(rb, idx)
+            self._luxury_font_buttons[font_id] = rb
+            font_col.addWidget(rb)
+        self._luxury_font_section.body_layout().addLayout(font_col)
+        self._luxury_font_buttons[DEFAULT_SCRIPT_FONT_ID].setChecked(True)
+        self._luxury_font_group.buttonClicked.connect(self._emit_preview)
+        luxury_l.addWidget(self._luxury_font_section)
+        self._luxury_star_section.toggled.connect(self._emit_preview_layout)
+        self._luxury_font_section.toggled.connect(self._emit_preview_layout)
+        layout.addWidget(self._luxury_section)
 
         self._crystal_light_section = QWidget()
         crystal_l = QVBoxLayout(self._crystal_light_section)
@@ -344,7 +431,8 @@ class UiAppearanceGroup(QFrame):
         self._update_shadow_label(self._shadow_slider.value())
         self._update_top_light_label(self._top_light_slider.value())
         self._update_qss_highlight_label(self._qss_highlight_slider.value())
-        self.sync_mode_sections()
+        self._update_luxury_star_label(self._luxury_star_slider.value())
+        self.sync_theme_sections()
 
         save_row = QHBoxLayout()
         self._save_btn = QPushButton("保存并应用")
@@ -379,6 +467,49 @@ class UiAppearanceGroup(QFrame):
                 self.shell_style_changed.emit(style_id)
                 self.sync_mode_sections()
                 break
+
+    def _on_theme_clicked(self, _button: QRadioButton) -> None:
+        self.sync_theme_sections()
+        self._emit_preview_layout()
+
+    def _on_luxury_bg_clicked(self, _button: QRadioButton) -> None:
+        self._sync_luxury_star_slider()
+        self._emit_preview()
+
+    def _emit_preview(self, *_args) -> None:
+        self.appearance_preview_requested.emit(self.current_appearance())
+
+    def _emit_preview_layout(self, *_args) -> None:
+        self.appearance_preview_requested.emit(self.current_appearance())
+        QTimer.singleShot(0, self.preview_layout_changed.emit)
+
+    def _current_luxury_bg(self) -> str:
+        for mode_id, btn in self._luxury_bg_buttons.items():
+            if btn.isChecked():
+                return mode_id
+        return DEFAULT_LUXURY_BG_MODE
+
+    def _sync_luxury_star_slider(self) -> None:
+        kraft = self._current_luxury_bg() == "kraft"
+        self._luxury_star_slider.setEnabled(not kraft)
+        self._luxury_star_hint.setVisible(kraft)
+
+    def sync_theme_sections(self) -> None:
+        luxury = self.current_theme() == LUXURY_THEME_ID
+        for section in (
+            self._classic_shell_section,
+            self._classic_alpha_section,
+            self._classic_shadow_section,
+            self._classic_title_section,
+            self._crystal_light_section,
+            self._qss_highlight_section,
+        ):
+            section.setVisible(not luxury)
+        self._luxury_section.setVisible(luxury)
+        if luxury:
+            self._sync_luxury_star_slider()
+        else:
+            self.sync_mode_sections()
 
     def _current_shell_style(self) -> str:
         for style_id, btn in self._shell_style_buttons.items():
@@ -417,6 +548,9 @@ class UiAppearanceGroup(QFrame):
 
     def _update_qss_highlight_label(self, value: int) -> None:
         self._qss_highlight_label.setText(str(value))
+
+    def _update_luxury_star_label(self, value: int) -> None:
+        self._luxury_star_label.setText(str(value))
 
     def _checked_mode(self, buttons: dict[str, QRadioButton], default: str) -> str:
         for mode_id, btn in buttons.items():
@@ -458,6 +592,13 @@ class UiAppearanceGroup(QFrame):
                 self._qss_highlight_buttons, DEFAULT_QSS_HIGHLIGHT
             ),
             "qss_highlight_peak": self._qss_highlight_slider.value(),
+            "luxury_bg_mode": self._current_luxury_bg(),
+            "luxury_star_intensity": self._luxury_star_slider.value(),
+            "luxury_script_font_id": self._checked_mode(
+                self._luxury_font_buttons, DEFAULT_SCRIPT_FONT_ID
+            ),
+            "luxury_gold_mode": "dual_layer",
+            "luxury_btn_mode": "hover",
         }
 
     def set_appearance(self, data: dict) -> None:
@@ -497,7 +638,18 @@ class UiAppearanceGroup(QFrame):
         self._qss_highlight_slider.setValue(
             int(data.get("qss_highlight_peak", DEFAULT_QSS_HIGHLIGHT_PEAK))
         )
-        self.sync_mode_sections()
+        luxury_bg = data.get("luxury_bg_mode", DEFAULT_LUXURY_BG_MODE)
+        btn_lb = self._luxury_bg_buttons.get(luxury_bg)
+        if btn_lb is not None:
+            btn_lb.setChecked(True)
+        self._luxury_star_slider.setValue(
+            int(data.get("luxury_star_intensity", DEFAULT_LUXURY_STAR_INTENSITY))
+        )
+        luxury_font = data.get("luxury_script_font_id", DEFAULT_SCRIPT_FONT_ID)
+        btn_lf = self._luxury_font_buttons.get(luxury_font)
+        if btn_lf is not None:
+            btn_lf.setChecked(True)
+        self.sync_theme_sections()
 
 
 class UiThemeGroup(QFrame):

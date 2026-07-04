@@ -2,7 +2,7 @@
 B-end <-> A-end integration verify script.
 
 Usage:
-  1. Terminal 1: scripts/start_server.bat  (default port 8001)
+  1. Terminal 1: scripts/start_server.bat  (default port 8010)
   2. Terminal 2: python scripts/verify_integration.py
 """
 import sys

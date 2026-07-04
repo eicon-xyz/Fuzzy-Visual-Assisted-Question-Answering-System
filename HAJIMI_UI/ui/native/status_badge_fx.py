@@ -10,32 +10,48 @@ class BadgeBreathController:
 
     def __init__(self, badge: QWidget, parent: QWidget | None = None):
         self._badge = badge
-        self._fx = QGraphicsOpacityEffect(badge)
-        badge.setGraphicsEffect(self._fx)
-        self._fx.setOpacity(1.0)
+        self._parent = parent or badge
+        self._fx: QGraphicsOpacityEffect | None = None
+        self._group: QSequentialAnimationGroup | None = None
 
-        fade_in = QPropertyAnimation(self._fx, b"opacity", parent or badge)
+    def _ensure_effect(self) -> QGraphicsOpacityEffect:
+        if self._fx is None:
+            self._fx = QGraphicsOpacityEffect(self._badge)
+            self._badge.setGraphicsEffect(self._fx)
+            self._fx.setOpacity(1.0)
+        return self._fx
+
+    def _ensure_group(self) -> QSequentialAnimationGroup:
+        if self._group is not None:
+            return self._group
+        fx = self._ensure_effect()
+        fade_in = QPropertyAnimation(fx, b"opacity", self._parent)
         fade_in.setDuration(1200)
         fade_in.setStartValue(0.72)
         fade_in.setEndValue(1.0)
         fade_in.setEasingCurve(QEasingCurve.InOutSine)
 
-        fade_out = QPropertyAnimation(self._fx, b"opacity", parent or badge)
+        fade_out = QPropertyAnimation(fx, b"opacity", self._parent)
         fade_out.setDuration(1200)
         fade_out.setStartValue(1.0)
         fade_out.setEndValue(0.72)
         fade_out.setEasingCurve(QEasingCurve.InOutSine)
 
-        self._group = QSequentialAnimationGroup(parent or badge)
-        self._group.addAnimation(fade_in)
-        self._group.addAnimation(fade_out)
-        self._group.setLoopCount(-1)
+        group = QSequentialAnimationGroup(self._parent)
+        group.addAnimation(fade_in)
+        group.addAnimation(fade_out)
+        group.setLoopCount(-1)
+        self._group = group
+        return group
 
     def start(self) -> None:
-        if self._group.state() != QSequentialAnimationGroup.Running:
-            self._group.start()
+        group = self._ensure_group()
+        if group.state() != QSequentialAnimationGroup.Running:
+            group.start()
 
     def stop(self) -> None:
-        if self._group.state() == QSequentialAnimationGroup.Running:
+        if self._group is not None and self._group.state() == QSequentialAnimationGroup.Running:
             self._group.stop()
-        self._fx.setOpacity(1.0)
+        self._badge.setGraphicsEffect(None)
+        self._fx = None
+        self._group = None

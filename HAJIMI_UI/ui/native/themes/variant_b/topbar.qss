@@ -78,6 +78,11 @@ QLabel#StatusBadge[status="suspended"] {
     color: #f1c40f;
 }
 
+QLabel#StatusBadge[status="error"] {
+    background: rgba(231, 76, 60, 0.12);
+    color: #e74c3c;
+}
+
 QPushButton#MenuBtn {
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.08);

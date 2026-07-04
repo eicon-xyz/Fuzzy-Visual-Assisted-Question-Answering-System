@@ -1,11 +1,21 @@
 import os
 
-_DEFAULT_PORT = os.environ.get("HAJIMI_PORT", "8010")
-_DEFAULT_HOST = os.environ.get("HAJIMI_HOST", "127.0.0.1")
-_DEFAULT_API_URL = f"http://{_DEFAULT_HOST}:{_DEFAULT_PORT}"
+from core.defaults import DEFAULT_A_HOST, DEFAULT_A_PORT, DEFAULT_DEMO_KEY
+
+_DEFAULT_PORT = os.environ.get("HAJIMI_PORT", str(DEFAULT_A_PORT))
+_DEFAULT_HOST = os.environ.get("HAJIMI_HOST", DEFAULT_A_HOST)
+
+
+def _build_default_api_url() -> str:
+    port = os.environ.get("HAJIMI_PORT", str(DEFAULT_A_PORT))
+    host = os.environ.get("HAJIMI_HOST", DEFAULT_A_HOST)
+    return f"http://{host}:{port}"
+
+
+_DEFAULT_API_URL = _build_default_api_url()
 
 API_BASE_URL = os.environ.get("HAJIMI_API_URL", _DEFAULT_API_URL)
-DEMO_KEY = os.environ.get("HAJIMI_DEMO_KEY", "hajimi-demo-2026")
+DEMO_KEY = os.environ.get("HAJIMI_DEMO_KEY", DEFAULT_DEMO_KEY)
 USE_MOCK_ONLY = os.environ.get("HAJIMI_MOCK_ONLY", "").lower() in ("1", "true", "yes")
 ALLOW_MOCK_FALLBACK = os.environ.get("HAJIMI_MOCK_FALLBACK", "").lower() in (
     "1",
@@ -21,9 +31,9 @@ HEALTH_TIMEOUT = int(os.environ.get("HAJIMI_HEALTH_TIMEOUT", "2"))
 FRAMED_WINDOW = os.environ.get("HAJIMI_FRAMED", "").lower() in ("1", "true", "yes")
 USE_NATIVE_UI = os.environ.get("HAJIMI_NATIVE_UI", "1").lower() not in ("0", "false", "no")
 
-MEDIUM_WIDTH = 480
+MEDIUM_WIDTH = 400
 MEDIUM_HEIGHT = 520
-COMPACT_WIDTH = 280
+COMPACT_WIDTH = 320
 COMPACT_HEIGHT = 52
 MODE_PILLS_MIN_WIDTH = 700
 
@@ -54,8 +64,11 @@ def reload_from_env() -> None:
     global API_TIMEOUT, INSPECT_TIMEOUT, PROCESS_TIMEOUT, HEALTH_TIMEOUT
     global DEPLOYMENT_MODE, SERVER_DEFAULT_PORT, SERVER_START_HINT
 
-    API_BASE_URL = os.environ.get("HAJIMI_API_URL", _DEFAULT_API_URL)
-    DEMO_KEY = os.environ.get("HAJIMI_DEMO_KEY", "hajimi-demo-2026")
+    port = os.environ.get("HAJIMI_PORT", str(DEFAULT_A_PORT))
+    host = os.environ.get("HAJIMI_HOST", DEFAULT_A_HOST)
+    default_url = f"http://{host}:{port}"
+    API_BASE_URL = os.environ.get("HAJIMI_API_URL", default_url)
+    DEMO_KEY = os.environ.get("HAJIMI_DEMO_KEY", DEFAULT_DEMO_KEY)
     USE_MOCK_ONLY = os.environ.get("HAJIMI_MOCK_ONLY", "").lower() in ("1", "true", "yes")
     ALLOW_MOCK_FALLBACK = os.environ.get("HAJIMI_MOCK_FALLBACK", "").lower() in (
         "1",
