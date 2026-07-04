@@ -15,6 +15,7 @@ HOST = os.environ.get("HAJIMI_GPU_HOST", "10.246.2.7")
 PORT = int(os.environ.get("HAJIMI_GPU_SSH_PORT", "12202"))
 USER = os.environ.get("HAJIMI_GPU_USER", "student")
 PASSWORD = os.environ.get("HAJIMI_GPU_SSH_PASSWORD", "group2-ssh-123")
+REMOTE_ROOT = os.environ.get("HAJIMI_GPU_REMOTE", "/workspace/code/HAJIMI_UI")
 
 
 def run_remote(commands: list[str], timeout: int = 120) -> int:

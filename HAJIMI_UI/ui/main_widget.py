@@ -22,6 +22,7 @@ from config import (
     COMPACT_WIDTH,
     COMPACT_HEIGHT,
     USE_NATIVE_UI,
+    USE_MOCK_ONLY,
     STOP_SERVICES_ON_EXIT,
     STARTUP_HEALTH_DELAY_MS,
     STARTUP_HEALTH_RETRY_MS,
@@ -60,9 +61,13 @@ from ui.native.window_state import (
     save_window_state,
     apply_state_to_window,
 )
+from ui.native.window_clip import apply_shell_mask, clamp_geometry_to_screen
 from ui.native.theme_manager import get_theme_manager, THEME_LABELS
-from ui.native.shell_appearance import AppearanceSettings, SHELL_STYLES
+from ui.native.shell_appearance import AppearanceSettings, SHELL_STYLES, is_luxury_theme
+from ui.native.luxury.qss import LUXURY_BG_MODES
+from ui.native.luxury.title import script_font_labels
 from ui.native.title_art import TITLE_ART_MODES
+from ui.native.nav_icons import svg_icon
 
 
 class MainWidget(QWidget):
@@ -78,7 +83,9 @@ class MainWidget(QWidget):
 
         self._mode = "medium"
         self._medium_size = [MEDIUM_WIDTH, MEDIUM_HEIGHT]
+        self._compact_size = [COMPACT_WIDTH, COMPACT_HEIGHT]
         self._size_before_settings = None
+        self._geometry_anim = None
         self._mode_switching = False
         self._prepare_hint = ""
         self._prepare_desc = ""
@@ -102,7 +109,9 @@ class MainWidget(QWidget):
         state = load_window_state()
         if state:
             self._medium_size = [state.medium_width, state.medium_height]
+            self._compact_size = [state.compact_width, COMPACT_HEIGHT]
             apply_state_to_window(self, state)
+            self._clamp_medium_width_to_topbar()
             if state.migrated_from_legacy:
                 self._state_save_timer().start(0)
             if state.x is None or state.y is None:
@@ -113,7 +122,21 @@ class MainWidget(QWidget):
                 self.medium_panel._update_mode_pills_visibility()
         else:
             self.resize(MEDIUM_WIDTH, MEDIUM_HEIGHT)
+            self._clamp_medium_width_to_topbar()
             self._position_bottom_right()
+
+    def _clamp_medium_width_to_topbar(self) -> None:
+        if not hasattr(self, "medium_panel"):
+            return
+        min_w = self.topbar_min_width(include_panel_sub=False)
+        mw = max(self._medium_size[0], min_w)
+        if mw != self._medium_size[0]:
+            self._medium_size[0] = mw
+        if self._mode != "medium":
+            return
+        w, h = self.width(), self.height()
+        if w < min_w:
+            self._apply_size_bottom_right(min_w, h, animated=False)
 
     def _state_save_timer(self):
         if not hasattr(self, "_window_state_timer"):
@@ -131,6 +154,7 @@ class MainWidget(QWidget):
             x=self.x(),
             y=self.y(),
             last_mode=self._mode,
+            compact_width=self._compact_size[0],
         )
 
     def _apply_window_flags(self):
@@ -158,11 +182,14 @@ class MainWidget(QWidget):
         self.stack.setCurrentWidget(self.medium_panel)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 12, 10, 14)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.stack)
 
         self._resize_handler = WindowResizeHandler(
-            self, lambda: self.stack, lambda: self._mode == "medium"
+            self,
+            lambda: self.stack,
+            lambda: self._mode == "medium",
+            lambda: self._mode == "compact",
         )
         self.setMouseTracking(True)
         self._install_resize_tracking()
@@ -178,6 +205,26 @@ class MainWidget(QWidget):
         mgr.register_shell(self.compact_bar, compact=True)
         self._apply_native_appearance()
 
+    def _should_use_pill_mask(self) -> bool:
+        return (
+            self._mode == "compact"
+            and not self._mode_switching
+            and self.height() <= COMPACT_HEIGHT + 4
+        )
+
+    def _apply_window_mask(self) -> None:
+        if not USE_NATIVE_UI or FRAMED_WINDOW:
+            return
+        apply_shell_mask(self, pill=self._should_use_pill_mask())
+
+    def _dismiss_drawer_overlay(self) -> None:
+        if hasattr(self, "medium_panel"):
+            self.medium_panel.force_dismiss_drawer()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._apply_window_mask()
+
     def _apply_native_appearance(self, settings: dict | None = None) -> None:
         data = settings if settings is not None else load_user_settings()
         ui_theme = data.get("ui_theme", "current")
@@ -190,11 +237,26 @@ class MainWidget(QWidget):
         if hasattr(self, "medium_panel"):
             self.medium_panel.update()
 
+    def _apply_appearance_preview(self, data: dict) -> None:
+        ui_theme = data.get("ui_theme", "current")
+        appearance = AppearanceSettings.from_user_settings(data)
+        get_theme_manager().apply(ui_theme, appearance)
+        if hasattr(self, "medium_panel"):
+            self.medium_panel.apply_appearance(appearance, ui_theme=ui_theme)
+            if self.medium_panel.current_panel() == "settings":
+                self.medium_panel._schedule_settings_size()
+        if hasattr(self, "stack"):
+            self.stack.update()
+        if hasattr(self, "medium_panel"):
+            self.medium_panel.update()
+        self._apply_window_mask()
+
     def _install_resize_tracking(self):
         """Forward edge mouse events from panel children to resize handler."""
         self.stack.setMouseTracking(True)
         self.medium_panel.setMouseTracking(True)
-        for w in (self.medium_panel,):
+        self.compact_bar.setMouseTracking(True)
+        for w in (self.medium_panel, self.compact_bar):
             w.installEventFilter(self)
             for child in w.findChildren(QWidget):
                 child.setMouseTracking(True)
@@ -204,7 +266,7 @@ class MainWidget(QWidget):
         if (
             USE_NATIVE_UI
             and hasattr(self, "_resize_handler")
-            and self._mode == "medium"
+            and self._mode in ("medium", "compact")
         ):
             et = event.type()
             if et == QEvent.MouseButtonPress:
@@ -321,11 +383,20 @@ class MainWidget(QWidget):
         p.start_services_requested.connect(self._on_start_services)
         p.stop_services_requested.connect(self._on_stop_services)
         p.settings_saved.connect(self._on_settings_saved)
+        p.appearance_preview_requested.connect(self._apply_appearance_preview)
         p.panel_resize_requested.connect(self._on_panel_resize_requested)
         p.panel_restore_size.connect(self._on_panel_restore_size)
         b.expand_requested.connect(self.switch_to_medium)
         b.drag_requested.connect(self.controller.begin_window_drag)
         p.quit_requested.connect(self._quit_application)
+
+    def on_compact_resized(self):
+        if self._mode == "compact":
+            self._compact_size = [self.width(), self.height()]
+            self._state_save_timer().start(500)
+        self._apply_window_mask()
+        if hasattr(self, "compact_bar"):
+            self.compact_bar.update()
 
     def on_medium_resized(self):
         if (
@@ -334,9 +405,42 @@ class MainWidget(QWidget):
         ):
             self._medium_size = [self.width(), self.height()]
             self._state_save_timer().start(500)
-        self.medium_panel._update_mode_pills_visibility()
+        if hasattr(self, "medium_panel"):
+            self.medium_panel._update_topbar_chrome()
+            self.medium_panel._update_mode_pills_visibility()
+
+    def topbar_min_width(self, *, include_panel_sub: bool = False) -> int:
+        if hasattr(self, "medium_panel"):
+            return self.medium_panel.topbar_min_width(
+                include_panel_sub=include_panel_sub
+            )
+        from ui.native.layout_tokens import MEDIUM_MIN_W
+        return MEDIUM_MIN_W
+
+    def _stop_geometry_anim(self) -> None:
+        anim = self._geometry_anim
+        if anim is not None:
+            anim.stop()
+            self._geometry_anim = None
+
+    def _on_geometry_settled(self) -> None:
+        self._geometry_anim = None
+        self._apply_window_mask()
+        if self._mode == "compact" and hasattr(self, "compact_bar"):
+            self._compact_size = [self.width(), self.height()]
+            self.compact_bar.update()
+            self._state_save_timer().start(500)
+        elif self._mode == "medium" and hasattr(self, "medium_panel"):
+            self._medium_size = [self.width(), self.height()]
+            self.medium_panel.update()
+            self.on_medium_resized()
 
     def _on_panel_resize_requested(self, w: int, h: int):
+        if (
+            not hasattr(self, "medium_panel")
+            or self.medium_panel.current_panel() != "settings"
+        ):
+            return
         if self._size_before_settings is None:
             self._size_before_settings = [self.width(), self.height()]
         self._apply_size_bottom_right(w, h, animated=True)
@@ -358,7 +462,11 @@ class MainWidget(QWidget):
         actual = new_h - g.height()
         if actual == 0:
             return
-        self.setGeometry(g.x(), g.y() - actual, g.width(), new_h)
+        target = clamp_geometry_to_screen(
+            QRect(g.x(), g.y() - actual, g.width(), new_h)
+        )
+        self.setGeometry(target)
+        self._apply_window_mask()
         self.on_medium_resized()
 
     def paintEvent(self, event):
@@ -401,10 +509,45 @@ class MainWidget(QWidget):
         super().mouseReleaseEvent(event)
 
     def _apply_size_bottom_right(self, w: int, h: int, animated: bool = False):
-        resize_keep_bottom_right(self, w, h, self, animated=animated)
+        geo = self.geometry()
+        new_x = geo.x() + geo.width() - w
+        new_y = geo.y() + geo.height() - h
+        target = clamp_geometry_to_screen(QRect(new_x, new_y, w, h))
+        if not animated:
+            self._stop_geometry_anim()
+            self.setGeometry(target)
+            self._on_geometry_settled()
+            return
+        self._stop_geometry_anim()
+        self._geometry_anim = resize_keep_bottom_right(
+            self,
+            target.width(),
+            target.height(),
+            self,
+            animated=True,
+            on_finished=self._on_geometry_settled,
+        )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_window_mask()
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        if not USE_NATIVE_UI or FRAMED_WINDOW:
+            return
+        clamped = clamp_geometry_to_screen(self.geometry())
+        if clamped.topLeft() != self.geometry().topLeft():
+            self.move(clamped.topLeft())
 
     def _check_api_on_startup(self):
         if not hasattr(self, "controller"):
+            return
+        if USE_MOCK_ONLY:
+            self.controller.message_added.emit(
+                "当前为 UI 演示模式（HAJIMI_MOCK_ONLY=1），未连接 A 端。",
+                "system",
+            )
             return
         for hint in self._startup_hints:
             self.controller.message_added.emit(hint, "system")
@@ -413,6 +556,8 @@ class MainWidget(QWidget):
 
     def _run_startup_health_check(self):
         if not hasattr(self, "controller"):
+            return
+        if USE_MOCK_ONLY:
             return
         text, msg_type = get_api_status_message()
         is_error = "danger" in msg_type
@@ -472,20 +617,35 @@ class MainWidget(QWidget):
             if merged.get("deployment_mode") == "local":
                 sync_server_env(merged)
             mode_label = "内网 API" if is_intranet_mode() else "本地启动"
-            theme_label = THEME_LABELS.get(merged.get("ui_theme", "current"), "默认")
-            shell_label = SHELL_STYLES.get(merged.get("shell_style", "qss"), "QSS 实底")
+            ui_theme = merged.get("ui_theme", "current")
+            theme_label = THEME_LABELS.get(ui_theme, "默认")
             font_size = merged.get("font_size", 13)
-            art_label = TITLE_ART_MODES.get(
-                merged.get("title_art_mode", "gradient"), "渐变艺术字"
-            )
+            if is_luxury_theme(ui_theme):
+                bg_label = LUXURY_BG_MODES.get(
+                    merged.get("luxury_bg_mode", "frosted"), "磨砂黑"
+                )
+                star = merged.get("luxury_star_intensity", 0)
+                font_id = merged.get("luxury_script_font_id", "mrs_delafield")
+                sig_label = script_font_labels().get(font_id, font_id)
+                detail = (
+                    f"{mode_label} · {theme_label} · {bg_label} · "
+                    f"星空 {star} · {sig_label} · 字号 {font_size}px"
+                )
+            else:
+                shell_label = SHELL_STYLES.get(merged.get("shell_style", "qss"), "QSS 实底")
+                art_label = TITLE_ART_MODES.get(
+                    merged.get("title_art_mode", "gradient"), "渐变艺术字"
+                )
+                detail = (
+                    f"{mode_label} · {shell_label} · {theme_label} · "
+                    f"{art_label} · 字号 {font_size}px"
+                )
             self.medium_panel.on_settings_applied(
                 merged,
-                f"已保存，当前会话：{mode_label} · {shell_label} · {theme_label} · {art_label} · 字号 {font_size}px",
+                f"已保存，当前会话：{detail}",
             )
             text, msg_type = self._refresh_api_status()
             self.controller.message_added.emit("配置已保存并应用", "system")
-            if "danger" in msg_type:
-                self.controller.message_added.emit(text, msg_type)
         except Exception as exc:
             self.medium_panel.on_settings_applied(
                 data,
@@ -555,6 +715,8 @@ class MainWidget(QWidget):
         if self._mode_switching:
             return
 
+        self._dismiss_drawer_overlay()
+
         outgoing = self.compact_bar
         incoming = self.medium_panel
         w, h = self._medium_size
@@ -581,6 +743,7 @@ class MainWidget(QWidget):
             self.setEnabled(True)
             self.medium_panel.focus_input()
             self.medium_panel._update_mode_pills_visibility()
+            self._apply_window_mask()
             self._save_window_state()
 
         animate_mode_transition(
@@ -603,12 +766,13 @@ class MainWidget(QWidget):
         if self._mode == "medium":
             self._medium_size = [self.width(), self.height()]
 
+        self._dismiss_drawer_overlay()
+
         outgoing = self.medium_panel
         incoming = self.compact_bar
-        w = self.width() if self.width() > 0 else COMPACT_WIDTH
-        h = COMPACT_HEIGHT
+        w, h = self._compact_size[0], COMPACT_HEIGHT
         self._mode = "compact"
-        self._resize_handler.set_enabled(False)
+        self._resize_handler.set_enabled(True)
 
         if not animated:
             self._apply_size_bottom_right(w, h, animated=False)
@@ -628,6 +792,7 @@ class MainWidget(QWidget):
             self._mode_switching = False
             self.setEnabled(True)
             self.compact_bar.focus_input()
+            self._apply_window_mask()
             self._save_window_state()
 
         animate_mode_transition(
@@ -650,6 +815,10 @@ class MainWidget(QWidget):
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return
         self.tray = QSystemTrayIcon(self)
+        tray_icon = svg_icon("logo", 32, "#5a9ec4")
+        if not tray_icon.isNull():
+            self.tray.setIcon(tray_icon)
+            self.setWindowIcon(tray_icon)
         self.tray.setToolTip("HAJIMI 智能桌面助手")
 
         menu = QMenu()
@@ -717,10 +886,15 @@ class MainWidget(QWidget):
         if not screen:
             return
         area = screen.availableGeometry()
-        self.move(
-            area.right() - self.width() - margin,
-            area.bottom() - self.height() - margin,
+        geo = clamp_geometry_to_screen(
+            QRect(
+                area.right() - self.width() - margin,
+                area.bottom() - self.height() - margin,
+                self.width(),
+                self.height(),
+            )
         )
+        self.move(geo.topLeft())
 
     def _on_load_finished(self):
         js = """

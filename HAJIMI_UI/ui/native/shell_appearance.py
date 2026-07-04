@@ -17,7 +17,15 @@ from ui.native.shell_paint import (
     QSS_BODY_MODE_IDS,
     QSS_HIGHLIGHT_MODE_IDS,
 )
+from ui.native.luxury.qss import DEFAULT_LUXURY_BTN_MODE, DEFAULT_LUXURY_GOLD_MODE, LUXURY_BG_MODES
+from ui.native.luxury.title import DEFAULT_SCRIPT_FONT_ID, LUXURY_SCRIPT_FONT_IDS
 from ui.native.title_art import DEFAULT_TITLE_ART, TITLE_ART_MODE_IDS
+
+LUXURY_THEME_ID = "variant_luxury"
+LUXURY_BG_MODE_IDS = tuple(LUXURY_BG_MODES.keys())
+DEFAULT_LUXURY_BG_MODE = "frosted"
+DEFAULT_LUXURY_STAR_INTENSITY = 0
+LUXURY_STAR_INTENSITY_MAX = 100
 
 SHELL_STYLES: dict[str, str] = {
     "qss": "QSS 实底",
@@ -71,6 +79,10 @@ _NAV_PINNED_FONT_RULE = (
 
 def _clamp_int(value: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, int(value)))
+
+
+def is_luxury_theme(theme_id: str) -> bool:
+    return str(theme_id) == LUXURY_THEME_ID
 
 
 def is_crystal_shell(shell_style: str) -> bool:
@@ -143,6 +155,11 @@ class AppearanceSettings:
     qss_body_mode: str = DEFAULT_QSS_BODY
     qss_highlight_mode: str = DEFAULT_QSS_HIGHLIGHT
     qss_highlight_peak: int = DEFAULT_QSS_HIGHLIGHT_PEAK
+    luxury_bg_mode: str = DEFAULT_LUXURY_BG_MODE
+    luxury_star_intensity: int = DEFAULT_LUXURY_STAR_INTENSITY
+    luxury_script_font_id: str = DEFAULT_SCRIPT_FONT_ID
+    luxury_gold_mode: str = DEFAULT_LUXURY_GOLD_MODE
+    luxury_btn_mode: str = DEFAULT_LUXURY_BTN_MODE
 
     @classmethod
     def from_user_settings(cls, data: dict) -> AppearanceSettings:
@@ -166,6 +183,18 @@ class AppearanceSettings:
         qss_highlight = data.get("qss_highlight_mode", DEFAULT_QSS_HIGHLIGHT)
         if qss_highlight not in QSS_HIGHLIGHT_MODE_IDS:
             qss_highlight = DEFAULT_QSS_HIGHLIGHT
+        luxury_bg = data.get("luxury_bg_mode", DEFAULT_LUXURY_BG_MODE)
+        if luxury_bg not in LUXURY_BG_MODE_IDS:
+            luxury_bg = DEFAULT_LUXURY_BG_MODE
+        luxury_font = data.get("luxury_script_font_id", DEFAULT_SCRIPT_FONT_ID)
+        if luxury_font not in LUXURY_SCRIPT_FONT_IDS:
+            luxury_font = DEFAULT_SCRIPT_FONT_ID
+        luxury_gold = data.get("luxury_gold_mode", DEFAULT_LUXURY_GOLD_MODE)
+        if luxury_gold not in ("horizontal", "diagonal", "dual_layer"):
+            luxury_gold = DEFAULT_LUXURY_GOLD_MODE
+        luxury_btn = data.get("luxury_btn_mode", DEFAULT_LUXURY_BTN_MODE)
+        if luxury_btn not in ("edge", "hover"):
+            luxury_btn = DEFAULT_LUXURY_BTN_MODE
         return cls(
             shell_style=shell_style,
             shell_alpha_medium=_clamp_int(
@@ -200,6 +229,15 @@ class AppearanceSettings:
                 0,
                 SHADOW_STRENGTH_MAX,
             ),
+            luxury_bg_mode=luxury_bg,
+            luxury_star_intensity=_clamp_int(
+                data.get("luxury_star_intensity", DEFAULT_LUXURY_STAR_INTENSITY),
+                0,
+                LUXURY_STAR_INTENSITY_MAX,
+            ),
+            luxury_script_font_id=luxury_font,
+            luxury_gold_mode=luxury_gold,
+            luxury_btn_mode=luxury_btn,
         )
 
     def to_user_settings_fragment(self) -> dict:
@@ -215,6 +253,11 @@ class AppearanceSettings:
             "qss_body_mode": self.qss_body_mode,
             "qss_highlight_mode": self.qss_highlight_mode,
             "qss_highlight_peak": self.qss_highlight_peak,
+            "luxury_bg_mode": self.luxury_bg_mode,
+            "luxury_star_intensity": self.luxury_star_intensity,
+            "luxury_script_font_id": self.luxury_script_font_id,
+            "luxury_gold_mode": self.luxury_gold_mode,
+            "luxury_btn_mode": self.luxury_btn_mode,
         }
 
 

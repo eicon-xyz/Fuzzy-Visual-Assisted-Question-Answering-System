@@ -76,6 +76,8 @@ class MenuButton(QPushButton):
 
     def paintEvent(self, event):
         super().paintEvent(event)
+        if not self.icon().isNull():
+            return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         pen = QPen(QColor("#94a3b8"), 2, Qt.SolidLine, Qt.RoundCap)

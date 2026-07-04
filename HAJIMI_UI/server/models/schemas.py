@@ -2,7 +2,7 @@
 HAJIMI Demo API Pydantic 模型
 严格对应 docs/api-contract-demo.md 中的数据定义
 """
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from pydantic import BaseModel, Field
 
 
@@ -73,13 +73,6 @@ class Step(BaseModel):
         pattern="^(pending|active|done|skipped|failed)$",
     )
     annotation: Optional[Annotation] = None
-    locate_deferred: bool = Field(
-        False,
-        description="当前画面无法定位目标，需用户先手动操作后再重新截图定位",
-    )
-    prepare_hint: Optional[str] = Field(
-        None, description="用户手动操作提示，如「请打开开始菜单搜索 GitHub」",
-    )
 
 
 class Blueprint(BaseModel):
@@ -109,6 +102,18 @@ class ErrorResponse(BaseModel):
     error: ErrorDetail
 
 
+class RedlineInfo(BaseModel):
+    """红线检测结果 — 嵌入 ProcessResponse，触发时不为 None"""
+
+    triggered: bool = False
+    category: str = ""
+    message: str = ""
+    action: str = Field(
+        "reject",
+        pattern="^(reject|guided_reject|degrade)$",
+    )
+
+
 # ────────────────────────── 请求/响应模型 ──────────────────────────
 
 
@@ -136,30 +141,18 @@ class ProcessResponse(BaseModel):
     )
     blueprint: Blueprint
     steps: List[Step]
+    constraints: Optional[dict] = Field(
+        None, description="从用户输入提取的约束条件（如安装路径、保存位置）"
+    )
     reference_resolution: Optional[List[int]] = Field(
-        None, description="截图参考分辨率 [width, height]"
+        None, description="截图物理像素 [w, h]，供 B 端坐标映射"
     )
-    detection_meta: Optional[Dict[str, Any]] = Field(
-        None, description="检测元数据：latency_ms, element_count, backend"
+    detection_meta: Optional[dict] = Field(
+        None, description="{latency_ms, element_count, backend}"
     )
-
-
-class InspectRequest(BaseModel):
-    """元素检测检验请求（无步骤生成）"""
-
-    image: str = Field(..., description="Base64 截图或 data URI")
-    screen_width: Optional[int] = Field(None, ge=1)
-    screen_height: Optional[int] = Field(None, ge=1)
-
-
-class InspectResponse(BaseModel):
-    """元素检测检验响应"""
-
-    success: bool
-    ui_elements: List[UIElement]
-    annotated_image: Optional[str] = None
-    reference_resolution: List[int] = Field(..., min_length=2, max_length=2)
-    detection_meta: Optional[Dict[str, Any]] = None
+    redline: Optional[RedlineInfo] = Field(
+        None, description="红线检测结果，触发时不为 None"
+    )
 
 
 class StepRequest(BaseModel):
@@ -172,6 +165,10 @@ class StepRequest(BaseModel):
     )
     step_index: Optional[int] = Field(None, ge=1)
     fingerprint: Optional[str] = None
+    image: Optional[str] = Field(
+        None,
+        description="新截图 Base64；用于无绑定步骤的动态重规划",
+    )
 
 
 class StepResponse(BaseModel):
@@ -227,27 +224,6 @@ class ReportResponse(BaseModel):
     received: bool
 
 
-class RelocateRequest(BaseModel):
-    """用户完成手动操作后，对当前步骤重新截图定位"""
-
-    task_id: str
-    step_index: int = Field(..., ge=1)
-    image: str = Field(..., description="Base64 截图或 data URI")
-
-
-class RelocateResponse(BaseModel):
-    """重新定位响应"""
-
-    success: bool
-    step_index: int
-    target_element_id: Optional[str] = None
-    annotation: Optional[Annotation] = None
-    ui_elements: List[UIElement] = Field(default_factory=list)
-    reference_resolution: List[int] = Field(..., min_length=2, max_length=2)
-    detection_meta: Optional[Dict[str, Any]] = None
-    message: Optional[str] = None
-
-
 class HealthResponse(BaseModel):
     """健康检查响应"""
 
@@ -258,3 +234,59 @@ class HealthResponse(BaseModel):
     detector_device: Optional[str] = None
     omniparser_url: Optional[str] = None
     omniparser_ready: Optional[bool] = None
+
+
+class RelocateRequest(BaseModel):
+    """重新定位请求 — 当前画面找不到目标元素时手动截图重新定位"""
+
+    task_id: str
+    step_index: int = Field(..., ge=1)
+    image: str = Field(
+        ...,
+        description="新截图 Base64，含 data URI 前缀",
+    )
+
+
+class RelocateResponse(BaseModel):
+    """重新定位响应 — 返回更新后的标注与全量元素"""
+
+    success: bool = True
+    task_id: str
+    step_index: int
+    target_element_id: Optional[str] = None
+    annotation: Optional[Annotation] = None
+    ui_elements: List[UIElement] = []
+    reference_resolution: Optional[List[int]] = Field(
+        None, description="截图物理像素 [w, h]，供 B 端坐标映射"
+    )
+
+
+class InspectRequest(BaseModel):
+    """检验模式请求 — 立即检测当前屏幕，不生成 task/steps"""
+
+    image: str = Field(
+        ...,
+        description="Base64 截图，含 data URI 前缀",
+    )
+    screen_width: Optional[int] = Field(
+        None, description="屏幕物理宽度（像素）"
+    )
+    screen_height: Optional[int] = Field(
+        None, description="屏幕物理高度（像素）"
+    )
+
+
+class InspectResponse(BaseModel):
+    """检验模式响应 — 全量 UI 元素 + SoM 标注图"""
+
+    success: bool = True
+    ui_elements: List[UIElement] = []
+    annotated_image: Optional[str] = Field(
+        None, description="带 SoM 编号标注的截图 Base64"
+    )
+    reference_resolution: Optional[List[int]] = Field(
+        None, description="截图物理像素 [w, h]，供 B 端坐标映射"
+    )
+    detection_meta: Optional[dict] = Field(
+        None, description="{latency_ms, element_count, backend}"
+    )

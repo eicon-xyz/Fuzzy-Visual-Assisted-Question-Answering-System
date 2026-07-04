@@ -1,0 +1,2 @@
+# Optional — campus GPU remote scripts only
+paramiko>=3.0

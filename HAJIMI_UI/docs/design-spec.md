@@ -38,7 +38,7 @@ Shell console: **QSS 实底** / **Crystal · 纯细边** / **Crystal · 极轻�
 
 Controls: accent A/B/C, shell three presets, **QSS 页面高光**（实底 solid/vertical_grad · 高光 pro/band/dual-lite · peak 0–60 默认 34）, **Crystal 顶光**（pro/dual/crystal · peak 默认 45 不变）, base color A/B/C, medium/compact alpha sliders (0.80–0.95), simulate processing.
 
-**生产设置（`python main.py` → 系统设置 → 主题外观）：** 面板风格 QSS/Crystal 三档 + 配色变体 B/C + 中/小窗透明度 80–95% + 全局字号 11–15 + Crystal 阴影 0–60 + **顶栏艺术字**（渐变 / Logo+渐变 / 展示字体，默认 gradient）+ **Crystal 顶光** + **QSS 页面高光**。在 **主题外观卡片底部** 点 **保存并应用** 生效（滑条/单选不即时预览）；模型 API 卡片底部仍保留同一保存入口。壳层由 **透明 `shell_crystal.qss`（variant 缺失时回退 current）+ QPainter** 绘制；apply 后对 shell 子树 `unpolish/polish`。配色变体联动顶栏渐变 accent（`visual_tokens.accent_for_theme`）。**MenuBtn 固定 34×34**。顶栏 **A 端不可达** 时显示 `TopErrorChip`；**processing** 时状态徽章呼吸灯 pulse。
+**生产设置（`python main.py` → 系统设置 → 主题外观）：** 面板风格 QSS/Crystal 三档 + 配色变体 B/C + 中/小窗透明度 80–95% + 全局字号 11–15 + Crystal 阴影 0–60 + **顶栏艺术字**（渐变 / Logo+渐变 / 展示字体，默认 gradient）+ **Crystal 顶光** + **QSS 页面高光**。在 **主题外观卡片底部** 点 **保存并应用** 生效（滑条/单选不即时预览）；模型 API 卡片底部仍保留同一保存入口。壳层由 **透明 `shell_crystal.qss`（variant 缺失时回退 current）+ QPainter** 绘制；apply 后对 shell 子树 `unpolish/polish`。配色变体联动顶栏渐变 accent（`visual_tokens.accent_for_theme`）。**MenuBtn 固定 34×34**。顶栏 **StatusBadge** 统一承载 idle / error（A端不可达）/ processing / executing；**processing** 时呼吸灯 pulse。窄窗时仅显示 HAJIMI 签名，宽窗显示 `HAJIMI · 操作指引`；中窗最小宽由 `compute_topbar_min_width` 动态计算（narrowMin / fullMin 两档）。
 
 **如何验证主题已切换（保存并应用后）：** 顶栏 HAJIMI 渐变 accent（current `#7c8fd4` / variant_b `#6b8cce` / variant_c `#5ab89e`）、主题外观卡片底部反馈行、「保存并应用」主按钮同色、窗口圆角壳层（QSS vs Crystal）。自动化：`python scripts/verify_theme_apply.py`。
 
@@ -46,7 +46,7 @@ Controls: accent A/B/C, shell three presets, **QSS 页面高光**（实底 solid
 python -m ui.style_preview_demo
 ```
 
-Source: [`ui/style_preview_demo.py`](../ui/style_preview_demo.py). Production dimensions remain **480×520** until demo sign-off and separate size PR.
+Source: [`ui/style_preview_demo.py`](../ui/style_preview_demo.py). Production medium panel default **400×520**.
 
 **顶栏标题（Round 8.1+）：** 生产端 [`title_art.py`](../ui/native/title_art.py) `TitleArtWidget` — **三种模式**（A 渐变 / B Logo+渐变 / C 展示字体，默认 A）；**无底框**，仅文字渐变/Logo；accent 随 **配色方案** 变化。`MenuBtn` 34×34 固定。**第一行水平排列：** `HAJIMI · 模块名`（`TopSub` 随面板切换）；`ModePill` L1/L2/L3 仅在窗口宽 **>700px** 显示。
 
@@ -75,43 +75,33 @@ Source: [`ui/style_preview_demo.py`](../ui/style_preview_demo.py). Production di
 
 ### Round 11 · 轻奢 v2 大改（Demo only）
 
-**范围：** [`ui/demo/luxury_paint.py`](../ui/demo/luxury_paint.py)、[`ui/demo/luxury_icons.py`](../ui/demo/luxury_icons.py)、[`ui/style_preview_demo.py`](../ui/style_preview_demo.py) 控制台「轻奢 v2 大改」；**不进**生产 `themes/` / `main.py`。
+**范围：** 共享实现 [`ui/native/luxury/`](../ui/native/luxury/)；Demo 控制台见 [`ui/style_preview_demo.py`](../ui/style_preview_demo.py)「轻奢 v2 大改」。**生产**配色 `variant_luxury`（设置 → 黑金轻奢 → 保存并应用）。
 
-**设计：** 70% `#0A0908` 主黑 · 20% `#EBE4D8` 辅色 · 10% `#C9A84C` 金（仅 icon 左上光晕、主按钮细边、渐变末端）。
+### Round 12 · 星空渐隐 + 鎏金签名标题
 
-| 控件 | 选项 |
-|------|------|
-| 启用 v2 | 勾选后叠加 luxury_a 色板 + 自有星空壳 |
-| 背景质感 | 磨砂黑 / 牛皮纸黑 |
-| 壳 × 星空 | S-A 半透明 · S-B 实色顶条 · S-C 铺满细线 |
-| 星空强度 | 0–100（默认 60） |
-| 圆角 | 10px / 6px（S-C 默认 6） |
-| 顶栏标题 | **克制白字（默认）** / 渐变艺术字（对比） |
-| 主按钮 | **常驻金边** / **hover 金边**（发送钮 + 两枚示例钮） |
+**生产（`variant_luxury`）：** 设置 → 配色「黑金轻奢」。默认磨砂黑 · 星空 0 · Mrs Saint Delafield · 双层鎏金 · 主按钮 hover 金边。折叠区：星空强度、7 款签名试选。
 
-**运行：** `python -m ui.style_preview_demo` → 勾选「启用轻奢 v2 皮肤」。
-
-**验收：** 星空上半屏渐隐；金不做大面积铺底；白线 icon 带左上金晕；关闭 v2 后恢复水晶 demo。
-
-### Round 12 · 星空渐隐 + 鎏金签名标题（Demo only）
-
-**范围：** [`ui/demo/luxury_paint.py`](../ui/demo/luxury_paint.py)、[`ui/demo/luxury_title.py`](../ui/demo/luxury_title.py)、[`assets/fonts/`](../assets/fonts/)、[`ui/style_preview_demo.py`](../ui/style_preview_demo.py)。
+**共享：** [`ui/native/luxury/`](../ui/native/luxury/)（paint / title / icons / qss）；Demo re-export [`ui/demo/luxury_*.py`](../ui/demo/)；字体 [`assets/fonts/`](../assets/fonts/)。
 
 **星空：**
-- 磨砂黑：星点按 y 向 **smoothstep 渐隐至 75% 高度**，无硬切 clip；略加柔光晕
-- 牛皮纸黑：**不绘制星空**（避免与纸纹冲突）；控制台星空滑杆在此模式下禁用
+- 磨砂黑：星点按 y 向 smoothstep 渐隐至 75% 高度
+- 牛皮纸黑：不绘制星空；设置页滑杆禁用
 
-**顶栏 HAJIMI（四模式 + 三鎏金）：**
+**Demo 额外控件（不进生产设置 v1）：** SA/SB/SC 壳、鎏金三模式切换、按钮 edge 模式、顶栏克制/渐变对比。
 
-| 控件 | 选项 |
-|------|------|
-| 顶栏标题 | 克制白字 / 渐变艺术字 / **鎏金 · Great Vibes（默认）** / 鎏金 · Pinyon 细线 |
-| 鎏金渐变 | 横向扫光 / 斜向扫光 / 双层鎏金 |
-| 字体 | Great Vibes（飘逸签名）/ Pinyon Script（细线 Copperplate，更清晰） |
+**运行：** 生产 `python main.py`；Demo `python -m ui.style_preview_demo`。
 
-**运行：** `python -m ui.style_preview_demo` → 启用 v2 或点击子控件自动启用。
+**验收：** 7 款签名字体可切换；牛皮纸无星；`scripts/verify_theme_apply.py` 含 luxury 分支通过。
 
-**验收：** 牛皮纸无星；磨砂星空自然淡出；默认鎏金签名 HAJIMI；三鎏金 radio 可切换；`main.py` 无变化。
+### Round 13 · 生产轻奢 UI 修复定稿
+
+**窗口：** 中窗默认 **400×520**；[`window_clip.py`](../ui/native/window_clip.py) 提供 **10px** `setMask` + `clamp_geometry_to_screen`（设置撑高/拖动四边不越界，顶栏优先可见）。
+
+**侧栏（仅 variant_luxury）：** 轻奢玻璃 NavDrawer + 721 导航 icon（[`luxury/icons.py`](../ui/native/luxury/icons.py)）；选中项 **仅金字/金 icon**，背景透明。
+
+**设置即时预览：** 选「黑金轻奢」及折叠区（星空/签名）**未保存**即可预览壳/标题/侧栏；保存仍写盘。
+
+**拖动：** 壳层空白区（非输入/按钮/卡片）可拖窗。
 
 ### Round 9 · QSS 实底 · 页面玻璃高光（Demo 定稿试验）
 
@@ -162,7 +152,7 @@ Source: [`ui/style_preview_demo.py`](../ui/style_preview_demo.py). Production di
 | `--warning` | `WARNING` | suspension dialog |
 | `--text-primary` | `TEXT_PRIMARY` | `QLabel` default |
 | `--text-secondary` | `TEXT_SECONDARY` | subtitles, nav idle |
-| `--panel-width` | `PANEL_WIDTH` (480) | `config.MEDIUM_WIDTH` |
+| `--panel-width` | `PANEL_WIDTH` (400) | `config.MEDIUM_WIDTH` |
 | `--drawer-w` | `DRAWER_WIDTH` (168) | nav drawer |
 | `--radius` | `RADIUS` (16) | shell |
 | `--ease-out-cubic` | `EASING_OUT_CUBIC` | `QEasingCurve.OutCubic` |
@@ -192,7 +182,7 @@ Do not override with `QFont(..., 10)` — QSS sizes depend on the 13px base.
 
 ## Layout (viewMedium)
 
-- Panel: **480 × 520** px
+- Panel: **400 × 520** px
 - Compact: **320 × 48–52** px pill (max grow **96** px), radius 26px, no drop shadow
 - Drawer: 168px overlay from left + semi-transparent backdrop
 - Nav: 5 items (guide, steps, blueprint, notifications, settings) with SVG icons
@@ -201,8 +191,8 @@ Do not override with `QFont(..., 10)` — QSS sizes depend on the 13px base.
 
 | Mode | Default size | Resize | Auto switch |
 |------|--------------|--------|-------------|
-| **Medium** | 480×520 (remembered) | 8-edge drag, min 360×300, max 90% screen | On `process_success` when steps exist |
-| **Compact** | 320×48 pill | Auto height/width from input only | On `_finish_task` |
+| **Medium** | 400×520 (remembered) | 8-edge drag, min = topbar narrowMin (dynamic), max 90% screen | On `process_success` when steps exist |
+| **Compact** | 320×52 pill (width 320–420) | Horizontal drag on left/right edges | On `_finish_task` |
 
 - Compact pill: `CompactShell[pill=true]` border-radius 26px; multi-line → `[pill=false]` 16px rect, max height 96px
 - Input dock: `QFrame#InputFloat` surface card + ghost send button (`SendBtnGhost`)

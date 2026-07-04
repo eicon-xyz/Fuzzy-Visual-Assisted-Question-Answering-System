@@ -2,12 +2,14 @@
 setlocal EnableExtensions
 
 call "%~dp0resolve_omni_root.bat"
-if not defined OMNI_PY set "OMNI_PY=E:\CodingSoftwards\Anaconda\envs\omni\python.exe"
-if not defined OMNI_MS set "OMNI_MS=E:\CodingSoftwards\Anaconda\envs\omni\Scripts\modelscope.exe"
+if "%OMNI_ROOT_RESOLVED%"=="0" (
+    set "OMNI_ROOT=%~dp0..\OmniParser"
+    echo [1/5] OmniParser not found — will clone to %OMNI_ROOT%
+)
 
-if not exist "%OMNI_ROOT%" (
+if not exist "%OMNI_ROOT%\omnitool\omniparserserver" (
     echo [1/5] Cloning OmniParser to %OMNI_ROOT% ...
-    if not exist "E:\Tools" mkdir "E:\Tools"
+    if not exist "%OMNI_ROOT%" mkdir "%OMNI_ROOT%"
     git clone --depth 1 https://github.com/microsoft/OmniParser.git "%OMNI_ROOT%"
     if errorlevel 1 exit /b 1
 ) else (
@@ -15,6 +17,11 @@ if not exist "%OMNI_ROOT%" (
 )
 
 echo [2/5] Creating conda env omni (python 3.12) ...
+where conda >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] conda not found. Install Miniconda/Anaconda or set OMNI_PY to your Python.
+    exit /b 1
+)
 call conda create -n omni python=3.12 -y
 if errorlevel 1 exit /b 1
 

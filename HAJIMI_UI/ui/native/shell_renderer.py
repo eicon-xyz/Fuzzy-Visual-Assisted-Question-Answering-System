@@ -3,11 +3,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QRectF
 from PyQt5.QtGui import QPainter
 from PyQt5.QtWidgets import QWidget
 
-from ui.native.crystal_glass import COMPACT_CORNER_RADIUS, CORNER_RADIUS
+from ui.native.layout_tokens import SHELL_RADIUS
+from ui.native.luxury.paint import paint_luxury_frame
+from ui.native.luxury.qss import LUXURY_SHELL_RADIUS
 from ui.native.shell_appearance import (
     AppearanceSettings,
     crystal_fill_alpha_from_percent,
@@ -16,7 +18,7 @@ from ui.native.shell_appearance import (
 from ui.native.shell_paint import paint_crystal_shell, paint_qss_shell
 from ui.native.widgets import apply_shell_shadow
 
-ShellMode = Literal["qss", "crystal"]
+ShellMode = Literal["qss", "crystal", "luxury"]
 
 _ORIGINAL_PAINT_ATTR = "_hajimi_original_paintEvent"
 _SHELL_MODE_ATTR = "_hajimi_shell_mode"
@@ -24,10 +26,13 @@ _SHELL_COMPACT_ATTR = "_hajimi_shell_compact"
 _APPEARANCE_ATTR = "_hajimi_shell_appearance"
 
 
-def _shell_radius(compact: bool, height: float) -> float:
+def _shell_radius(compact: bool, height: float, *, mode: str = "", width: float = 0) -> float:
     if compact:
-        return min(COMPACT_CORNER_RADIUS, height / 2)
-    return CORNER_RADIUS
+        w = width if width > 0 else height
+        return min(height / 2, w / 2)
+    if mode == "luxury":
+        return float(LUXURY_SHELL_RADIUS)
+    return float(SHELL_RADIUS)
 
 
 def _shell_paint_event(widget: QWidget, event):
@@ -43,7 +48,7 @@ def _shell_paint_event(widget: QWidget, event):
     if w <= 0 or h <= 0:
         return
 
-    radius = _shell_radius(compact, h)
+    radius = _shell_radius(compact, h, mode=mode, width=w)
     painter = QPainter(widget)
     painter.setRenderHint(QPainter.Antialiasing, True)
 
@@ -60,6 +65,16 @@ def _shell_paint_event(widget: QWidget, event):
             fill_alpha=crystal_fill_alpha_from_percent(alpha_pct),
             light_mode=appearance.top_light_mode,  # type: ignore[arg-type]
             top_light_peak=appearance.top_light_peak,
+        )
+    elif mode == "luxury":
+        paint_luxury_frame(
+            painter,
+            QRectF(0, 0, w, h),
+            bg_mode=appearance.luxury_bg_mode,  # type: ignore[arg-type]
+            shell_mode="SA",
+            star_intensity=appearance.luxury_star_intensity,
+            radius=radius,
+            compact=compact,
         )
     else:
         alpha_pct = (
@@ -110,9 +125,12 @@ def apply_shell_renderer(
     if mode == "qss":
         widget.setAttribute(Qt.WA_TranslucentBackground, False)
         widget.setGraphicsEffect(None)
-        apply_shell_shadow(widget)
+        if not compact:
+            apply_shell_shadow(widget)
     else:
         widget.setAttribute(Qt.WA_TranslucentBackground, True)
+        if mode == "luxury":
+            widget.setGraphicsEffect(None)
 
     _refresh_shell_stylesheet(widget)
     widget.repaint()

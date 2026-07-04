@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QSizePolicy,
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QSize
 
@@ -22,6 +23,7 @@ class CompactBar(QWidget):
         self.setObjectName("CompactShell")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setFixedHeight(COMPACT_HEIGHT)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 6, 8, 6)

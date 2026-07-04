@@ -46,7 +46,11 @@ from PyQt5.QtWidgets import (
 
 from ui.chat_bubble import ChatBubble
 from ui.demo.luxury_icons import luxury_icon
-from ui.demo.luxury_title import LuxuryScriptTitleWidget
+from ui.demo.luxury_title import (
+    DEFAULT_SCRIPT_FONT_ID,
+    LuxuryScriptTitleWidget,
+    script_font_labels,
+)
 from ui.demo.luxury_paint import (
     BgMode,
     ShellMode,
@@ -157,10 +161,11 @@ LUXURY_V2_COMPACT_RADIUS = 12
 LUXURY_V2_TITLE_MODES: dict[str, str] = {
     "restrained": "克制白字",
     "gradient": "渐变艺术字",
-    "liquid_script": "鎏金签名 · Great Vibes",
-    "liquid_advanced": "鎏金签名 · Pinyon 细线",
+    "liquid_script": "鎏金签名",
 }
 DEFAULT_LUXURY_V2_TITLE = "liquid_script"
+DEFAULT_LUXURY_SCRIPT_FONT = DEFAULT_SCRIPT_FONT_ID
+LUXURY_SCRIPT_FONT_OPTIONS = script_font_labels()
 LUXURY_V2_GOLD_MODES: dict[str, str] = {
     "horizontal": "横向扫光",
     "diagonal": "斜向扫光",
@@ -1144,6 +1149,7 @@ class StylePreviewWindow(QWidget):
         self._luxury_star_intensity = 60
         self._luxury_radius = LUXURY_V2_RADIUS_DEFAULT
         self._luxury_v2_title_mode = DEFAULT_LUXURY_V2_TITLE
+        self._luxury_script_font_id = DEFAULT_LUXURY_SCRIPT_FONT
         self._luxury_v2_gold_mode = DEFAULT_LUXURY_V2_GOLD
         self._luxury_v2_btn_mode = DEFAULT_LUXURY_V2_BTN
 
@@ -1265,6 +1271,9 @@ class StylePreviewWindow(QWidget):
             title_label = LUXURY_V2_TITLE_MODES.get(
                 self._luxury_v2_title_mode, self._luxury_v2_title_mode
             )
+            script_label = LUXURY_SCRIPT_FONT_OPTIONS.get(
+                self._luxury_script_font_id, self._luxury_script_font_id
+            )
             gold_label = LUXURY_V2_GOLD_MODES.get(
                 self._luxury_v2_gold_mode, self._luxury_v2_gold_mode
             )
@@ -1274,10 +1283,13 @@ class StylePreviewWindow(QWidget):
                 if self._luxury_bg_mode == "frosted"
                 else "无星空"
             )
+            script_note = script_label if self._luxury_v2_title_mode == "liquid_script" else ""
             self._hint.setText(
                 f"轻奢 v2 · {bg_label} · {shell_labels.get(self._luxury_shell_mode, '')} · "
                 f"{star_note} · 圆角 {int(self._luxury_radius)}px · "
-                f"标题 {title_label} · 鎏金 {gold_label} · 按钮 {btn_label} · 70/20/10 黑金"
+                f"标题 {title_label}"
+                + (f" · 签名 {script_note}" if script_note else "")
+                + f" · 鎏金 {gold_label} · 按钮 {btn_label} · 70/20/10 黑金"
             )
             self.setWindowTitle("HAJIMI Demo · 轻奢 v2 大改")
             return
@@ -1611,6 +1623,17 @@ class StylePreviewWindow(QWidget):
                 rb.setChecked(True)
         self._luxury_v2_title_group.buttonClicked.connect(self._on_luxury_v2_title_changed)
 
+        layout.addWidget(QLabel("签名试选（7 款）"))
+        self._luxury_script_font_group = QButtonGroup(self)
+        for idx, (font_id, label) in enumerate(LUXURY_SCRIPT_FONT_OPTIONS.items()):
+            rb = QRadioButton(label)
+            rb.setProperty("luxury_script_font_id", font_id)
+            self._luxury_script_font_group.addButton(rb, idx)
+            layout.addWidget(rb)
+            if font_id == DEFAULT_LUXURY_SCRIPT_FONT:
+                rb.setChecked(True)
+        self._luxury_script_font_group.buttonClicked.connect(self._on_luxury_script_font_changed)
+
         layout.addWidget(QLabel("鎏金渐变（签名标题）"))
         self._luxury_v2_gold_group = QButtonGroup(self)
         for idx, (mode_id, label) in enumerate(LUXURY_V2_GOLD_MODES.items()):
@@ -1867,6 +1890,11 @@ class StylePreviewWindow(QWidget):
         self._shadow_slider.setEnabled(not v2_on and _is_crystal_preset(self._shell_preset))
         for btn in self._title_art_group.buttons():
             btn.setEnabled(not v2_on)
+        script_liquid = self._luxury_v2_title_mode == "liquid_script"
+        for btn in self._luxury_script_font_group.buttons():
+            btn.setEnabled(script_liquid)
+        for btn in self._luxury_v2_gold_group.buttons():
+            btn.setEnabled(script_liquid)
         frosted_bg = self._luxury_bg_mode == "frosted"
         self._luxury_star_slider.setEnabled(frosted_bg)
         if frosted_bg:
@@ -1943,11 +1971,8 @@ class StylePreviewWindow(QWidget):
             self._medium.title_art.show()
             self._medium.title_art.set_mode("gradient")
             self._medium.title_art.set_accent(LUX_TOKENS.gold)
-        elif mode == "liquid_advanced":
-            script.set_font_tier("advanced")
-            script.show()
         else:
-            script.set_font_tier("google")
+            script.set_font_id(self._luxury_script_font_id)
             script.show()
         self._medium.title_restrained.update()
         self._medium.title_art.update()
@@ -2021,6 +2046,20 @@ class StylePreviewWindow(QWidget):
     def _on_luxury_v2_title_changed(self, button: QRadioButton) -> None:
         self._ensure_luxury_v2_enabled()
         self._luxury_v2_title_mode = button.property("luxury_v2_title_mode") or DEFAULT_LUXURY_V2_TITLE
+        self._apply_preview()
+
+    def _on_luxury_script_font_changed(self, button: QRadioButton) -> None:
+        self._ensure_luxury_v2_enabled()
+        self._luxury_script_font_id = (
+            button.property("luxury_script_font_id") or DEFAULT_LUXURY_SCRIPT_FONT
+        )
+        self._luxury_v2_title_mode = "liquid_script"
+        for btn in self._luxury_v2_title_group.buttons():
+            if btn.property("luxury_v2_title_mode") == "liquid_script":
+                btn.blockSignals(True)
+                btn.setChecked(True)
+                btn.blockSignals(False)
+                break
         self._apply_preview()
 
     def _on_luxury_v2_gold_changed(self, button: QRadioButton) -> None:

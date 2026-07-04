@@ -145,13 +145,13 @@ QLabel#DialogSub {
 QWidget#NativeShell {
     background-color: rgba(15, 23, 42, 0.89);
     border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 16px;
+    border-radius: 10px;
 }
 
 QWidget#CompactShell {
     background-color: rgba(15, 23, 42, 0.89);
     border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 16px;
+    border-radius: 10px;
 }
 
 QLabel#CompactMark {
@@ -267,6 +267,11 @@ QLabel#StatusBadge[status="executing"] {
 QLabel#StatusBadge[status="suspended"] {
     background: rgba(241, 196, 15, 0.15);
     color: #f1c40f;
+}
+
+QLabel#StatusBadge[status="error"] {
+    background: rgba(231, 76, 60, 0.12);
+    color: #e74c3c;
 }
 
 QPushButton#MenuBtn {

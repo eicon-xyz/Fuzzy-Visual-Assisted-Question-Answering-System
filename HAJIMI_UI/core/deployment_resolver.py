@@ -50,7 +50,7 @@ def get_startup_hints(settings: dict) -> List[str]:
         if not health or health.get("status") != "ok":
             hints.append(
                 "内网 A 端不可达。请检查校园网/VPN 与 SSH 隧道；"
-                "本地演示请切换为「本地启动」并运行 CPU OmniParser。"
+                "本地演示请在系统设置切换为「本地启动」，或设置 HAJIMI_MOCK_ONLY=1。"
             )
         elif health.get("detector_device") == "cuda":
             hints.append(f"校园 GPU 已连接 ({a_url})，检测将使用远程 cuda。")

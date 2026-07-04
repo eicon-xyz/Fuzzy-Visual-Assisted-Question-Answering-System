@@ -3,7 +3,13 @@ from PyQt5.QtCore import Qt, QPoint, QRectF
 from PyQt5.QtWidgets import QWidget, QApplication
 from PyQt5.QtGui import QPainter, QPen, QColor, QPainterPath
 
-from ui.native.layout_tokens import MEDIUM_MIN_W, MEDIUM_MIN_H
+from config import COMPACT_HEIGHT
+from ui.native.layout_tokens import (
+    MEDIUM_MIN_W,
+    MEDIUM_MIN_H,
+    COMPACT_MIN_W,
+    COMPACT_MAX_W,
+)
 
 _SHELL_GLASS_RGB = (15, 23, 42)
 _SHELL_GLASS_ALPHA = 227
@@ -19,22 +25,36 @@ HOVER_THICK = 3
 class WindowResizeHandler:
     """Edge-drag resize — panel-relative coords; works via event filter on children."""
 
-    def __init__(self, host: QWidget, panel_getter, is_medium_mode):
+    def __init__(
+        self,
+        host: QWidget,
+        panel_getter,
+        is_medium_mode,
+        is_compact_mode=None,
+    ):
         self._host = host
         self._panel_getter = panel_getter
         self._is_medium_mode = is_medium_mode
+        self._is_compact_mode = is_compact_mode or (lambda: False)
+        self._enabled = True
         self._active_edge = None
         self._start_global = None
         self._start_geo = None
         self._hover_edge = None
 
     def set_enabled(self, enabled: bool):
+        self._enabled = enabled
         if not enabled:
             self._active_edge = None
             self._hover_edge = None
             self._host.unsetCursor()
             if self._host.mouseGrabber() is self._host:
                 self._host.releaseMouse()
+
+    def _resize_active(self) -> bool:
+        return self._enabled and (
+            self._is_medium_mode() or self._is_compact_mode()
+        )
 
     def _panel_rect(self):
         panel = self._panel_getter()
@@ -75,6 +95,12 @@ class WindowResizeHandler:
         right = x > w - GRIP
         top = y < GRIP
         bottom = y > h - GRIP
+        if self._is_compact_mode():
+            if left:
+                return "l"
+            if right:
+                return "r"
+            return None
         if top and left:
             return "tl"
         if top and right:
@@ -107,7 +133,7 @@ class WindowResizeHandler:
         }.get(edge, Qt.ArrowCursor)
 
     def try_press_global(self, global_pos: QPoint, button) -> bool:
-        if not self._is_medium_mode() or button != Qt.LeftButton:
+        if not self._resize_active() or button != Qt.LeftButton:
             return False
         host_pos = self._host_pos(global_pos)
         edge = self.edge_at(host_pos)
@@ -123,7 +149,7 @@ class WindowResizeHandler:
         if self._active_edge and self._start_global and self._start_geo:
             self._apply_resize(global_pos)
             return True
-        if self._is_medium_mode():
+        if self._resize_active():
             host_pos = self._host_pos(global_pos)
             edge = self.edge_at(host_pos)
             self._hover_edge = self._lr_edge(edge)
@@ -144,7 +170,9 @@ class WindowResizeHandler:
         if self._host.mouseGrabber() is self._host:
             self._host.releaseMouse()
         self._host.unsetCursor()
-        if hasattr(self._host, "on_medium_resized"):
+        if self._is_compact_mode() and hasattr(self._host, "on_compact_resized"):
+            self._host.on_compact_resized()
+        elif hasattr(self._host, "on_medium_resized"):
             self._host.on_medium_resized()
         return True
 
@@ -204,7 +232,7 @@ class WindowResizeHandler:
                 self._draw_v_capsule(painter, right - thick, y0, thick, y1 - y0)
 
     def paint_resize_guides(self, painter: QPainter):
-        if not self._is_medium_mode():
+        if not self._resize_active():
             return
         r = self._panel_rect()
         self._paint_idle_guides(painter, r)
@@ -215,6 +243,11 @@ class WindowResizeHandler:
     def paint_hover(self, painter: QPainter):
         self.paint_resize_guides(painter)
 
+    def _medium_min_w(self) -> int:
+        if hasattr(self._host, "topbar_min_width"):
+            return self._host.topbar_min_width(include_panel_sub=False)
+        return MEDIUM_MIN_W
+
     def _apply_resize(self, global_pos: QPoint):
         delta = global_pos - self._start_global
         g = self._start_geo
@@ -222,18 +255,37 @@ class WindowResizeHandler:
         edge = self._active_edge
         max_w, max_h = self._max_size()
 
+        if self._is_compact_mode():
+            min_w, max_w = COMPACT_MIN_W, COMPACT_MAX_W
+            lock_h = COMPACT_HEIGHT
+            if "l" in edge:
+                nx = x + delta.x()
+                nw = w - delta.x()
+                if nw < min_w:
+                    nx = x + w - min_w
+                    nw = min_w
+                elif nw > max_w:
+                    nx = x + w - max_w
+                    nw = max_w
+                x, w = nx, nw
+            if "r" in edge:
+                w = max(min_w, min(max_w, w + delta.x()))
+            self._host.setGeometry(x, y, w, lock_h)
+            return
+
+        min_w = self._medium_min_w()
         if "l" in edge:
             nx = x + delta.x()
             nw = w - delta.x()
-            if nw < MEDIUM_MIN_W:
-                nx = x + w - MEDIUM_MIN_W
-                nw = MEDIUM_MIN_W
+            if nw < min_w:
+                nx = x + w - min_w
+                nw = min_w
             elif nw > max_w:
                 nx = x + w - max_w
                 nw = max_w
             x, w = nx, nw
         if "r" in edge:
-            w = max(MEDIUM_MIN_W, min(max_w, w + delta.x()))
+            w = max(min_w, min(max_w, w + delta.x()))
         if "t" in edge:
             ny = y + delta.y()
             nh = h - delta.y()

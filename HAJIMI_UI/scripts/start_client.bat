@@ -7,19 +7,28 @@ set HAJIMI_API_URL=http://127.0.0.1:%HAJIMI_PORT%
 
 echo [HAJIMI] Starting B-end client (A-end: %HAJIMI_API_URL%) ...
 
-if not defined VIDEO_RAG_PY set "VIDEO_RAG_PY=E:\CodingSoftwards\Anaconda\envs\videorag\python.exe"
-if not exist "%VIDEO_RAG_PY%" (
-    for /f "delims=" %%B in ('conda info --base 2^>nul') do set "VIDEO_RAG_PY=%%B\envs\videorag\python.exe"
+set "CLIENT_PY="
+if defined VIDEO_RAG_PY if exist "%VIDEO_RAG_PY%" set "CLIENT_PY=%VIDEO_RAG_PY%"
+if not defined CLIENT_PY if defined PYTHON if exist "%PYTHON%" set "CLIENT_PY=%PYTHON%"
+if not defined CLIENT_PY (
+    for /f "delims=" %%P in ('where python 2^>nul') do (
+        if not defined CLIENT_PY set "CLIENT_PY=%%P"
+    )
+)
+if not defined CLIENT_PY (
+    for /f "delims=" %%B in ('conda info --base 2^>nul') do (
+        if exist "%%B\envs\videorag\python.exe" set "CLIENT_PY=%%B\envs\videorag\python.exe"
+    )
 )
 
-if not exist "%VIDEO_RAG_PY%" (
-    echo [ERROR] videorag python not found: %VIDEO_RAG_PY%
-    echo   Set env: set VIDEO_RAG_PY=C:\path\to\envs\videorag\python.exe
-    echo   Or activate videorag manually and run: python main.py
+if not defined CLIENT_PY (
+    echo [ERROR] Python not found.
+    echo   Run from an activated venv, or: set VIDEO_RAG_PY=C:\path\to\python.exe
+    echo   Or directly: python main.py
     exit /b 1
 )
 
-echo [HAJIMI] Using %VIDEO_RAG_PY%
-"%VIDEO_RAG_PY%" main.py
+echo [HAJIMI] Using %CLIENT_PY%
+"%CLIENT_PY%" main.py
 endlocal
 exit /b %ERRORLEVEL%

@@ -11,7 +11,7 @@ if sys.platform == "win32":
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
-BASE_URL = "http://127.0.0.1:8001"
+BASE_URL = "http://localhost:8010"
 HEADERS = {
     "X-Demo-Key": "hajimi-demo-2026",
     "Content-Type": "application/json",

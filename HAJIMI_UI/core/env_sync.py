@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Dict, Iterable, Tuple
+from core.defaults import DEFAULT_DEMO_KEY, DEFAULT_OMNI_LOCAL_URL
 
 ROOT = Path(__file__).resolve().parent.parent
 ENV_PATH = ROOT / "server" / ".env"
@@ -39,19 +39,20 @@ def _settings_to_env_updates(data: dict) -> Dict[str, str]:
     llm = data.get("llm") or {}
     omni = data.get("omniparser") or {}
     updates: Dict[str, str] = {
-        "DETECTOR_BACKEND": "auto",
-        "OMNIPARSER_LOCAL_URL": (omni.get("url") or "http://127.0.0.1:8002").strip(),
-        "HAJIMI_DEMO_KEY": (data.get("demo_key") or "hajimi-demo-2026").strip(),
+        "OMNIPARSER_URL": (omni.get("url") or DEFAULT_OMNI_LOCAL_URL).strip(),
+        "HAJIMI_DEMO_KEY": (data.get("demo_key") or DEFAULT_DEMO_KEY).strip(),
     }
-    gpu = (omni.get("gpu_url") or "").strip()
-    if gpu:
-        updates["OMNIPARSER_GPU_URL"] = gpu
-    if llm.get("base_url"):
-        updates["DEEPSEEK_BASE_URL"] = llm["base_url"].strip()
     if llm.get("api_key"):
-        updates["DEEPSEEK_API_KEY"] = llm["api_key"].strip()
+        updates["LLM_API_KEY"] = llm["api_key"].strip()
+    if llm.get("base_url"):
+        updates["LLM_BASE_URL"] = llm["base_url"].strip()
     if llm.get("model"):
-        updates["DEEPSEEK_MODEL"] = llm["model"].strip()
+        updates["LLM_MODEL"] = llm["model"].strip()
+    if not llm.get("api_key"):
+        if llm.get("base_url"):
+            updates["DEEPSEEK_BASE_URL"] = llm["base_url"].strip()
+        if llm.get("model"):
+            updates["DEEPSEEK_MODEL"] = llm["model"].strip()
     a_url = (data.get("a_end_url") or "").strip()
     if a_url:
         from urllib.parse import urlparse

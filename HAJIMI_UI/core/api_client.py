@@ -87,6 +87,8 @@ def _check_detector_preflight() -> tuple[bool, str]:
 
     backend = health.get("detector_backend")
     if backend is None:
+        if health.get("omniparser_ready") is not False:
+            return True, ""
         return (
             False,
             "A 端未报告 detector_backend（端口上可能是旧版或多开实例）。"
@@ -158,6 +160,8 @@ def get_api_status_message() -> tuple[str, str]:
                         "system danger",
                     )
             if backend is None:
+                if health.get("omniparser_ready") is not False:
+                    return msg, "system"
                 return (
                     f"{msg}，但缺少 detector_backend（可能旧版 A 端或多开）。"
                     f"请 scripts\\stop_all.bat 后 {START_ALL_HINT}",
@@ -166,17 +170,19 @@ def get_api_status_message() -> tuple[str, str]:
         return msg, "system"
     if DEPLOYMENT_MODE == "intranet":
         return (
-            f"内网 A 端不可达 ({_api_base_url()})。请检查校园网/VPN 与系统设置中的地址。",
-            "system danger",
+            f"内网 A 端不可达 ({_api_base_url()})。请检查校园网/VPN 与 SSH 隧道，"
+            "或在系统设置切换为「本地启动」。",
+            "system",
         )
     if ALLOW_MOCK_FALLBACK:
         return (
-            f"A 端未启动，将回退本地 Mock。启动命令: {SERVER_START_HINT}",
-            "system danger",
+            f"UI 已就绪；A 端未连接，将回退本地 Mock。启动: {SERVER_START_HINT}",
+            "system",
         )
     return (
-        f"A 端未启动。请在新终端运行: {SERVER_START_HINT}",
-        "system danger",
+        f"UI 已就绪；A 端未连接（可选联调: {SERVER_START_HINT}）。"
+        " 仅看界面可设置 HAJIMI_MOCK_ONLY=1",
+        "system",
     )
 
 
@@ -301,6 +307,9 @@ def process(
     )
 
     if not data.get("success"):
+        redline = data.get("redline")
+        if isinstance(redline, dict) and redline.get("triggered"):
+            raise ApiError(redline.get("message") or "请求触发安全红线，无法执行")
         raise ApiError("A 端处理失败：success=false")
 
     steps = data.get("steps") or []
@@ -337,7 +346,7 @@ def relocate_step(
         },
         timeout=PROCESS_TIMEOUT,
     )
-    if not data.get("success"):
+    if data.get("success") is False:
         raise ApiError("重新定位失败：success=false")
     data["_source"] = "server"
     ref = data.get("reference_resolution")
@@ -384,7 +393,7 @@ def inspect(
             _format_inspect_error_message(str(exc), INSPECT_TIMEOUT)
         ) from exc
 
-    if not data.get("success"):
+    if data.get("success") is False:
         raise ApiError("A 端 inspect 失败：success=false")
 
     data["_source"] = "server"

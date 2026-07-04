@@ -69,3 +69,14 @@ Shell 模式 **互斥**：`qss`（QSS 实底 + shadow）与 `crystal`（透明 Q
 - **QDarkTheme**：不推荐（与现有 objectName QSS 打架）。
 
 继续 **ThemeManager + 分包 QSS + layout_tokens** 路线；Stitch 稿只进 `themes/variant_*`。
+
+## 运行环境与主题降级
+
+| 场景 | 行为 | 建议 |
+|------|------|------|
+| 首次运行 | 默认 `ui_theme=current`（`user_settings.json` 未创建时） | 组员无需改主题即可跑通 |
+| `variant_luxury` | 需要 `assets/fonts/` 下字体文件（已在 Git） | 缺字体时标题回退系统字体，不 crash |
+| QtSvg 缺失 | `nav_icons` / `luxury/icons` 返回空图标，窗口仍可启动 | 正式环境请 `python scripts/check_ui_env.py` 通过后再交付 |
+| QtSvg 完整 | 导航、托盘、Luxury 线稿图标正常显示 | `pip install --force-reinstall PyQt5` 可修复缺模块 |
+
+配置默认值单源：[`core/defaults.py`](../core/defaults.py)（A 端 8010、本地 OmniParser 8002）。

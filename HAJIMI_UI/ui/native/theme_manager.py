@@ -13,20 +13,23 @@ from ui.native.shell_appearance import (
     appearance_override_qss,
     apply_crystal_drop_shadow,
     is_crystal_shell,
+    is_luxury_theme,
 )
 from ui.native.shell_renderer import apply_shell_renderer
+from ui.native.luxury.qss import compose_luxury_stylesheet
 
-ShellMode = Literal["qss", "crystal"]
+ShellMode = Literal["qss", "crystal", "luxury"]
 
 _THEMES_DIR = os.path.join(os.path.dirname(__file__), "themes")
 _SHELL_CRYSTAL_FALLBACK = os.path.join(_THEMES_DIR, "current", "shell_crystal.qss")
 
-THEME_IDS = ("current", "variant_b", "variant_c")
+THEME_IDS = ("current", "variant_b", "variant_c", "variant_luxury")
 
 THEME_LABELS = {
     "current": "默认（工程基线）",
     "variant_b": "变体 B（Stitch 占位）",
     "variant_c": "变体 C（Stitch 占位）",
+    "variant_luxury": "黑金轻奢",
 }
 
 
@@ -40,6 +43,7 @@ THEME_PROFILES: dict[str, ThemeProfile] = {
     "current": ThemeProfile("current", "qss"),
     "variant_b": ThemeProfile("variant_b", "qss"),
     "variant_c": ThemeProfile("variant_c", "qss"),
+    "variant_luxury": ThemeProfile("variant_luxury", "luxury"),  # type: ignore[arg-type]
 }
 
 
@@ -66,6 +70,15 @@ def compose_stylesheet(
     if theme_id not in THEME_IDS:
         theme_id = "current"
     appearance = appearance or AppearanceSettings()
+    if theme_id == "variant_luxury":
+        parts = [
+            compose_luxury_stylesheet(
+                appearance.font_size,
+                send_btn_style=appearance.luxury_btn_mode,
+            ),
+            appearance_override_qss(appearance),
+        ]
+        return "\n\n".join(p for p in parts if p.strip())
     theme_dir = os.path.join(_THEMES_DIR, theme_id)
     parts = [
         _read_qss(os.path.join(_THEMES_DIR, "_base.qss")),
@@ -126,7 +139,15 @@ class ThemeManager:
         apply_app_font(self._app, size=self._appearance.font_size)
 
         for widget, compact in self._shells:
-            if is_crystal_shell(self._appearance.shell_style):
+            if is_luxury_theme(tid):
+                apply_shell_renderer(
+                    widget,
+                    "luxury",
+                    compact=compact,
+                    appearance=self._appearance,
+                )
+                widget.setGraphicsEffect(None)
+            elif is_crystal_shell(self._appearance.shell_style):
                 apply_shell_renderer(
                     widget,
                     "crystal",

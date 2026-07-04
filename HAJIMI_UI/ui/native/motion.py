@@ -8,6 +8,8 @@ from PyQt5.QtCore import (
 )
 from PyQt5.QtWidgets import QGraphicsOpacityEffect, QWidget, QStackedWidget
 
+from ui.native.window_clip import clamp_geometry_to_screen
+
 
 ANIM_SWITCH_MS = 250
 ANIM_COMPACT_RESIZE_MS = 320
@@ -115,7 +117,7 @@ def resize_keep_bottom_right(
     geo = window.geometry()
     new_x = geo.x() + geo.width() - width
     new_y = geo.y() + geo.height() - height
-    target = QRect(new_x, new_y, width, height)
+    target = clamp_geometry_to_screen(QRect(new_x, new_y, width, height))
     if not animated or duration <= 0:
         window.setGeometry(target)
         if on_finished:
