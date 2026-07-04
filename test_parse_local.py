@@ -157,6 +157,10 @@ def print_elements(elements: list):
 
     for elem in elements:
         eid = elem.get("element_id", "?")
+        if eid is None:
+            eid = "~?"
+        else:
+            eid = str(eid) 
         etype = elem.get("element_type", "other")
         text = (elem.get("text") or elem.get("content") or "")[:34]
         bbox = elem.get("bbox", [])
