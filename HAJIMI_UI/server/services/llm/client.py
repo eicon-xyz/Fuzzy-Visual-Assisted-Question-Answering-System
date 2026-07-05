@@ -33,17 +33,23 @@ def _build_user_message(query: str, image_base64: Optional[str] = None) -> dict:
     构建 user message。
     有图时使用 OpenAI Vision 格式（content 数组含 image_url 块）；
     无图时使用纯文本格式。
+
+    NOTE: image_base64 is expected to be pre-compressed to ≤1024px by
+    omniparser_client._compress_som_image(). If it arrives uncompressed,
+    we pass it as-is to avoid blocking the LLM call path.
     """
     if not image_base64:
         return {"role": "user", "content": query}
 
+    # If already JPEG (from compress), use as-is; if PNG, pass through
     raw_b64 = _strip_data_uri_prefix(image_base64)
+    mime = "image/jpeg" if image_base64.startswith("data:image/jpeg") else "image/png"
     return {
         "role": "user",
         "content": [
             {
                 "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{raw_b64}"},
+                "image_url": {"url": f"data:{mime};base64,{raw_b64}"},
             },
             {"type": "text", "text": query},
         ],
@@ -53,7 +59,7 @@ def _build_user_message(query: str, image_base64: Optional[str] = None) -> dict:
 def call_deepseek(
     query: str,
     elements: Optional[List[UIElement]] = None,
-    timeout: int = 30,
+    timeout: int = 60,
     image_base64: Optional[str] = None,
     system_prompt: Optional[str] = None,
     temperature: float = 0.3,

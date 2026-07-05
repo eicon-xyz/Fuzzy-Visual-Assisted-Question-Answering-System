@@ -697,6 +697,9 @@ class MainWidget(QWidget):
             return
         summary = format_stop_summary(stop_backend_services())
         print(f"[HAJIMI] 退出时停止后端: {summary}")
+        from core.a_end_launcher import stop_auto_started_a_end
+
+        stop_auto_started_a_end()
 
     def _quit_application(self):
         self._save_window_state()

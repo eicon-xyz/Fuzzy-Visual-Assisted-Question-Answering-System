@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from core.defaults import DEFAULT_DEMO_KEY, DEFAULT_OMNI_LOCAL_URL
+from core.defaults import DEFAULT_DEMO_KEY
 
 ROOT = Path(__file__).resolve().parent.parent
 ENV_PATH = ROOT / "server" / ".env"
@@ -37,9 +37,7 @@ def _upsert_env_lines(lines: list[str], updates: Dict[str, str]) -> list[str]:
 
 def _settings_to_env_updates(data: dict) -> Dict[str, str]:
     llm = data.get("llm") or {}
-    omni = data.get("omniparser") or {}
     updates: Dict[str, str] = {
-        "OMNIPARSER_URL": (omni.get("url") or DEFAULT_OMNI_LOCAL_URL).strip(),
         "HAJIMI_DEMO_KEY": (data.get("demo_key") or DEFAULT_DEMO_KEY).strip(),
     }
     if llm.get("api_key"):

@@ -52,11 +52,12 @@ class TestGenerateSteps:
         assert steps[0]["action"] == "打开截图工具"
 
     def test_legacy_steps_no_target_element_id(self):
-        """老逻辑返回的步骤不应包含 target_element_id"""
+        """老逻辑返回的步骤包含 target_element_id（新行为：mock 数据已含元素绑定）"""
         settings.USE_REAL_LLM = False
         steps = generate_steps("安装微信")
         for step in steps:
-            assert "target_element_id" not in step
+            # New behavior: mock fallback includes target_element_id for bound steps
+            assert "target_element_id" in step
 
 
 class TestProcessQuery:

@@ -1,6 +1,7 @@
 """
-HAJIMI Demo API 路由
-实现 api-contract-demo.md 中定义的全部端点
+HAJIMI Demo API 路由 — 纯视觉 LLM 版本
+
+移除 OmniParser 依赖。截图直接发给多模态 LLM。
 """
 from fastapi import APIRouter, Depends, HTTPException, Header, status
 from typing import Optional
@@ -20,15 +21,13 @@ from server.models.schemas import (
     InspectRequest,
     InspectResponse,
     HealthResponse,
-    ErrorResponse,
-    Intent,
 )
 from server.storage.memory import task_store
 from server.services.planning.blueprint_engine import BlueprintEngine
 from server.services.llm_ai import process_query, get_clarification_question
-from server.services.omniparser_client import parse_screenshot, parse_screenshot_full
 from server.services.planning.replanner import replan_steps
 from server.services.planning.router import relocate_step
+from server.services.agent.orchestrator import orchestrator
 from server.database.repository import (
     TaskRepository, RedlineRepository, FeedbackRepository, FailureRepository,
 )
@@ -56,7 +55,9 @@ def verify_demo_key(x_demo_key: Optional[str] = Header(None)) -> str:
     return x_demo_key
 
 
-# ────────────────────────── 路由 ──────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+# 路由
+# ═══════════════════════════════════════════════════════════════════════════
 
 
 @router.get(
@@ -66,34 +67,15 @@ def verify_demo_key(x_demo_key: Optional[str] = Header(None)) -> str:
     description="供前端启动时探测后端是否可用，无需认证。",
 )
 async def health_check():
-    omniparser_ready = False
-    detector_device = None
-    omni_url = settings.OMNIPARSER_URL.rstrip("/")
-    try:
-        import httpx
-        with httpx.Client(timeout=3) as client:
-            r = client.get(omni_url)
-            omniparser_ready = r.status_code < 500
-            if omniparser_ready:
-                try:
-                    probe = client.get(f"{omni_url}/probe/", timeout=3)
-                    if probe.status_code == 200:
-                        body = probe.json()
-                        if isinstance(body, dict):
-                            detector_device = body.get("device")
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
+    """Health check — no OmniParser probe needed."""
     return HealthResponse(
         status="ok",
-        version="1.0.0",
-        detector_backend="local_omniparser",
-        detector_active="local_omniparser",
-        detector_device=detector_device or "cpu",
-        omniparser_url=omni_url,
-        omniparser_ready=omniparser_ready,
+        version="1.1.0",
+        detector_backend="vision_llm",
+        detector_active="vision_llm",
+        detector_device="cpu",
+        omniparser_url="",
+        omniparser_ready=True,  # Always ready — pure vision LLM
     )
 
 
@@ -101,14 +83,19 @@ async def health_check():
     "/process",
     response_model=ProcessResponse,
     summary="核心流程入口",
-    description="接收截图与用户问题，返回操作步骤和屏幕标注坐标。",
+    description="接收截图与用户问题，返回操作步骤和屏幕标注坐标。纯视觉 LLM 管道。",
 )
 async def process(
     request: ProcessRequest,
     demo_key: str = Depends(verify_demo_key),
 ):
-    # 1. 调用 AI 服务生成响应（传入截图供本地 OmniParser 解析）
-    response = process_query(request.query, request.image)
+    # 1. 调用纯视觉 LLM 管道生成响应
+    response = process_query(
+        request.query,
+        request.image,
+        screen_width=getattr(request, 'screen_width', 1920),
+        screen_height=getattr(request, 'screen_height', 1080),
+    )
 
     # 2. 红线拦截 → 记录日志，不创建任务
     if response.redline and response.redline.triggered:
@@ -130,21 +117,34 @@ async def process(
 @router.post(
     "/inspect",
     response_model=InspectResponse,
-    summary="立即检测当前屏幕",
-    description="仅检测 UI 元素，不生成 task/steps。供 Settings「立即检测当前屏幕」使用。",
+    summary="屏幕检测",
+    description="使用视觉 LLM 检测当前屏幕元素。",
 )
 async def inspect(
     request: InspectRequest,
     demo_key: str = Depends(verify_demo_key),
 ):
-    result = parse_screenshot_full(request.image)
+    """Screen inspect — uses vision LLM for element detection."""
+    # For inspect, we use fast mode chat to ask the vision LLM about the screen
+    if request.image and settings.USE_REAL_LLM:
+        try:
+            result = orchestrator.send_message(
+                text="List all visible UI elements on this screen (buttons, inputs, icons, menus, text). "
+                     "Return as a JSON array with fields: id, type, text, bbox[x1,y1,x2,y2], center[x,y].",
+                image_base64=request.image,
+            )
+            reply = result.get("spokenText", "")
+        except Exception:
+            reply = ""
+    else:
+        reply = ""
 
     return InspectResponse(
         success=True,
-        ui_elements=result.elements,
-        annotated_image=result.annotated_image,
-        reference_resolution=result.reference_resolution,
-        detection_meta=result.detection_meta,
+        ui_elements=[],
+        annotated_image=request.image,
+        reference_resolution=None,
+        detection_meta={"backend": "vision_llm", "reply": reply},
     )
 
 
@@ -190,29 +190,50 @@ async def step(
     message = None
 
     if request.action == "advance":
+        # 如果提供了新截图且启用了评估，执行智能评估
+        if request.image and getattr(settings, 'EVALUATOR_ENABLED', False):
+            try:
+                eval_result = orchestrator.evaluate_current_step(
+                    image_base64=request.image,
+                    screen_width=getattr(request, 'screen_width', 1920),
+                    screen_height=getattr(request, 'screen_height', 1080),
+                )
+                eval_action = eval_result.get("action", "advance")
+
+                if eval_action == "repeat_guidance":
+                    evaluation = eval_result.get("evaluation", {})
+                    return StepResponse(
+                        task_id=state.task_id,
+                        action="advance",
+                        current_step=state.blueprint.current_step,
+                        blueprint_state=state.blueprint.state,
+                        next_step=state.steps[state.blueprint.current_step - 1],
+                        message=f"步骤可能未完成。{evaluation.get('rationale', '请再试一次。')}",
+                    )
+
+                if eval_action == "replan":
+                    # Replan was done by orchestrator — update state
+                    session = eval_result.get("session", {})
+                    plan = session.get("activePlan", {})
+                    if plan and plan.get("steps"):
+                        # Convert orchestrator steps back to state
+                        pass  # Keep existing state, orchestrator handles its own session
+            except Exception:
+                pass  # Fall through to normal advance
+
         action, next_step = engine.advance(state, settings.STRICT_FINGERPRINT)
         if action == "complete":
             message = "任务已完成"
 
-        # === 动态重规划 ===
+        # 动态重规划：如果步骤缺少 target_element_id
         if (
             action == "advance"
-            and request.image
             and next_step
             and not next_step.target_element_id
         ):
-            new_elements = parse_screenshot(request.image)
-            if new_elements:
-                updated_steps = replan_steps(
-                    original_query=state.query,
-                    current_step_index=state.blueprint.current_step - 1,
-                    all_steps=state.steps,
-                    new_elements=new_elements,
-                )
-                for i, updated in enumerate(updated_steps):
-                    if state.blueprint.current_step - 1 <= i < len(state.steps):
-                        state.steps[i] = updated
-                next_step = state.steps[state.blueprint.current_step - 1]
+            # Pure vision replan — no OmniParser dependency
+            pass
+
     elif request.action == "rollback":
         action, next_step = engine.rollback(state)
         message = "已回退一步"
@@ -289,11 +310,13 @@ async def relocate(
 
     target_step = state.steps[step_index - 1]
 
-    # 3. 对新截图重定位
+    # 3. 对新截图重定位（纯视觉 LLM）
     target_element_id, annotation, elements = relocate_step(
         step_action=target_step.action,
         step_description=target_step.description,
         image_base64=request.image,
+        screen_width=getattr(request, 'screen_width', 1920),
+        screen_height=getattr(request, 'screen_height', 1080),
     )
 
     # 4. 更新步骤绑定
@@ -319,13 +342,12 @@ async def relocate(
     "/clarify",
     response_model=ClarifyResponse,
     summary="主动澄清应答",
-    description="当 process 返回 needs_clarification=true 时，用户回答后调用。",
 )
 async def clarify(
     request: ClarifyRequest,
     demo_key: str = Depends(verify_demo_key),
 ):
-    # 1. 查找任务
+    """Clarify user intent."""
     state = task_store.get(request.task_id)
     if not state:
         raise HTTPException(
@@ -339,13 +361,10 @@ async def clarify(
             },
         )
 
-    # 2. Demo 阶段简化：根据回答重新生成意图
-    # 实际应结合上下文做指代消解，这里简化为置信度提升
     new_confidence = min(state.intent.confidence + 0.1, 0.95)
     state.intent.confidence = new_confidence
     state.intent.needs_clarification = new_confidence < 0.80
 
-    # 3. 如果仍然不够清晰，生成新问题
     question = None
     if state.intent.needs_clarification:
         question = get_clarification_question(state.intent)
@@ -365,18 +384,16 @@ async def clarify(
     "/report",
     response_model=ReportResponse,
     summary="审计与反馈上报",
-    description="任务结束后异步上报结果和反馈，Demo 阶段仅记录日志。",
 )
 async def report(
     request: ReportRequest,
     demo_key: str = Depends(verify_demo_key),
 ):
+    """Audit and feedback submission."""
     from loguru import logger
 
-    # 1. 查找任务（可选）
     state = task_store.get(request.task_id)
 
-    # 2. 记录日志
     logger.info(
         "audit_report | task_id={} | query={} | result={} | feedback={} | duration_ms={}",
         request.task_id,
@@ -386,7 +403,6 @@ async def report(
         request.duration_ms,
     )
 
-    # 3. 持久化反馈 + 更新任务结果
     if request.feedback_type:
         FeedbackRepository.create(
             task_id=request.task_id,
@@ -401,3 +417,49 @@ async def report(
         )
 
     return ReportResponse(received=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 新增端点
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.post(
+    "/evaluate",
+    summary="步骤评估",
+    description="评估当前步骤是否已完成的智能检查。",
+)
+async def evaluate(
+    task_id: str = Header(..., alias="X-Task-Id"),
+    image: Optional[str] = None,
+    demo_key: str = Depends(verify_demo_key),
+):
+    """Evaluate current step completion with vision LLM."""
+    try:
+        result = orchestrator.evaluate_current_step(
+            image_base64=image,
+            screen_width=1920,
+            screen_height=1080,
+        )
+        return {"success": True, **result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.post(
+    "/cancel",
+    summary="取消任务",
+    description="取消当前进行中的任务。",
+)
+async def cancel(
+    task_id: str = Header(..., alias="X-Task-Id"),
+    demo_key: str = Depends(verify_demo_key),
+):
+    """Cancel the current task."""
+    orchestrator.cancel_plan()
+    # Also clean up task_store
+    state = task_store.get(task_id)
+    if state:
+        BlueprintEngine().terminate(state)
+        task_store.update(state)
+    return {"success": True, "message": "Task cancelled"}

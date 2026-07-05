@@ -6,7 +6,7 @@ import os
 from copy import deepcopy
 from typing import Any, Dict
 
-from core.defaults import DEFAULT_A_URL, DEFAULT_DEMO_KEY, DEFAULT_OMNI_LOCAL_URL
+from core.defaults import DEFAULT_A_URL, DEFAULT_DEMO_KEY
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "deployment_mode": "local",
@@ -29,14 +29,11 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "luxury_btn_mode": "hover",
     "a_end_url": DEFAULT_A_URL,
     "demo_key": DEFAULT_DEMO_KEY,
+    "auto_launch_a_end": True,
     "llm": {
-        "base_url": "https://api.deepseek.com",
+        "base_url": "https://api.siliconflow.cn/v1",
         "api_key": "",
-        "model": "deepseek-chat",
-    },
-    "omniparser": {
-        "url": DEFAULT_OMNI_LOCAL_URL,
-        "gpu_url": "",
+        "model": "Qwen/Qwen3.6-35B-A3B",
     },
 }
 
@@ -153,16 +150,13 @@ def _merge_defaults(data: dict) -> dict:
     for key in ("a_end_url", "demo_key"):
         if data.get(key):
             out[key] = str(data[key]).strip()
+    if isinstance(data.get("auto_launch_a_end"), bool):
+        out["auto_launch_a_end"] = data["auto_launch_a_end"]
     llm = data.get("llm") or {}
     if isinstance(llm, dict):
         for k in ("base_url", "api_key", "model"):
             if llm.get(k) is not None:
                 out["llm"][k] = str(llm[k]).strip()
-    omni = data.get("omniparser") or {}
-    if isinstance(omni, dict):
-        for k in ("url", "gpu_url"):
-            if omni.get(k) is not None:
-                out["omniparser"][k] = str(omni[k]).strip()
     return out
 
 
@@ -194,27 +188,17 @@ def apply_user_settings(data: dict | None = None) -> dict:
     os.environ["HAJIMI_DEPLOYMENT_MODE"] = settings["deployment_mode"]
     os.environ["HAJIMI_API_URL"] = settings["a_end_url"]
     os.environ["HAJIMI_DEMO_KEY"] = settings["demo_key"]
+    os.environ["HAJIMI_AUTO_LAUNCH_A_END"] = (
+        "1" if settings.get("auto_launch_a_end", True) else "0"
+    )
 
     llm = settings.get("llm") or {}
     if llm.get("base_url"):
-        os.environ["DEEPSEEK_BASE_URL"] = llm["base_url"]
+        os.environ["LLM_BASE_URL"] = llm["base_url"]
     if llm.get("api_key"):
-        os.environ["DEEPSEEK_API_KEY"] = llm["api_key"]
+        os.environ["LLM_API_KEY"] = llm["api_key"]
     if llm.get("model"):
-        os.environ["DEEPSEEK_MODEL"] = llm["model"]
-
-    omni = settings.get("omniparser") or {}
-    omni_url = (omni.get("url") or DEFAULT_OMNI_LOCAL_URL).strip()
-    if omni_url:
-        os.environ["OMNIPARSER_LOCAL_URL"] = omni_url
-        os.environ["OMNIPARSER_URL"] = omni_url
-    gpu_url = (omni.get("gpu_url") or "").strip()
-    if gpu_url:
-        os.environ["OMNIPARSER_GPU_URL"] = gpu_url
-    elif "OMNIPARSER_GPU_URL" in os.environ and not gpu_url:
-        os.environ.pop("OMNIPARSER_GPU_URL", None)
-
-    os.environ.setdefault("DETECTOR_BACKEND", "auto")
+        os.environ["LLM_MODEL"] = llm["model"]
 
     import config as client_config
 

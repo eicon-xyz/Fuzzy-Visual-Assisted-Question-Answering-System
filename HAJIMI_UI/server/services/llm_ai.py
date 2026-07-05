@@ -33,16 +33,18 @@ def detect_reference_type(query: str) -> str:
 
 
 def generate_steps(query: str, elements: Optional[List[UIElement]] = None) -> List[dict]:
-    """步骤生成入口"""
-    from server.services.planning import generate_steps as new_generate_steps
-    steps, _ = new_generate_steps(query, elements)
-    return steps
+    """步骤生成入口 — 纯视觉 LLM"""
+    from server.services.planning.router import process_query
+    # generate_steps is now handled by process_query internally
+    response = process_query(query, None)
+    return [{"action": s.action, "description": s.description, "target_element_id": s.target_element_id}
+            for s in response.steps]
 
 
-def process_query(query: str, image_base64: Optional[str] = None) -> ProcessResponse:
-    """核心流程入口"""
-    from server.services.planning import process_query as new_process_query
-    return new_process_query(query, image_base64)
+def process_query(query: str, image_base64: Optional[str] = None, screen_width: int = 1920, screen_height: int = 1080) -> ProcessResponse:
+    """核心流程入口 — 纯视觉 LLM 管道"""
+    from server.services.planning.router import process_query as new_process_query
+    return new_process_query(query, image_base64, screen_width, screen_height)
 
 
 def call_deepseek(query: str, timeout: int = 30):

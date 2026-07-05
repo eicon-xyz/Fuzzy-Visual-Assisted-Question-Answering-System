@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 import httpx
+from PIL import Image
 
 from server.config import settings
 from server.models.schemas import UIElement
@@ -25,6 +26,30 @@ _OMNIPARSER_RETRY_DELAY = getattr(settings, "OMNIPARSER_RETRY_DELAY", 3.0)
 
 # Regex to strip data URI prefix, e.g. "data:image/png;base64,"
 _DATA_URI_RE = re.compile(r"^data:image/\w+;base64,")
+
+
+def _compress_som_image(image_b64: str, max_side: int = 1024, quality: int = 85) -> str:
+    """Compress SoM image → JPEG ≤max_side px. Falls back to original on error."""
+    try:
+        raw = image_b64
+        if "," in raw and raw.startswith("data:"):
+            raw = raw.split(",", 1)[1]
+        img_bytes = base64.b64decode(raw)
+        img = Image.open(io.BytesIO(img_bytes))
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        w, h = img.size
+        if max(w, h) > max_side:
+            ratio = max_side / max(w, h)
+            new_size = (int(w * ratio), int(h * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality)
+        compressed = base64.b64encode(buf.getvalue()).decode()
+        return f"data:image/jpeg;base64,{compressed}"
+    except Exception as e:
+        print(f"[compress] fallback to original: {e}")
+        return image_b64
 
 
 def _clean_base64(image_base64: Optional[str]) -> Optional[str]:
@@ -79,9 +104,10 @@ def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
     if not payload_base64:
         return ParseResult()
 
-    url = f"{_OMNIPARSER_URL}/parse"
-    payload = {"image": payload_base64}
+    url = f"{_OMNIPARSER_URL}/parse/"
+    payload = {"base64_image": payload_base64}
 
+    latency_ms = 0
     last_exc = None
     for attempt in range(_OMNIPARSER_RETRY + 1):
         if attempt > 0:
@@ -92,13 +118,13 @@ def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
                 response = client.post(url, json=payload)
                 response.raise_for_status()
                 data = response.json()
+                latency_ms = int((time.time() - t_start) * 1000)
                 break  # success, exit retry loop
         except Exception as exc:
             last_exc = exc
             print(f"[OmniParser Client] attempt {attempt+1}/{_OMNIPARSER_RETRY+1} failed: {exc}")
     else:
         # All retries exhausted
-        latency_ms = int((time.time() - t_start) * 1000) if 't_start' in dir() else 0
         print(f"[OmniParser Client] all retries exhausted: {last_exc}")
         return ParseResult()
 
@@ -106,9 +132,16 @@ def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
         print(f"[OmniParser Client] parser returned error: {data['error']}")
         return ParseResult()
 
-    raw_elements = data.get("elements") or []
+    raw_elements = data.get("parsed_content_list") or data.get("elements") or []
+
+    # If OmniParser returned all None IDs, assign sequential ones
+    all_none = all(
+        isinstance(e, dict) and e.get("id") is None
+        for e in raw_elements if isinstance(e, dict)
+    )
 
     elements: List[UIElement] = []
+    seq = 1
     for item in raw_elements:
         if not isinstance(item, dict):
             continue
@@ -117,10 +150,17 @@ def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
             continue
 
         raw_id = item.get("id")
-        element_id = f"~{raw_id}" if raw_id is not None else "~?"
+        if raw_id is not None:
+            element_id = f"~{raw_id}"
+        elif all_none:
+            element_id = f"~{seq}"
+            seq += 1
+        else:
+            element_id = "~?"
 
         x1, y1, x2, y2 = bbox
-        center = item.get("center") or [(x1 + x2) // 2, (y1 + y2) // 2]
+        center = item.get("center") or [(x1 + x2) / 2.0, (y1 + y2) / 2.0]
+        center_int = [int(center[0]), int(center[1])]
 
         raw_type = item.get("type", "other")
         allowed_types = {"button", "input", "icon", "menu", "checkbox", "dropdown", "text", "other"}
@@ -133,16 +173,16 @@ def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
                 element_type=element_type,
                 text=item.get("text", "") or "",
                 confidence=float(item.get("confidence", 1.0)),
-                center=center,
+                center=center_int,
             )
         )
 
     # ── 提取 SoM 标注图 ──
     annotated_image = None
-    for key in ("annotated_image", "labeled_image", "som_image", "som_base64"):
+    for key in ("som_image_base64", "som_image", "som_base64", "annotated_image", "labeled_image"):
         val = data.get(key)
         if isinstance(val, str) and val:
-            annotated_image = val
+            annotated_image = _compress_som_image(val)
             break
 
     # ── 提取 / 推导 reference_resolution ──

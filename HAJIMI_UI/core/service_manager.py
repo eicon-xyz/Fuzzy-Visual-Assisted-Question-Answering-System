@@ -125,7 +125,7 @@ def _local_omni_device() -> str:
 def _start_in_new_console(title: str, bat_path: Path, env_prefix: str = "") -> None:
     if not bat_path.is_file():
         raise FileNotFoundError(str(bat_path))
-    cmd = f'{env_prefix}start "{title}" cmd /k "{bat_path}"'
+    cmd = f'{env_prefix}start "{title}" cmd /k "cd /d \"%~dp0..\" && \"{bat_path}\""'
     subprocess.Popen(cmd, shell=True, cwd=str(ROOT))
 
 
@@ -147,9 +147,8 @@ def start_a_end_window() -> None:
 
 
 def start_backend_services() -> None:
-    """先停旧进程，再在新窗口启动 OmniParser 与 A 端。"""
+    """先停旧进程，再在新窗口启动 A 端。"""
     stop_backend_services()
-    start_omniparser_window()
     start_a_end_window()
 
 

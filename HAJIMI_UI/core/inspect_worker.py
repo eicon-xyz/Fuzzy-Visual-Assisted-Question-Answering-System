@@ -14,6 +14,16 @@ class InspectWorkerThread(QThread):
         timer = QElapsedTimer()
         timer.start()
         try:
+            # 自动启动 A 端（如果未运行）
+            from core.a_end_launcher import ensure_a_end_running
+
+            ok, auto_msg = ensure_a_end_running(
+                lambda m: self.sig_progress.emit(0, m)
+            )
+            if not ok:
+                self.sig_inspect_error.emit(auto_msg or "A 端未启动")
+                return
+
             self.sig_progress.emit(5, "捕获屏幕…")
             screenshot = capture_screen()
             if screenshot is None:

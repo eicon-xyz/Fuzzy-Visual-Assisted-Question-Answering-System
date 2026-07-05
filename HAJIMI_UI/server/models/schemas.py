@@ -37,7 +37,7 @@ class UIElement(BaseModel):
     """截图中识别到的 UI 元素"""
 
     element_id: str = Field(..., description="SoM 全局唯一编号，如 ~1")
-    bbox: List[int] = Field(..., min_length=4, max_length=4)
+    bbox: List[float] = Field(..., min_length=4, max_length=4)
     element_type: str = Field(
         ...,
         pattern="^(button|input|icon|menu|checkbox|dropdown|text|other)$",

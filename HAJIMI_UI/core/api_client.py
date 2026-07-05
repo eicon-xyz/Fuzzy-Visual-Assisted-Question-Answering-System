@@ -66,7 +66,7 @@ def fetch_health() -> Optional[dict]:
 
 
 def _check_detector_preflight() -> tuple[bool, str]:
-    """检验 / 任务处理前共用的 A 端 + OmniParser 预检。"""
+    """检验 / 任务处理前共用的 A 端预检（纯视觉 LLM，无需 OmniParser）。"""
     if USE_MOCK_ONLY:
         return False, "需要 A 端真实检测，请关闭 HAJIMI_MOCK_ONLY"
 
@@ -77,37 +77,9 @@ def _check_detector_preflight() -> tuple[bool, str]:
                 False,
                 f"内网 A 端不可达 ({_api_base_url()})。请确认校园网/VPN 与地址是否正确。",
             )
-        return False, f"A 端未启动。请点击设置「启动 OmniParser + A 端」或运行: {START_ALL_HINT}"
+        return False, f"A 端未启动。请点击设置「启动 A 端」或运行: {START_ALL_HINT}"
 
-    if DEPLOYMENT_MODE == "intranet":
-        ready = health.get("omniparser_ready")
-        if ready is False:
-            return False, "远程 A 端报告 OmniParser 未就绪，请联系 A 端同学重启检测服务。"
-        return True, ""
-
-    backend = health.get("detector_backend")
-    if backend is None:
-        if health.get("omniparser_ready") is not False:
-            return True, ""
-        return (
-            False,
-            "A 端未报告 detector_backend（端口上可能是旧版或多开实例）。"
-            f"请先运行 scripts\\stop_all.bat，再 {START_ALL_HINT}",
-        )
-    if backend in ("local_omniparser", "auto"):
-        ready = health.get("omniparser_ready")
-        if ready is False:
-            return (
-                False,
-                "OmniParser 未就绪。请先运行 scripts\\start_omniparser.bat，"
-                "或设置页「启动 OmniParser + A 端」，等待「Omniparser initialized」。",
-            )
-        if ready is None and backend == "local_omniparser":
-            return (
-                False,
-                "A 端未报告 OmniParser 状态（可能是旧版 A 端）。"
-                f"请 scripts\\stop_all.bat 后 {START_ALL_HINT}",
-            )
+    # Pure vision LLM mode — no OmniParser dependency
     return True, ""
 
 
@@ -129,18 +101,7 @@ def check_process_preflight() -> tuple[bool, str]:
 
 def _format_connection_label(health: dict) -> str:
     base = _api_base_url()
-    device = health.get("detector_device")
-    if DEPLOYMENT_MODE == "intranet":
-        if device == "cuda":
-            return f"A 端已连接 (校园 GPU/cuda) {base}"
-        return f"A 端已连接 (内网) {base}"
-    if device == "cuda":
-        return f"A 端已连接 (GPU/cuda) {base}"
-    if device == "cpu":
-        return f"A 端已连接 (本地 CPU，约 2–4 分钟/帧) {base}"
-    if health.get("detector_active") == "replicate_omniparser":
-        return f"A 端已连接 (云端 Replicate) {base}"
-    return f"A 端已连接 ({base})"
+    return f"A端已连接 ({base})"
 
 
 def get_api_status_message() -> tuple[str, str]:
@@ -150,23 +111,7 @@ def get_api_status_message() -> tuple[str, str]:
     health = _fetch_health()
     if health and health.get("status") == "ok":
         msg = _format_connection_label(health)
-        if DEPLOYMENT_MODE != "intranet":
-            backend = health.get("detector_backend")
-            if backend in ("local_omniparser", "auto"):
-                if health.get("omniparser_ready") is False:
-                    return (
-                        f"{msg}，但 OmniParser 未就绪 — 请设置页「启动 OmniParser + A 端」"
-                        f"或 {START_ALL_HINT}",
-                        "system danger",
-                    )
-            if backend is None:
-                if health.get("omniparser_ready") is not False:
-                    return msg, "system"
-                return (
-                    f"{msg}，但缺少 detector_backend（可能旧版 A 端或多开）。"
-                    f"请 scripts\\stop_all.bat 后 {START_ALL_HINT}",
-                    "system danger",
-                )
+        # Pure vision LLM mode — no OmniParser preflight needed
         return msg, "system"
     if DEPLOYMENT_MODE == "intranet":
         return (
@@ -214,24 +159,10 @@ def _read_http_error(exc: urllib.error.HTTPError) -> str:
 def _format_inspect_error_message(msg: str, timeout: int) -> str:
     if "超时" in msg or "timed out" in msg.lower():
         return (
-            f"检测请求超时（已等待 {timeout}s）。CPU 模式下全屏检测通常需 2–4 分钟。"
-            "请勿重复点击；若刚超时，OmniParser 可能仍在后台解析，请等待 2 分钟后再试一次。"
+            f"检测请求超时（已等待 {timeout}s）。请检查网络或 A 端是否正常运行。"
         )
     if "502" in msg:
-        if "not reachable" in msg.lower():
-            return (
-                "OmniParser 未启动或不可达。"
-                "请先运行 scripts\\start_omniparser.bat，等待「Omniparser initialized」后再检测。"
-            )
-        if "HTTP 500" in msg or "Internal Server Error" in msg:
-            return (
-                "OmniParser 内部错误（可能为空白屏无 UI 元素、内存不足或上一次解析尚未结束）。"
-                "RTX 50 系若误启 cuda 也会 500，请 scripts\\stop_all.bat 后重跑 "
-                "scripts\\start_omniparser.bat（应显示 cpu mode），"
-                "单独再试一次并等待 2–4 分钟。"
-            )
-        if "DETECTOR_FAILED" in msg or "OmniParser" in msg or "local OmniParser" in msg:
-            return f"UI 检测器失败: {msg.split(': ', 1)[-1]}"
+        return f"A 端内部错误 (502)，请检查 A 端终端日志。"
     if "422" in msg and "NO_ELEMENTS" in msg.upper():
         return "未检测到 UI 元素，请换一张包含可见控件的截图再试。"
     return msg
@@ -366,18 +297,7 @@ def inspect(
     if not check_health():
         raise ApiError(f"A 端未启动。请先运行: {SERVER_START_HINT}")
 
-    health = _fetch_health()
-    if (
-        health
-        and health.get("detector_backend") in ("local_omniparser", "auto")
-        and health.get("omniparser_ready") is False
-        and DEPLOYMENT_MODE != "intranet"
-    ):
-        raise ApiError(
-            "OmniParser 未就绪。请先运行 scripts\\start_omniparser.bat，"
-            "等待终端出现「Omniparser initialized」后再检测。"
-        )
-
+    # Pure vision LLM mode — no OmniParser check needed
     try:
         data = _request_json(
             "/api/demo/inspect",

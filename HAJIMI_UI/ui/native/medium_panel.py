@@ -656,11 +656,16 @@ class MediumPanel(QWidget):
         self._stop_on_exit_cb.setChecked(STOP_SERVICES_ON_EXIT)
         dl.addWidget(self._stop_on_exit_cb)
 
+        self._auto_launch_cb = QCheckBox("需要时自动启动 A 端（本地部署模式）")
+        self._auto_launch_cb.setChecked(True)
+        dl.addWidget(self._auto_launch_cb)
+
         self._local_svc_widgets = (
             svc_title,
             self._start_services_btn,
             self._stop_services_btn,
             self._stop_on_exit_cb,
+            self._auto_launch_cb,
         )
 
         self._service_status = QLabel("")
@@ -691,6 +696,7 @@ class MediumPanel(QWidget):
         omni = data.get("omniparser") or {}
         self._field_omni_url.set_text(omni.get("url", ""))
         self._field_omni_gpu.set_text(omni.get("gpu_url", ""))
+        self._auto_launch_cb.setChecked(data.get("auto_launch_a_end", True))
         self._apply_deployment_mode_ui(data.get("deployment_mode", "local"))
 
     def _forward_appearance_preview(self, data: dict) -> None:
@@ -716,6 +722,7 @@ class MediumPanel(QWidget):
                 "url": self._field_omni_url.text() or "http://127.0.0.1:8002",
                 "gpu_url": self._field_omni_gpu.text(),
             },
+            "auto_launch_a_end": self._auto_launch_cb.isChecked(),
         }
 
     def _save_settings(self) -> None:

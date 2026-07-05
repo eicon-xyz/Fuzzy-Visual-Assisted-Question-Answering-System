@@ -12,6 +12,7 @@ from server.database.repository import (
     TaskRepository, RedlineRepository, FeedbackRepository,
     FailureRepository, ConfigRepository,
 )
+from server.services.metrics import metrics
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
@@ -239,3 +240,40 @@ async def stats_feedback(admin_key: str = Depends(verify_admin_key)):
         return {"feedback_distribution": {r[0]: r[1] for r in rows}}
     finally:
         db.close()
+
+
+# ────────────────────────── 性能指标 ──────────────────────────
+
+
+@router.get(
+    "/metrics",
+    summary="性能指标",
+    description="返回内存中收集的 P95/P50/平均延迟等性能指标。",
+)
+async def get_metrics(admin_key: str = Depends(verify_admin_key)):
+    """Return performance metrics collected in-memory."""
+    return {"metrics": metrics.get_all()}
+
+
+@router.post(
+    "/metrics/reset",
+    summary="重置性能指标",
+)
+async def reset_metrics(admin_key: str = Depends(verify_admin_key)):
+    """Reset all performance metrics."""
+    metrics.reset()
+    return {"reset": True}
+
+
+# ────────────────────────── 会话状态 ──────────────────────────
+
+
+@router.get(
+    "/session/status",
+    summary="当前会话状态",
+    description="返回当前编排器会话的状态。",
+)
+async def session_status(admin_key: str = Depends(verify_admin_key)):
+    """Return current orchestrator session state."""
+    from server.services.agent.orchestrator import orchestrator
+    return {"session": orchestrator.get_session()}
