@@ -313,11 +313,11 @@ export async function fetchDeployLogs(limit = 20) {
 }
 
 // ═══════════════════════════════════════════
-//  GPU OmniParser 监控 (B端 GPU API)
-//  对应 B端-OmniParser-GPU-API部署文档 §六
+//  GPU OmniParser 监控 (远程 GPU :9800)
+//  对应 new_JIMI/HAJIMI_UI/docs/API-CONTRACT.md
 // ═══════════════════════════════════════════
 
-const GPU_API_URL = 'http://127.0.0.1:8002'  // 本地 OmniParser (D:\ominprester)
+const GPU_API_URL = 'http://127.0.0.1:9800'  // OmniParser 远程 GPU
 
 /** GPU 健康检查 */
 export async function fetchGpuHealth() {

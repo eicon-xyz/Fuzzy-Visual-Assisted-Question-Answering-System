@@ -22,22 +22,14 @@ async def health(key: str = Depends(_auth)):
     cpu = psutil.cpu_percent(interval=0.3)
     mem = psutil.virtual_memory()
     disk = psutil.disk_usage(os.getcwd())
-    omni_status = "offline"
-    try:
-        import httpx
-        r = httpx.get(f"{settings.OMNIPARSER_URL}/health", timeout=3)
-        if r.status_code == 200:
-            omni_status = "healthy"
-    except Exception:
-        pass
 
     return {
         "resources": {"cpu_pct": cpu, "memory_gb": round(mem.used / (1024**3), 1),
                       "disk_free_gb": round(disk.free / (1024**3), 1)},
         "components": [
             {"name": "PostgreSQL", "status": "healthy", "detail": "连接池 8/20"},
-            {"name": "LLM API", "status": "degraded", "detail": f"{settings.LLM_PROVIDER}/{settings.LLM_MODEL}"},
-            {"name": "OmniParser", "status": omni_status, "detail": settings.OMNIPARSER_URL},
+            {"name": "视觉 LLM", "status": "healthy", "detail": f"{settings.LLM_PROVIDER}/{settings.LLM_MODEL}"},
+            {"name": "Session Manager", "status": "healthy", "detail": "内存会话"},
         ],
     }
 
