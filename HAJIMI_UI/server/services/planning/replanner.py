@@ -2,12 +2,12 @@
 动态重规划服务（P2 核心实现区）
 当激活步骤无 target_element_id 时，基于新截图重新解析并补全绑定
 """
-
 from typing import List, Optional
 
 from server.models.schemas import Step, UIElement
 from server.services.perception import serialize_elements
 from server.services.planning.annotation import build_annotation
+
 
 REPLAN_PROMPT = """你是一个桌面操作指引助手。当前用户正在执行一个多步骤任务，现在需要为后续未绑定界面元素的步骤补充目标元素。
 
@@ -46,16 +46,19 @@ def _serialize_steps_for_replan(steps: List[Step]) -> str:
     return "\n".join(lines)
 
 
+
+
+
 def _call_replan_llm(prompt: str, timeout: int = 30) -> Optional[List[dict]]:
     """调用 LLM 进行重规划"""
     from server.services.llm.client import call_deepseek
 
-    result = call_deepseek(
+    result, _, _, _, _ = call_deepseek(
         query="请为上述步骤补全 target_element_id。",
         system_prompt=prompt,
         temperature=0.2,
         max_tokens=2000,
-        timeout=timeout,
+        speed_mode="fast",
     )
     if result and "steps" in result:
         return result["steps"]

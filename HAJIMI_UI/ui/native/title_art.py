@@ -24,6 +24,7 @@ TITLE_ART_MODES: dict[str, str] = {
 
 TITLE_ART_MODE_IDS = tuple(TITLE_ART_MODES.keys())
 DEFAULT_TITLE_ART = "gradient"
+_DEFAULT_GRADIENT_END = "#f1f5f9"
 
 
 class TitleArtWidget(QWidget):
@@ -38,6 +39,8 @@ class TitleArtWidget(QWidget):
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._mode = DEFAULT_TITLE_ART
         self._accent = ACCENT
+        self._gradient_start: str | None = None
+        self._gradient_end = _DEFAULT_GRADIENT_END
         self._apply_fixed_size()
 
     def _title_font(self) -> QFont:
@@ -83,6 +86,18 @@ class TitleArtWidget(QWidget):
         self._accent = hex_color
         self.update()
 
+    def set_gradient_stops(self, start_hex: str, end_hex: str) -> None:
+        """Override horizontal text gradient (demo / theme-specific)."""
+        self._gradient_start = start_hex
+        self._gradient_end = end_hex
+        self.update()
+
+    def reset_gradient_stops(self) -> None:
+        """Restore default: accent → light slate end."""
+        self._gradient_start = None
+        self._gradient_end = _DEFAULT_GRADIENT_END
+        self.update()
+
     def sizeHint(self) -> QSize:
         return QSize(self._content_width(), self._content_height())
 
@@ -114,8 +129,9 @@ class TitleArtWidget(QWidget):
         painter.setFont(font)
         metrics = QFontMetrics(font)
         grad = QLinearGradient(x, 0, x + metrics.horizontalAdvance(title), 0)
-        grad.setColorAt(0.0, QColor(self._accent))
-        grad.setColorAt(1.0, QColor("#f1f5f9"))
+        start = self._gradient_start if self._gradient_start else self._accent
+        grad.setColorAt(0.0, QColor(start))
+        grad.setColorAt(1.0, QColor(self._gradient_end))
         painter.setPen(QPen(QBrush(grad), 1))
         painter.drawText(x, y, title)
 

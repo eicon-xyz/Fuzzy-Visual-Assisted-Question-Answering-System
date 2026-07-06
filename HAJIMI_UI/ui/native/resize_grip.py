@@ -234,6 +234,8 @@ class WindowResizeHandler:
     def paint_resize_guides(self, painter: QPainter):
         if not self._resize_active():
             return
+        if self._is_compact_mode():
+            return
         r = self._panel_rect()
         self._paint_idle_guides(painter, r)
         edge = self._hover_edge or self._lr_edge(self._active_edge)

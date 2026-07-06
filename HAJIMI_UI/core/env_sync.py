@@ -4,7 +4,13 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from core.defaults import DEFAULT_DEMO_KEY
+from typing import Dict
+
+from core.defaults import (
+    DEFAULT_DEMO_KEY,
+    DEFAULT_OMNI_GPU_API_URL,
+    DEFAULT_OMNI_LOCAL_URL,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 ENV_PATH = ROOT / "server" / ".env"
@@ -35,22 +41,49 @@ def _upsert_env_lines(lines: list[str], updates: Dict[str, str]) -> list[str]:
     return new_lines
 
 
+def _default_omni_url(data: dict) -> str:
+    mode = data.get("deployment_mode", "gpu_api")
+    omni = data.get("omniparser") or {}
+    if omni.get("url"):
+        return str(omni["url"]).strip()
+    if mode == "gpu_api":
+        return DEFAULT_OMNI_GPU_API_URL
+    return DEFAULT_OMNI_LOCAL_URL
+
+
+def _omni_timeout(data: dict) -> str:
+    mode = data.get("deployment_mode", "gpu_api")
+    return "120" if mode in ("gpu_api", "intranet") else "360"
+
+
 def _settings_to_env_updates(data: dict) -> Dict[str, str]:
     llm = data.get("llm") or {}
+    omni_url = _default_omni_url(data)
+    omni_timeout = _omni_timeout(data)
     updates: Dict[str, str] = {
+        "OMNIPARSER_URL": omni_url,
+        "OMNIPARSER_LOCAL_URL": omni_url,
+        "OMNIPARSER_TIMEOUT": omni_timeout,
+        "OMNIPARSER_LOCAL_TIMEOUT": omni_timeout,
         "HAJIMI_DEMO_KEY": (data.get("demo_key") or DEFAULT_DEMO_KEY).strip(),
     }
+    speed = (data.get("llm_speed_mode") or "fast").strip().lower()
+    routing = (data.get("routing_mode") or speed or "fast").strip().lower()
+    if speed in ("fast", "balanced", "precision"):
+        updates["LLM_SPEED_MODE"] = speed
+    if routing in ("auto", "fast", "balanced", "precision", "l5"):
+        updates["ROUTING_MODE"] = routing
+    elif speed in ("fast", "balanced", "precision"):
+        updates["ROUTING_MODE"] = speed
+    mode = data.get("deployment_mode", "gpu_api")
+    if mode == "gpu_api":
+        updates["OMNIPARSER_RETRY"] = "0"
     if llm.get("api_key"):
         updates["LLM_API_KEY"] = llm["api_key"].strip()
-    if llm.get("base_url"):
-        updates["LLM_BASE_URL"] = llm["base_url"].strip()
-    if llm.get("model"):
-        updates["LLM_MODEL"] = llm["model"].strip()
-    if not llm.get("api_key"):
         if llm.get("base_url"):
-            updates["DEEPSEEK_BASE_URL"] = llm["base_url"].strip()
+            updates["LLM_BASE_URL"] = llm["base_url"].strip()
         if llm.get("model"):
-            updates["DEEPSEEK_MODEL"] = llm["model"].strip()
+            updates["LLM_MODEL"] = llm["model"].strip()
     a_url = (data.get("a_end_url") or "").strip()
     if a_url:
         from urllib.parse import urlparse
@@ -60,6 +93,18 @@ def _settings_to_env_updates(data: dict) -> Dict[str, str]:
             updates["HAJIMI_PORT"] = str(parsed.port)
         if parsed.hostname:
             updates["HAJIMI_HOST"] = parsed.hostname
+
+    l4 = data.get("l4") or {}
+    if isinstance(l4, dict):
+        updates["L4_PLANNER_MODEL"] = str(l4.get("planner_model") or "").strip()
+        updates["L4_LOCATOR_MODEL"] = str(l4.get("locator_model") or "").strip()
+        updates["L4_PLANNER_USE_VISION"] = (
+            "true" if l4.get("planner_use_vision") else "false"
+        )
+        updates["L4_STRICT_LOCATE"] = "true" if l4.get("strict_locate", True) else "false"
+        updates["L4_PIPELINE_ENABLED"] = (
+            "true" if l4.get("pipeline_enabled", True) else "false"
+        )
     return updates
 
 

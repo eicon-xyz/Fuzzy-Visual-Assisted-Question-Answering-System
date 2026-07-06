@@ -7,9 +7,10 @@ from PyQt5.QtCore import Qt, QRectF
 from PyQt5.QtGui import QPainter
 from PyQt5.QtWidgets import QWidget
 
-from ui.native.layout_tokens import SHELL_RADIUS
+from ui.native.layout_tokens import SHELL_RADIUS, TOP_BAR_MIN_H
 from ui.native.luxury.paint import paint_luxury_frame
 from ui.native.luxury.qss import LUXURY_SHELL_RADIUS
+from ui.native.orange_cat.paint import paint_orange_cat_shell
 from ui.native.shell_appearance import (
     AppearanceSettings,
     crystal_fill_alpha_from_percent,
@@ -18,7 +19,7 @@ from ui.native.shell_appearance import (
 from ui.native.shell_paint import paint_crystal_shell, paint_qss_shell
 from ui.native.widgets import apply_shell_shadow
 
-ShellMode = Literal["qss", "crystal", "luxury"]
+ShellMode = Literal["qss", "crystal", "luxury", "orange_cat"]
 
 _ORIGINAL_PAINT_ATTR = "_hajimi_original_paintEvent"
 _SHELL_MODE_ATTR = "_hajimi_shell_mode"
@@ -76,6 +77,21 @@ def _shell_paint_event(widget: QWidget, event):
             radius=radius,
             compact=compact,
         )
+    elif mode == "orange_cat":
+        topbar_h = float(TOP_BAR_MIN_H)
+        if not compact and hasattr(widget, "_topbar") and widget._topbar is not None:
+            live = widget._topbar.height()
+            if live > 0:
+                topbar_h = float(live)
+        paint_orange_cat_shell(
+            painter,
+            w,
+            h,
+            appearance=appearance,
+            compact=compact,
+            radius=radius,
+            topbar_h=topbar_h,
+        )
     else:
         alpha_pct = (
             appearance.shell_alpha_compact if compact else appearance.shell_alpha_medium
@@ -129,7 +145,7 @@ def apply_shell_renderer(
             apply_shell_shadow(widget)
     else:
         widget.setAttribute(Qt.WA_TranslucentBackground, True)
-        if mode == "luxury":
+        if mode in ("luxury", "orange_cat"):
             widget.setGraphicsEffect(None)
 
     _refresh_shell_stylesheet(widget)

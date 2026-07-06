@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# [VERIFY] 验收脚本 — 见 docs/FILE-MAP.md
+# 用途: B 端 UI 依赖自检（PyQt5 / QtSvg 等）
+# 运行: python scripts/check_ui_env.py  （setup.bat 会自动调用）
 """Verify B-end UI runtime dependencies before main.py."""
 from __future__ import annotations
 

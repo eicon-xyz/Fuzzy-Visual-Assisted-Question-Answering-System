@@ -16,8 +16,6 @@ ACCENT_HOVER = "#8fa0dc"
 
 THEME_ACCENTS: dict[str, str] = {
     "current": "#7c8fd4",
-    "variant_b": "#6b8cce",
-    "variant_c": "#5ab89e",
 }
 
 

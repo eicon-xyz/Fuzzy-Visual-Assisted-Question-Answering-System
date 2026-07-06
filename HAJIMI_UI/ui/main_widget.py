@@ -1,5 +1,6 @@
 # ui/main_widget.py
 import os
+import sys
 import json
 
 from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QTimer, QEvent
@@ -27,18 +28,29 @@ from config import (
     STARTUP_HEALTH_DELAY_MS,
     STARTUP_HEALTH_RETRY_MS,
     STARTUP_HEALTH_MAX_RETRIES,
+    API_BASE_URL,
+    DEMO_KEY,
 )
+from core.bc_signals import BCIntegrationSignals
+from core.repo_paths import resolve_repo_root
 from core.task_worker import TaskWorkerThread
+from core.execute_worker import ExecuteWorkerThread
+from core.step_advance_worker import StepAdvanceWorkerThread
 from core.api_client import check_inspect_preflight, get_api_status_message
 from core.user_settings import (
     apply_user_settings,
+    is_gpu_api_mode,
     is_intranet_mode,
     load_user_settings,
-    save_user_settings,
+    load_voice_settings,
+    save_settings_fragment,
 )
 from core.env_sync import sync_server_env
 from core.service_manager import (
+    restart_local_a_end,
+    run_gpu_one_click_bat,
     start_backend_services,
+    start_gpu_api_services,
     stop_backend_services,
     format_stop_summary,
 )
@@ -48,6 +60,7 @@ from ui.native.medium_panel import MediumPanel
 from ui.native.compact_bar import CompactBar
 from ui.native.suspension_dialog import SuspensionDialog
 from core.inspect_worker import InspectWorkerThread
+from core.chain_diagnostic_worker import ChainDiagnosticWorker
 from core.relocate_worker import RelocateWorkerThread
 from ui.native.prepare_step_dialog import PrepareStepDialog
 from ui.native.resize_grip import WindowResizeHandler
@@ -62,13 +75,19 @@ from ui.native.window_state import (
     apply_state_to_window,
 )
 from ui.native.window_clip import apply_shell_mask, clamp_geometry_to_screen
-from ui.native.theme_manager import get_theme_manager, THEME_LABELS
-from ui.native.shell_appearance import AppearanceSettings, SHELL_STYLES, is_luxury_theme
+from ui.native.theme_manager import get_theme_manager
+from ui.native.shell_appearance import (
+    AppearanceSettings,
+    SHELL_STYLES,
+    appearance_scheme_label,
+    is_luxury_theme,
+    is_orange_cat_theme,
+)
+from ui.native.orange_cat.splash_controller import OrangeCatSplashController
 from ui.native.luxury.qss import LUXURY_BG_MODES
 from ui.native.luxury.title import script_font_labels
 from ui.native.title_art import TITLE_ART_MODES
 from ui.native.nav_icons import svg_icon
-from ui.agent_panel import AgentPanel
 
 
 class MainWidget(QWidget):
@@ -90,9 +109,13 @@ class MainWidget(QWidget):
         self._mode_switching = False
         self._prepare_hint = ""
         self._prepare_desc = ""
+        self._prepare_scene_dict = None
         self.overlay = OverlayAnnoWindow()
         self.worker = TaskWorkerThread(self)
+        self.execute_worker = ExecuteWorkerThread(self)
+        self.step_worker = StepAdvanceWorkerThread(self)
         self.inspect_worker = InspectWorkerThread(self)
+        self.chain_diag_worker = ChainDiagnosticWorker(include_parse=True)
         self.relocate_worker = RelocateWorkerThread(self)
 
         if USE_NATIVE_UI:
@@ -171,23 +194,27 @@ class MainWidget(QWidget):
             self.resize(MEDIUM_WIDTH, MEDIUM_HEIGHT)
 
     def _init_native_ui(self):
-        self.controller = AppController(self.worker, main_window=self)
+        self._bc_signals = BCIntegrationSignals(self)
+        self._shared_state = {"voice_settings": load_voice_settings()}
+        self._c_controller = None
+
+        self.controller = AppController(
+            self.worker,
+            step_worker=self.step_worker,
+            execute_worker=self.execute_worker,
+            main_window=self,
+            bc_signals=self._bc_signals,
+            voice_settings=self._shared_state["voice_settings"],
+        )
         self.suspension_dialog = SuspensionDialog(self)
         self.prepare_step_dialog = PrepareStepDialog(self)
 
         self.stack = QStackedWidget(self)
-
-        # ── Agent panel (new auto-op panel) ──
-        self.agent_panel = AgentPanel()
-        self.agent_panel.send_query.connect(self._on_agent_submit_query)
-        self.agent_panel.cancel_requested.connect(self._on_agent_cancel)
-        self.stack.addWidget(self.agent_panel)
-
         self.medium_panel = MediumPanel()
         self.compact_bar = CompactBar()
         self.stack.addWidget(self.medium_panel)
         self.stack.addWidget(self.compact_bar)
-        self.stack.setCurrentWidget(self.agent_panel)  # Default: agent panel
+        self.stack.setCurrentWidget(self.medium_panel)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -202,16 +229,109 @@ class MainWidget(QWidget):
         self.setMouseTracking(True)
         self._install_resize_tracking()
 
+        self._init_c_integration()
         self._wire_controller()
         self._wire_native_widgets()
         self._wire_inspect_worker()
+        self._wire_chain_diag_worker()
         self._wire_relocate_worker()
         self._setup_tray()
         self._check_api_on_startup()
         mgr = get_theme_manager(QApplication.instance())
         mgr.register_shell(self.medium_panel, compact=False)
         mgr.register_shell(self.compact_bar, compact=True)
+        self._orange_cat_splash = OrangeCatSplashController(self)
         self._apply_native_appearance()
+
+    def _init_c_integration(self) -> None:
+        if os.environ.get("HAJIMI_C_ENABLED", "1") != "1":
+            return
+        try:
+            root = resolve_repo_root()
+            root_str = str(root)
+            if root_str not in sys.path:
+                sys.path.insert(0, root_str)
+            client_dir = root / "client"
+            if not client_dir.is_dir():
+                print("[C] client/ not found — voice integration skipped")
+                return
+            from client.integration.controller import VoiceIntegrationController
+
+            self._c_controller = VoiceIntegrationController(
+                server_url=API_BASE_URL,
+                demo_key=DEMO_KEY,
+            )
+            self._c_controller.start()
+            self._c_controller.bind_to(self._bc_signals, self._shared_state)
+            QTimer.singleShot(800, self._request_c_health_check)
+        except Exception as exc:
+            print(f"[C] integration unavailable: {exc}")
+            self._c_controller = None
+
+    def _request_c_health_check(self) -> None:
+        if self._bc_signals:
+            self._bc_signals.health_check_request.emit()
+
+    def _on_c_health_result(self, health) -> None:
+        if health is None:
+            return
+        if hasattr(health, "asr_available"):
+            asr_ok = bool(health.asr_available)
+            tts_ok = bool(health.tts_available)
+            overall = health.overall
+            queue_depth = int(getattr(health, "queue_depth", 0) or 0)
+        else:
+            asr_ok = bool(health.get("asr_available"))
+            tts_ok = bool(health.get("tts_available"))
+            overall = health.get("overall", "")
+            queue_depth = int(health.get("queue_depth") or 0)
+
+        voice = self._shared_state.get("voice_settings") or {}
+        self.medium_panel.set_mic_enabled(bool(asr_ok and voice.get("asr_enabled", True)))
+        if tts_ok and voice.get("tts_enabled", True):
+            self.medium_panel.set_speaker_playing(False)
+        if queue_depth > 50:
+            self.medium_panel.set_voice_audit_hint(f"离线队列积压：{queue_depth} 条")
+        if overall == "degraded":
+            self.controller.message_added.emit("部分 C 端服务降级", "system")
+        elif overall == "unhealthy":
+            self.controller.message_added.emit(
+                "C 端服务异常，语音功能不可用", "system danger"
+            )
+
+    def _on_tts_status(self, status: str, _text: str, _queue_depth: int) -> None:
+        self.medium_panel.set_speaker_playing(status == "playing")
+
+    def _on_audit_status(
+        self, status: str, _batch_size: int, queue_depth: int, error
+    ) -> None:
+        if queue_depth > 50:
+            self.medium_panel.set_voice_audit_hint(f"离线队列积压：{queue_depth} 条")
+        elif status == "failed" and error:
+            print(f"[audit] batch failed: {error}")
+
+    def _on_config_updated(self, config_dict: dict) -> None:
+        version = config_dict.get("version", "?")
+        self.controller.message_added.emit(f"配置已更新至 {version}", "system")
+        interval = config_dict.get("config_pull_interval_min")
+        if interval and self._c_controller and hasattr(self._c_controller, "_config_poller"):
+            poller = self._c_controller._config_poller
+            if poller:
+                poller.set_interval(interval)
+        try:
+            from core import api_client
+
+            api_client.reload_client_config()
+        except Exception:
+            pass
+
+    def _shutdown_c_integration(self) -> None:
+        if self._c_controller:
+            try:
+                self._c_controller.shutdown()
+            except Exception:
+                pass
+            self._c_controller = None
 
     def _should_use_pill_mask(self) -> bool:
         return (
@@ -232,12 +352,37 @@ class MainWidget(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self._apply_window_mask()
+        if hasattr(self, "_orange_cat_splash"):
+            self._orange_cat_splash.on_window_shown(self._current_ui_theme())
+
+    def _current_ui_theme(self) -> str:
+        if hasattr(self, "medium_panel"):
+            return getattr(self.medium_panel, "_ui_theme", "current")
+        return load_user_settings().get("ui_theme", "current")
+
+    def _sync_orange_cat_chrome(
+        self,
+        ui_theme: str,
+        appearance: AppearanceSettings,
+        *,
+        avatar_data: dict | None = None,
+    ) -> None:
+        from ui.native.orange_cat.image_pool import apply_avatar_settings
+
+        apply_avatar_settings(avatar_data)
+        if hasattr(self, "compact_bar"):
+            self.compact_bar.apply_orange_cat_theme(is_orange_cat_theme(ui_theme))
+        if hasattr(self, "medium_panel"):
+            self.medium_panel.refresh_orange_cat_avatars()
+        if hasattr(self, "_orange_cat_splash"):
+            self._orange_cat_splash.apply_theme(ui_theme, appearance)
 
     def _apply_native_appearance(self, settings: dict | None = None) -> None:
         data = settings if settings is not None else load_user_settings()
         ui_theme = data.get("ui_theme", "current")
         appearance = AppearanceSettings.from_user_settings(data)
         get_theme_manager().apply(ui_theme, appearance)
+        self._sync_orange_cat_chrome(ui_theme, appearance, avatar_data=data)
         if hasattr(self, "medium_panel"):
             self.medium_panel.apply_appearance(appearance, ui_theme=ui_theme)
         if hasattr(self, "stack"):
@@ -249,6 +394,7 @@ class MainWidget(QWidget):
         ui_theme = data.get("ui_theme", "current")
         appearance = AppearanceSettings.from_user_settings(data)
         get_theme_manager().apply(ui_theme, appearance)
+        self._sync_orange_cat_chrome(ui_theme, appearance, avatar_data=data)
         if hasattr(self, "medium_panel"):
             self.medium_panel.apply_appearance(appearance, ui_theme=ui_theme)
             if self.medium_panel.current_panel() == "settings":
@@ -271,6 +417,10 @@ class MainWidget(QWidget):
                 child.installEventFilter(self)
 
     def eventFilter(self, obj, event):
+        if event.type() == QEvent.KeyPress and hasattr(self, "controller"):
+            key = event.text().upper()
+            if key and self.controller.handle_l5_hotkey(key):
+                return True
         if (
             USE_NATIVE_UI
             and hasattr(self, "_resize_handler")
@@ -305,6 +455,7 @@ class MainWidget(QWidget):
 
     def _on_relocate_success(self, _data):
         self.prepare_step_dialog.set_busy(False)
+        self.prepare_step_dialog.hide()
         self.medium_panel.hide_prepare_banner()
 
     def _on_relocate_error(self, _msg):
@@ -313,18 +464,87 @@ class MainWidget(QWidget):
     def _on_relocate_finished(self):
         self.prepare_step_dialog.set_busy(False)
 
-    def _on_prepare_step(self, hint: str, desc: str):
+    def _on_prepare_guidance(self, payload: dict):
+        hint = payload.get("hint", "")
+        desc = payload.get("desc", "")
+        interaction = payload.get("interaction", "screen")
+        scene_dict = payload.get("scene") or {}
         self._prepare_hint = hint
         self._prepare_desc = desc
-        self.prepare_step_dialog.show_hint(hint, desc)
+        self._prepare_scene_dict = scene_dict
+        if interaction == "keyboard":
+            return
+        from core.prepare_guidance import PrepareScene
+
+        scene = PrepareScene.from_dict(scene_dict)
+        banner_text = desc or hint or "当前步骤"
+        self.medium_panel.show_prepare_banner(
+            banner_text,
+            scene_id=scene.scene_id,
+            banner_prefix=scene.banner_prefix,
+        )
+        if scene.scene_id != "keyboard_only":
+            self.prepare_step_dialog.show_guidance(scene)
+
+    def _on_prepare_topmost(self, enabled: bool):
+        if enabled:
+            self.raise_()
+            self.activateWindow()
+        else:
+            self.prepare_step_dialog.hide()
 
     def _on_prepare_dismissed(self, desc: str):
-        self.medium_panel.show_prepare_banner(desc or self._prepare_desc or "当前步骤")
+        scene_dict = self._prepare_scene_dict or {}
+        from core.prepare_guidance import PrepareScene
+
+        scene = PrepareScene.from_dict(scene_dict) if scene_dict else None
+        self.medium_panel.show_prepare_banner(
+            desc or self._prepare_desc or "当前步骤",
+            scene_id=scene.scene_id if scene else "locate_failed_first",
+            banner_prefix=scene.banner_prefix if scene else "⏳ 未定位到目标",
+        )
 
     def _on_prepare_banner(self):
-        self.prepare_step_dialog.show_hint(self._prepare_hint, self._prepare_desc)
+        if self._prepare_scene_dict:
+            from core.prepare_guidance import PrepareScene
 
-    def _on_prepare_confirmed(self):
+            self.prepare_step_dialog.show_guidance(
+                PrepareScene.from_dict(self._prepare_scene_dict)
+            )
+        else:
+            self.prepare_step_dialog.show_hint(
+                self._prepare_hint,
+                self._prepare_desc,
+                "locate_failed",
+            )
+
+    def _on_preset_chosen(self, preset_id: str):
+        from core.prepare_guidance import PrepareScene
+
+        scene_dict = self._prepare_scene_dict or {}
+        scene = PrepareScene.from_dict(scene_dict) if scene_dict else None
+        preset = scene.preset_by_id(preset_id) if scene else None
+        action = preset.action if preset else "relocate"
+
+        if action == "dismiss":
+            self.prepare_step_dialog.hide()
+            self.prepare_step_dialog.set_busy(False)
+            return
+
+        if action == "advance":
+            self.prepare_step_dialog.hide()
+            self.prepare_step_dialog.set_busy(False)
+            self.medium_panel.hide_prepare_banner()
+            self.controller.advance_step()
+            return
+
+        if action == "skip":
+            self.prepare_step_dialog.hide()
+            self.prepare_step_dialog.set_busy(False)
+            self.medium_panel.hide_prepare_banner()
+            self.controller.skip_current_step()
+            return
+
         if self.relocate_worker.isRunning():
             self.controller.message_added.emit(
                 "正在分析新画面，请稍候…", "system"
@@ -333,9 +553,22 @@ class MainWidget(QWidget):
         if not self.controller.task_id:
             return
         step_index = self.controller.current_step_index + 1
+        step = self.controller.steps[self.controller.current_step_index]
+        step_text = " ".join(
+            filter(
+                None,
+                [
+                    step.get("target"),
+                    step.get("description"),
+                    step.get("action"),
+                ],
+            )
+        )
         self.prepare_step_dialog.set_busy(True)
         self.controller.status_updated.emit("processing", "重新定位中…")
-        self.relocate_worker.request_relocate(self.controller.task_id, step_index)
+        self.relocate_worker.request_relocate(
+            self.controller.task_id, step_index, step_text
+        )
 
     def _wire_inspect_worker(self):
         w = self.inspect_worker
@@ -343,6 +576,12 @@ class MainWidget(QWidget):
         w.sig_inspect_error.connect(self.controller.on_inspect_error)
         w.sig_progress.connect(self._on_inspect_progress)
         w.finished.connect(self._on_inspect_finished)
+
+    def _wire_chain_diag_worker(self):
+        w = self.chain_diag_worker
+        w.sig_done.connect(self._on_chain_diag_done)
+        w.sig_error.connect(self._on_chain_diag_error)
+        w.finished.connect(self._on_chain_diag_finished)
 
     def _wire_controller(self):
         c = self.controller
@@ -358,21 +597,50 @@ class MainWidget(QWidget):
         c.inspect_status.connect(self.medium_panel.set_inspect_status)
         c.suspension_requested.connect(self.suspension_dialog.show_message)
         c.suspension_hidden.connect(self.suspension_dialog.hide)
-        c.prepare_step_requested.connect(self._on_prepare_step)
+        c.prepare_guidance_requested.connect(self._on_prepare_guidance)
+        c.prepare_topmost_requested.connect(self._on_prepare_topmost)
         c.mode_medium_requested.connect(lambda: self.switch_to_medium(animated=True))
         c.mode_compact_requested.connect(lambda: self.switch_to_compact(animated=True))
         self.suspension_dialog.resolved.connect(c.resolve_suspension)
-        self.prepare_step_dialog.confirmed.connect(self._on_prepare_confirmed)
+        self.prepare_step_dialog.preset_chosen.connect(self._on_preset_chosen)
         self.prepare_step_dialog.dismissed.connect(self._on_prepare_dismissed)
         self.medium_panel.prepare_banner_clicked.connect(self._on_prepare_banner)
         self.overlay.sig_target_clicked.connect(c.on_target_area_clicked)
 
         self.worker.sig_progress.connect(self._on_task_progress)
+        self.execute_worker.sig_progress.connect(self._on_task_progress)
+        c.step_action_started.connect(self._on_step_action_started)
+        c.step_action_finished.connect(self._on_step_action_finished)
+        self.step_worker.sig_progress.connect(self._on_step_progress)
+
+        if self._bc_signals:
+            self._bc_signals.asr_result.connect(self.controller.on_asr_result)
+            self._bc_signals.tts_status.connect(self._on_tts_status)
+            self._bc_signals.audit_status.connect(self._on_audit_status)
+            self._bc_signals.config_updated.connect(self._on_config_updated)
+            self._bc_signals.health_result.connect(self._on_c_health_result)
+            self.medium_panel.mic_pressed.connect(self._bc_signals.asr_start.emit)
+            self.medium_panel.mic_released.connect(self._bc_signals.asr_stop.emit)
+
+    def _on_step_action_started(self, action: str):
+        self.medium_panel.set_step_controls_enabled(False)
+
+    def _on_step_action_finished(self):
+        self.medium_panel.set_step_controls_enabled(True)
+        self.medium_panel.set_stage_hint("")
+        if not self.controller._current_step_needs_prepare():
+            self.prepare_step_dialog.hide()
+            self.medium_panel.hide_prepare_banner()
+
+    def _on_step_progress(self, _pct: int, label: str):
+        self.medium_panel.set_stage_hint(label)
 
     def _on_status_updated(self, status: str, _label: str):
         busy = status == "processing"
         self.medium_panel.set_input_enabled(not busy)
         self.compact_bar.set_input_enabled(not busy)
+        if hasattr(self, "_orange_cat_splash"):
+            self._orange_cat_splash.on_status_updated(self._current_ui_theme(), status)
 
     def _on_task_progress(self, _pct: int, label: str):
         self.medium_panel.set_stage_hint(label)
@@ -384,13 +652,18 @@ class MainWidget(QWidget):
         b.submit_query.connect(self._on_submit_query)
         p.next_clicked.connect(self.controller.advance_step)
         p.prev_clicked.connect(self.controller.prev_step)
+        p.stop_clicked.connect(self.controller.stop_l5_execution)
         p.compact_requested.connect(self.switch_to_compact)
         p.drag_requested.connect(self.controller.begin_window_drag)
         p.inspect_requested.connect(self._on_inspect_requested)
         p.inspect_exit_requested.connect(self.controller.exit_inspect_mode)
         p.start_services_requested.connect(self._on_start_services)
+        p.gpu_one_click_requested.connect(self._on_gpu_one_click)
         p.stop_services_requested.connect(self._on_stop_services)
-        p.settings_saved.connect(self._on_settings_saved)
+        p.chain_diagnostic_requested.connect(self._on_chain_diagnostic)
+        p.model_settings_saved.connect(self._on_model_settings_saved)
+        p.appearance_settings_saved.connect(self._on_appearance_settings_saved)
+        p.voice_settings_saved.connect(self._on_voice_settings_saved)
         p.appearance_preview_requested.connect(self._apply_appearance_preview)
         p.panel_resize_requested.connect(self._on_panel_resize_requested)
         p.panel_restore_size.connect(self._on_panel_restore_size)
@@ -581,77 +854,18 @@ class MainWidget(QWidget):
     def _on_submit_query(self, text: str):
         self.controller.submit_query(text)
 
-    # ── Agent panel handlers ─────────────────────────────────────────────
-
-    def _on_agent_submit_query(self, text: str):
-        """Agent panel submit -> send to A-end /execute."""
-        import json
-        import urllib.request
-        import threading
-
-        # take screenshot
-        try:
-            from core.screen_utils import capture_screen, pil_to_data_uri
-            screenshot = capture_screen()
-            image_uri = pil_to_data_uri(screenshot) if screenshot else ""
-        except Exception:
-            image_uri = ""
-
-        # POST /execute
-        data = json.dumps({"query": text, "image": image_uri}).encode()
-        url = "http://127.0.0.1:8010/api/demo/execute"
-
-        def do_request():
-            try:
-                req = urllib.request.Request(
-                    url, data=data,
-                    headers={"Content-Type": "application/json", "X-Demo-Key": "hajimi-demo-2026"}
-                )
-                resp = json.loads(urllib.request.urlopen(req, timeout=30).read())
-                if resp.get("success"):
-                    self.agent_panel.load_plan(resp["plan"])
-                    self.agent_panel._task_id = resp["task_id"]
-                    self.agent_panel._connect_sse(resp["task_id"])
-                    self.agent_panel.set_task_status("executing")
-                else:
-                    error_msg = resp.get("error", {}).get("message", "Unknown error")
-                    self.agent_panel.append_log(f"Error: {error_msg}", "error")
-                    self.agent_panel.set_task_status("idle")
-            except Exception as e:
-                self.agent_panel.append_log(f"Connection failed: {e}", "error")
-                self.agent_panel.set_task_status("idle")
-
-        threading.Thread(target=do_request, daemon=True).start()
-
-    def _on_agent_cancel(self, task_id: str):
-        """Agent panel cancel -> POST /cancel."""
-        import json, urllib.request, threading
-
-        def do_cancel():
-            try:
-                data = json.dumps({"task_id": task_id}).encode()
-                req = urllib.request.Request(
-                    "http://127.0.0.1:8010/api/demo/cancel",
-                    data=data,
-                    headers={"Content-Type": "application/json", "X-Demo-Key": "hajimi-demo-2026"}
-                )
-                urllib.request.urlopen(req, timeout=5)
-            except Exception:
-                pass
-
-        threading.Thread(target=do_cancel, daemon=True).start()
-
     def _on_inspect_requested(self):
         if self.inspect_worker.isRunning():
             self.medium_panel.set_inspect_status(
-                "检测进行中，CPU 约 2–4 分钟，请勿重复点击…"
+                "检测进行中，请勿重复点击…"
             )
             return
 
         ok, reason = check_inspect_preflight()
         if not ok:
-            self.medium_panel.set_inspect_status(f"检验失败: {reason}")
-            self.controller.message_added.emit(f"检验失败: {reason}", "system danger")
+            hint = f"检验失败: {reason}（可点击设置页「链路诊断」查看详情）"
+            self.medium_panel.set_inspect_status(hint)
+            self.controller.message_added.emit(hint, "system danger")
             return
 
         if not self.controller.run_inspect():
@@ -659,6 +873,29 @@ class MainWidget(QWidget):
         self.overlay.clear_annotations()
         self.medium_panel.set_inspect_busy(True)
         self.inspect_worker.start()
+
+    def _on_chain_diagnostic(self):
+        if self.chain_diag_worker.isRunning():
+            return
+        self.medium_panel.set_chain_diag_busy(True)
+        self.medium_panel.set_chain_diag_status("正在采集链路数据…")
+        self.chain_diag_worker.start()
+
+    def _on_chain_diag_done(self, report: str):
+        self.medium_panel.set_chain_diag_report(report)
+        ok = "总体: 就绪" in report
+        status = "链路就绪" if ok else "链路未就绪 — 见下方报告"
+        self.medium_panel.set_chain_diag_status(status)
+        self.controller.message_added.emit(
+            status,
+            "system" if ok else "system danger",
+        )
+
+    def _on_chain_diag_error(self, message: str):
+        self.medium_panel.set_chain_diag_status(f"诊断失败: {message}")
+
+    def _on_chain_diag_finished(self):
+        self.medium_panel.set_chain_diag_busy(False)
 
     def _on_inspect_finished(self):
         self.medium_panel.set_inspect_busy(False)
@@ -677,49 +914,93 @@ class MainWidget(QWidget):
             self.medium_panel.set_connection_error(is_error, text if is_error else "")
         return text, msg_type
 
-    def _on_settings_saved(self, data: dict):
-        try:
-            merged = save_user_settings(data)
-            apply_user_settings(merged)
-            self._apply_native_appearance(merged)
-            if merged.get("deployment_mode") == "local":
-                sync_server_env(merged)
-            mode_label = "内网 API" if is_intranet_mode() else "本地启动"
-            ui_theme = merged.get("ui_theme", "current")
-            theme_label = THEME_LABELS.get(ui_theme, "默认")
-            font_size = merged.get("font_size", 13)
-            if is_luxury_theme(ui_theme):
-                bg_label = LUXURY_BG_MODES.get(
-                    merged.get("luxury_bg_mode", "frosted"), "磨砂黑"
-                )
-                star = merged.get("luxury_star_intensity", 0)
-                font_id = merged.get("luxury_script_font_id", "mrs_delafield")
-                sig_label = script_font_labels().get(font_id, font_id)
-                detail = (
-                    f"{mode_label} · {theme_label} · {bg_label} · "
-                    f"星空 {star} · {sig_label} · 字号 {font_size}px"
-                )
-            else:
-                shell_label = SHELL_STYLES.get(merged.get("shell_style", "qss"), "QSS 实底")
-                art_label = TITLE_ART_MODES.get(
-                    merged.get("title_art_mode", "gradient"), "渐变艺术字"
-                )
-                detail = (
-                    f"{mode_label} · {shell_label} · {theme_label} · "
-                    f"{art_label} · 字号 {font_size}px"
-                )
-            self.medium_panel.on_settings_applied(
-                merged,
-                f"已保存，当前会话：{detail}",
+    def _appearance_save_detail(self, merged: dict) -> str:
+        ui_theme = merged.get("ui_theme", "current")
+        theme_label = appearance_scheme_label(merged)
+        font_size = merged.get("font_size", 13)
+        if is_luxury_theme(ui_theme):
+            bg_label = LUXURY_BG_MODES.get(
+                merged.get("luxury_bg_mode", "frosted"), "磨砂黑"
             )
-            text, msg_type = self._refresh_api_status()
-            self.controller.message_added.emit("配置已保存并应用", "system")
+            star = merged.get("luxury_star_intensity", 0)
+            font_id = merged.get("luxury_script_font_id", "mrs_delafield")
+            sig_label = script_font_labels().get(font_id, font_id)
+            return (
+                f"{theme_label} · {bg_label} · "
+                f"星空 {star} · {sig_label} · 字号 {font_size}px"
+            )
+        if is_orange_cat_theme(ui_theme):
+            return f"{theme_label} · 清新近白 · 字号 {font_size}px"
+        shell_label = SHELL_STYLES.get(merged.get("shell_style", "qss"), "QSS 实底")
+        art_label = TITLE_ART_MODES.get(
+            merged.get("title_art_mode", "gradient"), "渐变艺术字"
+        )
+        return f"{shell_label} · {theme_label} · {art_label} · 字号 {font_size}px"
+
+    def _on_model_settings_saved(self, data: dict):
+        try:
+            merged = save_settings_fragment(data)
+            apply_user_settings(merged)
+            if merged.get("deployment_mode") in ("local", "gpu_api"):
+                sync_server_env(merged)
+                restart_local_a_end()
+            if is_intranet_mode():
+                mode_label = "内网 API"
+            elif is_gpu_api_mode():
+                mode_label = "GPU API"
+            else:
+                mode_label = "本地 CPU"
+            restart_note = ""
+            if merged.get("deployment_mode") in ("local", "gpu_api"):
+                restart_note = "；A 端已重启以加载新配置"
+            self.medium_panel.on_model_settings_applied(
+                merged,
+                f"模型配置已保存：{mode_label}{restart_note}",
+            )
+            self._refresh_api_status()
+            self.controller.message_added.emit("模型配置已保存并应用", "system")
         except Exception as exc:
-            self.medium_panel.on_settings_applied(
+            self.medium_panel.on_model_settings_applied(
                 data,
                 f"保存失败: {exc}",
             )
-            self.controller.message_added.emit(f"保存设置失败: {exc}", "system danger")
+            self.controller.message_added.emit(f"保存模型设置失败: {exc}", "system danger")
+
+    def _on_appearance_settings_saved(self, data: dict):
+        try:
+            merged = save_settings_fragment(data)
+            self._apply_native_appearance(merged)
+            detail = self._appearance_save_detail(merged)
+            self.medium_panel.on_appearance_settings_applied(
+                merged,
+                f"主题外观已保存：{detail}",
+            )
+            self.controller.message_added.emit("主题外观已保存并应用", "system")
+        except Exception as exc:
+            self.medium_panel.on_appearance_settings_applied(
+                data,
+                f"保存失败: {exc}",
+            )
+            self.controller.message_added.emit(f"保存主题外观失败: {exc}", "system danger")
+
+    def _on_voice_settings_saved(self, data: dict) -> None:
+        try:
+            merged = save_settings_fragment(data)
+            voice = merged.get("voice") or load_voice_settings()
+            self._shared_state["voice_settings"] = voice
+            self.controller.set_voice_settings(voice)
+            if self._c_controller:
+                for key, value in voice.items():
+                    self._c_controller.update_voice_setting(key, value)
+            self.medium_panel.on_voice_settings_applied(
+                merged,
+                "语音设置已保存并应用",
+            )
+            self.controller.message_added.emit("语音设置已保存并应用", "system")
+            self._request_c_health_check()
+        except Exception as exc:
+            self.medium_panel.on_voice_settings_applied(data, f"保存失败: {exc}")
+            self.controller.message_added.emit(f"保存语音设置失败: {exc}", "system danger")
 
     def _on_start_services(self):
         if is_intranet_mode():
@@ -730,7 +1011,26 @@ class MainWidget(QWidget):
         try:
             from core.user_settings import load_user_settings
 
-            sync_server_env(load_user_settings())
+            settings = load_user_settings()
+            sync_server_env(settings)
+            if is_gpu_api_mode():
+                start_gpu_api_services()
+                from core.routing_config import routing_needs_omniparser
+
+                if not routing_needs_omniparser():
+                    self.medium_panel.set_service_status(
+                        "已启动本机 A 端（L4 Vision 模式，仅需 LLM，无需 :9800 隧道）。"
+                    )
+                    self.controller.message_added.emit(
+                        "已启动本机 A 端（L4 Vision 模式）", "system"
+                    )
+                    return
+                self.medium_panel.set_service_status(
+                    "已启动本机 A 端。请先运行「一键 GPU」或保持 :9800 隧道，"
+                    "再执行检验（约 2–5 秒）。"
+                )
+                self.controller.message_added.emit("已启动本机 A 端（GPU API 模式）", "system")
+                return
             start_backend_services()
             self.medium_panel.set_service_status(
                 "已清理旧进程并启动新窗口；请等待 OmniParser「Omniparser initialized」"
@@ -743,6 +1043,17 @@ class MainWidget(QWidget):
             self.medium_panel.set_service_status(f"启动失败: {exc}")
             self.controller.message_added.emit(f"启动后端失败: {exc}", "system danger")
 
+    def _on_gpu_one_click(self):
+        try:
+            run_gpu_one_click_bat()
+            self.medium_panel.set_service_status(
+                "已打开「HAJIMI-GPU-OneClick」窗口：远程 start.sh → 隧道 → A 端 → UI。"
+            )
+            self.controller.message_added.emit("已启动一键 GPU 脚本", "system")
+        except Exception as exc:
+            self.medium_panel.set_service_status(f"一键 GPU 失败: {exc}")
+            self.controller.message_added.emit(f"一键 GPU 失败: {exc}", "system danger")
+
     def _on_stop_services(self):
         result = stop_backend_services()
         summary = format_stop_summary(result)
@@ -750,7 +1061,7 @@ class MainWidget(QWidget):
         self.controller.message_added.emit(f"已停止后端服务: {summary}", "system")
 
     def _shutdown_workers(self, max_wait_ms: int = 2000):
-        for name in ("worker", "inspect_worker"):
+        for name in ("worker", "step_worker", "inspect_worker", "chain_diag_worker"):
             w = getattr(self, name, None)
             if w and w.isRunning():
                 w.terminate()
@@ -765,9 +1076,6 @@ class MainWidget(QWidget):
             return
         summary = format_stop_summary(stop_backend_services())
         print(f"[HAJIMI] 退出时停止后端: {summary}")
-        from core.a_end_launcher import stop_auto_started_a_end
-
-        stop_auto_started_a_end()
 
     def _quit_application(self):
         self._save_window_state()
@@ -1019,6 +1327,7 @@ class MainWidget(QWidget):
 
     def closeEvent(self, event):
         self._save_window_state()
+        self._shutdown_c_integration()
         self._shutdown_workers()
         self._stop_backend_if_enabled()
         if hasattr(self, "overlay"):

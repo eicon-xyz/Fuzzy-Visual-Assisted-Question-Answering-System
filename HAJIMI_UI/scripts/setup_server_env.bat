@@ -51,7 +51,7 @@ if errorlevel 1 (
 )
 
 echo [HAJIMI] Verifying installation...
-"%VENV_PY%" -c "import fastapi, uvicorn, pydantic; print('fastapi', fastapi.__version__)"
+"%VENV_PY%" -c "import fastapi, uvicorn, pydantic, sqlalchemy; print('fastapi', fastapi.__version__, 'sqlalchemy', sqlalchemy.__version__)"
 if errorlevel 1 (
     echo [HAJIMI] ERROR: venv verification failed. Try:
     echo   set HAJIMI_RECREATE_VENV=1

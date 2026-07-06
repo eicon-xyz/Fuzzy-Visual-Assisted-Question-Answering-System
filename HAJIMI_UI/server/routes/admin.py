@@ -4,24 +4,19 @@ HAJIMI Admin API 路由
 管理控制台接口：统计总览、配置管理、失败归因、红线统计
 对应 a-c-api-contract.md 中的 /api/admin/* 端点
 """
-
+from fastapi import APIRouter, Depends, HTTPException, Header, status
 from typing import Optional
-
-from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from server.config import settings
 from server.database.repository import (
-    ConfigRepository,
-    RedlineRepository,
-    TaskRepository,
+    TaskRepository, RedlineRepository, FeedbackRepository,
+    FailureRepository, ConfigRepository,
 )
-from server.services.metrics import metrics
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
 
 # ────────────────────────── 认证 ──────────────────────────
-
 
 def verify_admin_key(x_admin_key: Optional[str] = Header(None)) -> str:
     """管理端认证（Demo 阶段与 demo key 相同）"""
@@ -40,7 +35,6 @@ def verify_admin_key(x_admin_key: Optional[str] = Header(None)) -> str:
 
 
 # ────────────────────────── 统计总览 ──────────────────────────
-
 
 @router.get(
     "/stats/overview",
@@ -62,9 +56,8 @@ async def stats_top_tasks(
     limit: int = 10,
     admin_key: str = Depends(verify_admin_key),
 ):
-    from sqlalchemy import func
-
     from server.database import SessionLocal
+    from sqlalchemy import func
     from server.database.models import Transaction
 
     db = SessionLocal()
@@ -89,12 +82,10 @@ async def stats_top_tasks(
     summary="24h 事务趋势",
 )
 async def stats_trend(admin_key: str = Depends(verify_admin_key)):
-    from datetime import datetime, timedelta, timezone
-
-    from sqlalchemy import func
-
     from server.database import SessionLocal
+    from sqlalchemy import func
     from server.database.models import Transaction
+    from datetime import datetime, timezone, timedelta
 
     db = SessionLocal()
     try:
@@ -116,7 +107,6 @@ async def stats_trend(admin_key: str = Depends(verify_admin_key)):
 
 # ────────────────────────── 红线统计 ──────────────────────────
 
-
 @router.get(
     "/stats/redline",
     summary="红线拦截统计",
@@ -126,7 +116,6 @@ async def stats_redline(admin_key: str = Depends(verify_admin_key)):
 
 
 # ────────────────────────── 失败归因 ──────────────────────────
-
 
 @router.get(
     "/failures/list",
@@ -183,10 +172,7 @@ async def failure_detail(
     try:
         f = db.query(Failure).filter(Failure.task_id == task_id).first()
         if not f:
-            raise HTTPException(
-                status_code=404,
-                detail={"error": {"code": "NOT_FOUND", "message": "记录不存在"}},
-            )
+            raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "记录不存在"}})
         return {
             "failure_id": f.failure_id,
             "task_id": f.task_id,
@@ -202,7 +188,6 @@ async def failure_detail(
 
 
 # ────────────────────────── 配置管理 ──────────────────────────
-
 
 @router.get(
     "/config/current",
@@ -232,15 +217,13 @@ async def config_deploy(
 
 # ────────────────────────── 反馈统计 ──────────────────────────
 
-
 @router.get(
     "/stats/feedback",
     summary="用户反馈分布",
 )
 async def stats_feedback(admin_key: str = Depends(verify_admin_key)):
-    from sqlalchemy import func
-
     from server.database import SessionLocal
+    from sqlalchemy import func
     from server.database.models import Feedback
 
     db = SessionLocal()
@@ -256,41 +239,3 @@ async def stats_feedback(admin_key: str = Depends(verify_admin_key)):
         return {"feedback_distribution": {r[0]: r[1] for r in rows}}
     finally:
         db.close()
-
-
-# ────────────────────────── 性能指标 ──────────────────────────
-
-
-@router.get(
-    "/metrics",
-    summary="性能指标",
-    description="返回内存中收集的 P95/P50/平均延迟等性能指标。",
-)
-async def get_metrics(admin_key: str = Depends(verify_admin_key)):
-    """Return performance metrics collected in-memory."""
-    return {"metrics": metrics.get_all()}
-
-
-@router.post(
-    "/metrics/reset",
-    summary="重置性能指标",
-)
-async def reset_metrics(admin_key: str = Depends(verify_admin_key)):
-    """Reset all performance metrics."""
-    metrics.reset()
-    return {"reset": True}
-
-
-# ────────────────────────── 会话状态 ──────────────────────────
-
-
-@router.get(
-    "/session/status",
-    summary="当前会话状态",
-    description="返回当前编排器会话的状态。",
-)
-async def session_status(admin_key: str = Depends(verify_admin_key)):
-    """Return current orchestrator session state."""
-    from server.services.agent.orchestrator import orchestrator
-
-    return {"session": orchestrator.get_session()}

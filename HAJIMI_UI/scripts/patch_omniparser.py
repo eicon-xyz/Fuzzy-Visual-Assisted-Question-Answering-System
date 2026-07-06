@@ -57,11 +57,21 @@ def patch_utils(utils_path: Path) -> bool:
 
 
 def _resolve_omni_root() -> Path:
-    """Match scripts/resolve_omni_root.bat: env > repo OmniParser; no author-path fallback."""
+    """Match scripts/resolve_omni_root.bat priority."""
     env = os.environ.get("OMNI_ROOT")
     if env:
-        return Path(env)
+        p = Path(env)
+        if (p / "omnitool" / "omniparserserver").is_dir():
+            return p
     repo = Path(__file__).resolve().parent.parent / "OmniParser"
+    weights = repo / "weights" / "icon_detect" / "model.pt"
+    if (repo / "omnitool" / "omniparserserver").is_dir() and weights.is_file():
+        return repo
+    tools = Path(r"E:\Tools\OmniParser")
+    if (tools / "omnitool" / "omniparserserver").is_dir():
+        return tools
+    if (repo / "omnitool" / "omniparserserver").is_dir():
+        return repo
     return repo
 
 
