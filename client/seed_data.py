@@ -1,7 +1,9 @@
 """
-HAJIMI — 管理面板测试数据注入脚本
+HAJIMI — 管理面板测试数据注入
 ====================================
-向 A 端数据库写入模拟数据，使 Web 管理面板展示真实可操作的图表。
+向 A 端数据库写入模拟数据（50 事务 + 反馈 + 红线 + 配置）
+
+数据库位置: new_JIMI/HAJIMI_UI/data/hajimi.db
 
 用法::
 
@@ -11,11 +13,17 @@ HAJIMI — 管理面板测试数据注入脚本
 import sys, os, random, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# 优先使用 new_JIMI 下的 server（新后端），回退到旧 server/
+NEW_SERVER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "new_JIMI", "HAJIMI_UI")
+if os.path.isdir(NEW_SERVER):
+    sys.path.insert(0, NEW_SERVER)
+    os.chdir(NEW_SERVER)
+
 if sys.platform == "win32":
     import io; sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
-from datetime import datetime, timedelta
-sys.path.insert(0, ".")
+from datetime import datetime, timedelta, timezone
 
 from server.database import SessionLocal, init_db
 from server.database.models import Transaction, Feedback, Failure, SystemConfig, RedlineLog

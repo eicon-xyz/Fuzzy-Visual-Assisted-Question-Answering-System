@@ -23,7 +23,7 @@ if sys.platform == "win32":
 PASS = 0
 FAIL = 0
 
-SERVER = "http://localhost:8000"
+SERVER = "http://localhost:8010"
 KEY = "hajimi-demo-2026"
 
 try:
