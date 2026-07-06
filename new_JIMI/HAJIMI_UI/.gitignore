@@ -1,0 +1,5 @@
+ui/native/_baseline/
+__pycache__/
+*.pyc
+.env
+校园gpu使用.md

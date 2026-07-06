@@ -1,0 +1,138 @@
+/* HAJIMI native — shared across all theme variants (nav, settings, dialogs) */
+
+QWidget#NavBackdrop {
+    background: rgba(0, 0, 0, 0.45);
+}
+
+QWidget#NavDrawer {
+    background: rgba(15, 23, 42, 0.97);
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+QLabel#DrawerHead {
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QFrame#DrawerSep {
+    background: rgba(90, 158, 196, 0.08);
+    max-height: 1px;
+}
+
+QPushButton#NavItem {
+    text-align: left;
+    padding: 9px 10px;
+    border: none;
+    border-radius: 10px;
+    color: #94a3b8;
+    background: transparent;
+    font-size: 12px;
+}
+
+QPushButton#NavItem:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #f1f5f9;
+}
+
+QPushButton#NavItem[active="true"] {
+    background: rgba(90, 158, 196, 0.15);
+    color: #5a9ec4;
+    border: 1px solid rgba(90, 158, 196, 0.15);
+}
+
+QPushButton#NavItemQuit {
+    text-align: left;
+    padding: 9px 10px;
+    border: none;
+    border-radius: 10px;
+    color: #f87171;
+    background: transparent;
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+QPushButton#NavItemQuit:hover {
+    background: rgba(231, 76, 60, 0.12);
+    color: #fca5a5;
+}
+
+QLabel#SetRowLabel {
+    font-size: 12px;
+    font-weight: 500;
+}
+
+QFrame#ToggleSwitch {
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+QFrame#ToggleSwitch[on="true"] {
+    background: #5a9ec4;
+    border-color: rgba(90, 158, 196, 0.2);
+}
+
+QLineEdit#SettingsInput {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: #f1f5f9;
+    font-size: 12px;
+    padding: 6px 10px;
+    min-height: 20px;
+}
+
+QLineEdit#SettingsInput:focus {
+    border-color: rgba(90, 158, 196, 0.6);
+}
+
+QRadioButton#SettingsRadio {
+    color: #f1f5f9;
+    font-size: 12px;
+    spacing: 6px;
+}
+
+QCheckBox {
+    color: #f1f5f9;
+}
+
+QFrame#DialogCard,
+QFrame#DialogCardPrepare,
+QFrame#DialogCardSuspension {
+    background: rgba(15, 23, 42, 0.98);
+    border-radius: 14px;
+}
+
+QFrame#DialogCard {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+QFrame#DialogCardPrepare {
+    border: 1px solid rgba(56, 189, 248, 0.45);
+}
+
+QFrame#DialogCardSuspension {
+    border: 1px solid rgba(241, 196, 15, 0.4);
+}
+
+QLabel#DialogTitlePrepare {
+    font-size: 15px;
+    font-weight: 600;
+    color: #38bdf8;
+}
+
+QLabel#DialogTitleSuspension {
+    font-size: 15px;
+    font-weight: 600;
+    color: #f1c40f;
+}
+
+QLabel#DialogBody {
+    color: #f1f5f9;
+    font-size: 13px;
+}
+
+QLabel#DialogSub {
+    color: #94a3b8;
+    font-size: 11px;
+}
