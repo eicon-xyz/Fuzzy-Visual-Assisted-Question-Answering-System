@@ -3,12 +3,19 @@ HAJIMI 数据库 ORM 模型（7 张表）
 
 参考：设计文档 §4.6.1
 """
+
 import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Column, String, Integer, Float, Boolean, Text, DateTime,
-    ForeignKey, JSON, Enum as SAEnum,
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
 )
 from sqlalchemy.orm import relationship
 
@@ -25,6 +32,7 @@ def _now() -> datetime:
 
 # ────────────────────────── t_users ──────────────────────────
 
+
 class User(Base):
     __tablename__ = "t_users"
 
@@ -39,6 +47,7 @@ class User(Base):
 
 # ────────────────────────── t_transactions ──────────────────────────
 
+
 class Transaction(Base):
     __tablename__ = "t_transactions"
 
@@ -52,7 +61,9 @@ class Transaction(Base):
     plan_type = Column(String(8), nullable=False, default="L3")  # L2 | L3
     complexity_score = Column(Integer, default=0)
     blueprint_json = Column(JSON, nullable=True)
-    result = Column(String(16), nullable=True)  # success | fail | cancel | redirect | rejected
+    result = Column(
+        String(16), nullable=True
+    )  # success | fail | cancel | redirect | rejected
     duration_ms = Column(Integer, nullable=True)
     clarification_count = Column(Integer, default=0)
 
@@ -63,17 +74,24 @@ class Transaction(Base):
     detection_latency_ms = Column(Integer, nullable=True)
 
     # 关联
-    step_logs = relationship("StepLog", back_populates="transaction", cascade="all, delete-orphan")
-    feedbacks = relationship("Feedback", back_populates="transaction", cascade="all, delete-orphan")
+    step_logs = relationship(
+        "StepLog", back_populates="transaction", cascade="all, delete-orphan"
+    )
+    feedbacks = relationship(
+        "Feedback", back_populates="transaction", cascade="all, delete-orphan"
+    )
 
 
 # ────────────────────────── t_step_logs ──────────────────────────
+
 
 class StepLog(Base):
     __tablename__ = "t_step_logs"
 
     log_id = Column(String(64), primary_key=True, default=_new_uuid)
-    task_id = Column(String(64), ForeignKey("t_transactions.task_id"), nullable=False, index=True)
+    task_id = Column(
+        String(64), ForeignKey("t_transactions.task_id"), nullable=False, index=True
+    )
     step_index = Column(Integer, nullable=False)
     action = Column(String(256), nullable=False)
     target_element_id = Column(String(16), nullable=True)
@@ -90,11 +108,14 @@ class StepLog(Base):
 
 # ────────────────────────── t_feedback ──────────────────────────
 
+
 class Feedback(Base):
     __tablename__ = "t_feedback"
 
     feedback_id = Column(String(64), primary_key=True, default=_new_uuid)
-    task_id = Column(String(64), ForeignKey("t_transactions.task_id"), nullable=False, index=True)
+    task_id = Column(
+        String(64), ForeignKey("t_transactions.task_id"), nullable=False, index=True
+    )
     user_id = Column(String(64), ForeignKey("t_users.user_id"), nullable=True)
     feedback_type = Column(String(16), nullable=False)  # useful | useless | neutral
     comment = Column(Text, nullable=True)
@@ -104,6 +125,7 @@ class Feedback(Base):
 
 
 # ────────────────────────── t_failures ──────────────────────────
+
 
 class Failure(Base):
     __tablename__ = "t_failures"
@@ -120,6 +142,7 @@ class Failure(Base):
 
 # ────────────────────────── t_system_configs ──────────────────────────
 
+
 class SystemConfig(Base):
     __tablename__ = "t_system_configs"
 
@@ -133,13 +156,17 @@ class SystemConfig(Base):
 
 # ────────────────────────── t_redline_logs ──────────────────────────
 
+
 class RedlineLog(Base):
     """红线拦截日志（第 7 张表）"""
+
     __tablename__ = "t_redline_logs"
 
     log_id = Column(String(64), primary_key=True, default=_new_uuid)
     query = Column(String(500), nullable=False)
-    category = Column(String(32), nullable=False, index=True)  # physical_operation | personal_privacy | realtime_dynamic
+    category = Column(
+        String(32), nullable=False, index=True
+    )  # physical_operation | personal_privacy | realtime_dynamic
     action = Column(String(16), nullable=False)  # reject | guided_reject | degrade
     message = Column(String(512), nullable=False)
     created_at = Column(DateTime, default=_now, index=True)

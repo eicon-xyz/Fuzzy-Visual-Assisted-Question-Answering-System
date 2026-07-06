@@ -1,8 +1,8 @@
 """
 红线检测模块测试
 """
-import pytest
-from server.services.redline_service import check_redline, RedlineResult
+
+from server.services.redline_service import check_redline
 
 
 class TestPhysicalOperationRedline:

@@ -2,9 +2,8 @@
 共享标注构建器
 router.py 与 replanner.py 共用，消除重复代码。
 """
-from typing import List, Optional
 
-from server.models.schemas import UIElement, Annotation
+from server.models.schemas import Annotation, UIElement
 
 
 def build_annotation(

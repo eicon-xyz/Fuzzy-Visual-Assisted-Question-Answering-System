@@ -1,6 +1,7 @@
 """
 LLM 客户端 — 支持多模态（SiliconCloud Qwen3.6 等）和纯文本（DeepSeek）
 """
+
 import json
 import re
 from typing import List, Optional
@@ -9,8 +10,8 @@ import httpx
 
 from server.config import settings
 from server.models.schemas import UIElement
-from server.services.perception import serialize_elements
 from server.services.llm.prompt import SYSTEM_PROMPT
+from server.services.perception import serialize_elements
 
 
 def _get_api_config():
@@ -87,7 +88,11 @@ def call_deepseek(
 
     element_text = serialize_elements(elements) if elements else "（未检测到 UI 元素）"
     if system_prompt is not None:
-        prompt = system_prompt.format(element_list=element_text) if "{element_list}" in system_prompt else system_prompt
+        prompt = (
+            system_prompt.format(element_list=element_text)
+            if "{element_list}" in system_prompt
+            else system_prompt
+        )
     else:
         prompt = SYSTEM_PROMPT.format(element_list=element_text)
 

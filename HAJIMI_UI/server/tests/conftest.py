@@ -2,10 +2,12 @@
 HAJIMI Server 测试共享 fixtures
 供多 Agent 并行开发期间回归测试使用
 """
-import pytest
-from typing import List, Tuple
 
-from server.models.schemas import UIElement, Step, Annotation, Blueprint, Intent, ProcessResponse
+from typing import List
+
+import pytest
+
+from server.models.schemas import UIElement
 
 
 @pytest.fixture

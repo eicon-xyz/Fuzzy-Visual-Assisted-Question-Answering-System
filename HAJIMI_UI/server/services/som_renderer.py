@@ -1,4 +1,5 @@
 """Set-of-Mark 标注图渲染。"""
+
 import base64
 from io import BytesIO
 from typing import List
@@ -43,8 +44,13 @@ def render(pil_image: Image.Image, elements: List[UIElement]) -> Image.Image:
             -1,
         )
         cv2.putText(
-            cv_img, label, (label_x + 2, label_y - 2),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2,
+            cv_img,
+            label,
+            (label_x + 2, label_y - 2),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 0, 255),
+            2,
         )
 
     return Image.fromarray(cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB))

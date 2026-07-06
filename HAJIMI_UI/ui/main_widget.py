@@ -68,6 +68,7 @@ from ui.native.luxury.qss import LUXURY_BG_MODES
 from ui.native.luxury.title import script_font_labels
 from ui.native.title_art import TITLE_ART_MODES
 from ui.native.nav_icons import svg_icon
+from ui.agent_panel import AgentPanel
 
 
 class MainWidget(QWidget):
@@ -175,11 +176,18 @@ class MainWidget(QWidget):
         self.prepare_step_dialog = PrepareStepDialog(self)
 
         self.stack = QStackedWidget(self)
+
+        # ── Agent panel (new auto-op panel) ──
+        self.agent_panel = AgentPanel()
+        self.agent_panel.send_query.connect(self._on_agent_submit_query)
+        self.agent_panel.cancel_requested.connect(self._on_agent_cancel)
+        self.stack.addWidget(self.agent_panel)
+
         self.medium_panel = MediumPanel()
         self.compact_bar = CompactBar()
         self.stack.addWidget(self.medium_panel)
         self.stack.addWidget(self.compact_bar)
-        self.stack.setCurrentWidget(self.medium_panel)
+        self.stack.setCurrentWidget(self.agent_panel)  # Default: agent panel
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -572,6 +580,66 @@ class MainWidget(QWidget):
 
     def _on_submit_query(self, text: str):
         self.controller.submit_query(text)
+
+    # ── Agent panel handlers ─────────────────────────────────────────────
+
+    def _on_agent_submit_query(self, text: str):
+        """Agent panel submit -> send to A-end /execute."""
+        import json
+        import urllib.request
+        import threading
+
+        # take screenshot
+        try:
+            from core.screen_utils import capture_screen, pil_to_data_uri
+            screenshot = capture_screen()
+            image_uri = pil_to_data_uri(screenshot) if screenshot else ""
+        except Exception:
+            image_uri = ""
+
+        # POST /execute
+        data = json.dumps({"query": text, "image": image_uri}).encode()
+        url = "http://127.0.0.1:8010/api/demo/execute"
+
+        def do_request():
+            try:
+                req = urllib.request.Request(
+                    url, data=data,
+                    headers={"Content-Type": "application/json", "X-Demo-Key": "hajimi-demo-2026"}
+                )
+                resp = json.loads(urllib.request.urlopen(req, timeout=30).read())
+                if resp.get("success"):
+                    self.agent_panel.load_plan(resp["plan"])
+                    self.agent_panel._task_id = resp["task_id"]
+                    self.agent_panel._connect_sse(resp["task_id"])
+                    self.agent_panel.set_task_status("executing")
+                else:
+                    error_msg = resp.get("error", {}).get("message", "Unknown error")
+                    self.agent_panel.append_log(f"Error: {error_msg}", "error")
+                    self.agent_panel.set_task_status("idle")
+            except Exception as e:
+                self.agent_panel.append_log(f"Connection failed: {e}", "error")
+                self.agent_panel.set_task_status("idle")
+
+        threading.Thread(target=do_request, daemon=True).start()
+
+    def _on_agent_cancel(self, task_id: str):
+        """Agent panel cancel -> POST /cancel."""
+        import json, urllib.request, threading
+
+        def do_cancel():
+            try:
+                data = json.dumps({"task_id": task_id}).encode()
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8010/api/demo/cancel",
+                    data=data,
+                    headers={"Content-Type": "application/json", "X-Demo-Key": "hajimi-demo-2026"}
+                )
+                urllib.request.urlopen(req, timeout=5)
+            except Exception:
+                pass
+
+        threading.Thread(target=do_cancel, daemon=True).start()
 
     def _on_inspect_requested(self):
         if self.inspect_worker.isRunning():

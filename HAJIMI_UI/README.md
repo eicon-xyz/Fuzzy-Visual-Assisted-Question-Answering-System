@@ -1,47 +1,80 @@
-# HAJIMI 智能桌面助手
+# HAJIMI Desktop Auto-Op Assistant
 
-PyQt5 原生 UI + FastAPI 后端。默认运行 **Native UI**（`ui/native/`）。
+## V2 - AI-Powered Desktop Automation
 
-## 运行模式
+User types natural language instruction -> AI captures screen -> detects elements via remote GPU OmniParser -> generates execution plan via LLM -> performs actions (click / type / keys) to complete the task.
 
-| 模式 | 命令 | 需要 |
-|------|------|------|
-| **UI 壳演示** | `set HAJIMI_MOCK_ONLY=1` 后 `python main.py` | 仅 [`requirements.txt`](requirements.txt) |
-| **本地联调** | `scripts\start_all.bat` 或分步启动 A/OmniParser | `server/.env` + OmniParser 权重 |
-| **校园 GPU** | SSH 隧道 + 系统设置「内网 API」 | VPN，见 [`docs/校园GPU-B端联调清单_v2.md`](docs/校园GPU-B端联调清单_v2.md) |
+```
+[PyQt5 UI] <-- HTTP/SSE --> [FastAPI Server] <-- HTTP --> [OmniParser :9800]
+```
 
-组员首次 clone 请阅读 [`docs/B端-组员快速启动.md`](docs/B端-组员快速启动.md)（或运行 `scripts\setup.bat` 一键初始化）。
+## Quick Start
 
-## 快速启动（UI 壳）
+### 1. Ensure OmniParser is running on remote GPU
+```bash
+curl http://127.0.0.1:9800/probe/
+# Expected: {"ready": true, "device": "cuda"}
+```
 
-```powershell
-scripts\setup.bat
-set HAJIMI_MOCK_ONLY=1
+### 2. Configure server/.env
+```env
+OMNIPARSER_URL=http://127.0.0.1:9800
+OMNIPARSER_TIMEOUT=30
+LLM_API_KEY=sk-your-key
+LLM_BASE_URL=https://api.siliconflow.cn/v1
+LLM_MODEL=Qwen/Qwen3.6-35B-A3B
+LLM_PROVIDER=qwen
+HAJIMI_DEMO_KEY=hajimi-demo-2026
+```
+
+### 3. Start A-end
+```bash
+server\.venv\Scripts\python.exe -m uvicorn server.main:app --host 127.0.0.1 --port 8010
+```
+
+### 4. Quick test (CLI)
+```bash
+curl -X POST http://127.0.0.1:8010/api/demo/execute \
+  -H "X-Demo-Key: hajimi-demo-2026" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"open notepad"}'
+```
+
+### 5. Start B-end (optional)
+```bash
 python main.py
 ```
 
-或使用 `scripts\start_ui.bat`（等价于 `python main.py`，自动解析 PATH 中的 Python）。
+## API
 
-## 本地完整联调
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/demo/health` | Health + OmniParser probe |
+| POST | `/api/demo/execute` | Submit task, returns plan + task_id |
+| GET | `/api/demo/stream/{task_id}` | SSE event stream |
+| POST | `/api/demo/cancel` | Cancel task |
 
-```powershell
-copy server\.env.example server\.env
-# 编辑 server\.env 填入 LLM_API_KEY 等
-scripts\setup_server_env.bat
-scripts\start_all.bat
-```
+## SSE Events
 
-默认 A 端端口：**8010**（`HAJIMI_PORT` / `config.py`）。
+`plan_ready` -> `step_start` -> `step_done` -> ... -> `task_done`
+Plus: `log`, `screenshot`, `heartbeat`
 
-## UI 观感预览
+## Safety (3-tier)
 
+| Level | Examples | Behavior |
+|-------|----------|----------|
+| GREEN | click button, open notepad, type text | auto-execute |
+| YELLOW | install software, modify settings, delete file | allow with warning |
+| RED | format disk, crack password, auto pay | blocked |
+
+## Docs
+
+- [API Contract](docs/API-CONTRACT.md)
+- [Dev Guide](docs/DEV-GUIDE.md)
+- [UI Spec](docs/UI-SPEC.md)
+- [Backend Checklist](docs/BACKEND-CHECKLIST.md)
+
+## Test
 ```bash
-python -m ui.style_preview_demo
+python -m pytest server/tests/ -q
 ```
-
-详见 [`docs/design-spec.md`](docs/design-spec.md)。
-
-## 平台说明
-
-- **官方支持**：Windows 10+（无边框窗口、系统托盘、服务启停脚本）
-- **Linux/macOS**：可尝试 `python main.py`；`.bat` 与服务管理脚本不可用

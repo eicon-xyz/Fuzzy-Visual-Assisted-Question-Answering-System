@@ -6,20 +6,21 @@
 
 参考：设计文档 §4.2.4、§6.6 三条红线
 """
-import re
-from dataclasses import dataclass, field
-from typing import Optional, List
 
+import re
+from dataclasses import dataclass
 
 # ────────────────────────── 红线类别 ──────────────────────────
+
 
 @dataclass
 class RedlineResult:
     """红线检测结果。triggered=False 表示通过检测。"""
+
     triggered: bool = False
-    category: str = ""          # physical_operation | personal_privacy | realtime_dynamic
-    message: str = ""           # 返回给用户的标准话术
-    action: str = "reject"      # reject | guided_reject | degrade
+    category: str = ""  # physical_operation | personal_privacy | realtime_dynamic
+    message: str = ""  # 返回给用户的标准话术
+    action: str = "reject"  # reject | guided_reject | degrade
 
 
 # ────────────────────────── 物理操作红线 ──────────────────────────
@@ -33,7 +34,12 @@ _PHYSICAL_OPERATION_PATTERNS = [
     (re.compile(r"((全|自)动|批量|循环|不停|一直|持续)(点击|抢|刷|操作)"), 0.95),
     (re.compile(r"(脚本|外挂|辅助|破解|刷量)"), 0.98),
     # 连续自动化意图
-    (re.compile(r"(每\s*[0-9零一二三四五六七八九十]+\s*(秒|分|小时|天)).{0,6}(执行|点击|操作)"), 0.95),
+    (
+        re.compile(
+            r"(每\s*[0-9零一二三四五六七八九十]+\s*(秒|分|小时|天)).{0,6}(执行|点击|操作)"
+        ),
+        0.95,
+    ),
     (re.compile(r"(定时|自动|循环|重复).{0,4}(执行|点击|发送|提交)"), 0.93),
 ]
 
@@ -47,10 +53,25 @@ PHYSICAL_OPERATION_REJECT_MSG = (
 
 _PRIVACY_PATTERNS = [
     # 扫描/遍历文件系统
-    (re.compile(r"(扫描|遍历|搜索|查找).{0,4}(硬盘|磁盘|电脑|所有|全部).{0,4}(文件|照片|图片|视频|文档)"), 0.95),
-    (re.compile(r"(找出|找到|列出).{0,4}(所有|全部|整个).{0,4}(文件|照片|图片|视频|密码)"), 0.93),
+    (
+        re.compile(
+            r"(扫描|遍历|搜索|查找).{0,4}(硬盘|磁盘|电脑|所有|全部).{0,4}(文件|照片|图片|视频|文档)"
+        ),
+        0.95,
+    ),
+    (
+        re.compile(
+            r"(找出|找到|列出).{0,4}(所有|全部|整个).{0,4}(文件|照片|图片|视频|密码)"
+        ),
+        0.93,
+    ),
     # 访问他人私密数据
-    (re.compile(r"(查看|读取|偷看|获取).{0,4}(聊天记录|微信|QQ|短信|邮件|消息|通话记录)"), 0.95),
+    (
+        re.compile(
+            r"(查看|读取|偷看|获取).{0,4}(聊天记录|微信|QQ|短信|邮件|消息|通话记录)"
+        ),
+        0.95,
+    ),
     (re.compile(r"(破解|获取|提取|盗取).{0,8}(密码|账号|密钥|token|cookie)"), 0.98),
     # 监控行为
     (re.compile(r"(监控|监视|记录|跟踪).{0,4}(屏幕|键盘|输入|操作|桌面)"), 0.95),
@@ -79,6 +100,7 @@ DYNAMIC_CONTENT_DEGRADE_MSG = (
 
 
 # ────────────────────────── 统一入口 ──────────────────────────
+
 
 def check_redline(query: str) -> RedlineResult:
     """

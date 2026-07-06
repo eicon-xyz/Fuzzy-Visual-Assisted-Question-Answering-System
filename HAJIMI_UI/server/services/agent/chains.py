@@ -4,22 +4,31 @@ HAJIMI_UI — Agent Chains (sync)
 Matches OpenGuider's planner-chain.js, executor-chain.js, evaluator-chain.js, replanner-chain.js.
 Uses pure vision LLM — screenshots go directly to multimodal LLM, no OmniParser needed.
 """
+
 from __future__ import annotations
-import json
+
 import logging
 from typing import Optional
 
 from server.services.agent.prompts import (
-    PLANNER_SYSTEM_PROMPT, PLANNER_USER_TEMPLATE,
-    LOCATOR_SYSTEM_PROMPT, STRICT_LOCATOR_SYSTEM_PROMPT, LOCATOR_USER_TEMPLATE,
-    EVALUATOR_SYSTEM_PROMPT, EVALUATOR_USER_TEMPLATE,
-    REPLANNER_SYSTEM_PROMPT, REPLANNER_USER_TEMPLATE,
-    PLAN_LOCATE_COMBO_SYSTEM, PLAN_LOCATE_COMBO_USER,
+    EVALUATOR_SYSTEM_PROMPT,
+    EVALUATOR_USER_TEMPLATE,
+    LOCATOR_SYSTEM_PROMPT,
+    LOCATOR_USER_TEMPLATE,
+    PLAN_LOCATE_COMBO_SYSTEM,
+    PLAN_LOCATE_COMBO_USER,
+    PLANNER_SYSTEM_PROMPT,
+    PLANNER_USER_TEMPLATE,
+    REPLANNER_SYSTEM_PROMPT,
+    REPLANNER_USER_TEMPLATE,
+    STRICT_LOCATOR_SYSTEM_PROMPT,
 )
 from server.services.llm.providers import (
-    call_llm, call_llm_json,
-    parse_point_tags, extract_json_object, parse_structured_json,
     DEFAULT_SYSTEM_PROMPT,
+    call_llm,
+    call_llm_json,
+    extract_json_object,
+    parse_point_tags,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,6 +37,7 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def _summarize_screenshots(images: list | None = None) -> str:
     if not images:
@@ -46,35 +56,42 @@ def _build_step_dicts(raw_steps: list[dict], start_index: int = 0) -> list[dict]
     steps = []
     for s in raw_steps:
         if isinstance(s, str):
-            steps.append({
-                "id": f"step_{len(steps) + start_index}",
-                "title": s[:40],
-                "instruction": s,
-                "successCriteria": s,
-                "guidanceMode": "point_and_explain",
-                "requiresScreenshotCheck": True,
-                "canUserMarkDone": True,
-                "fallbackHints": [],
-                "status": "pending",
-            })
+            steps.append(
+                {
+                    "id": f"step_{len(steps) + start_index}",
+                    "title": s[:40],
+                    "instruction": s,
+                    "successCriteria": s,
+                    "guidanceMode": "point_and_explain",
+                    "requiresScreenshotCheck": True,
+                    "canUserMarkDone": True,
+                    "fallbackHints": [],
+                    "status": "pending",
+                }
+            )
         else:
-            steps.append({
-                "id": s.get("id", f"step_{len(steps) + start_index}"),
-                "title": s.get("title", "Step"),
-                "instruction": s.get("instruction", ""),
-                "successCriteria": s.get("successCriteria", s.get("instruction", "")),
-                "guidanceMode": s.get("guidanceMode", "point_and_explain"),
-                "requiresScreenshotCheck": s.get("requiresScreenshotCheck", True),
-                "canUserMarkDone": s.get("canUserMarkDone", True),
-                "fallbackHints": s.get("fallbackHints", []),
-                "status": "pending",
-            })
+            steps.append(
+                {
+                    "id": s.get("id", f"step_{len(steps) + start_index}"),
+                    "title": s.get("title", "Step"),
+                    "instruction": s.get("instruction", ""),
+                    "successCriteria": s.get(
+                        "successCriteria", s.get("instruction", "")
+                    ),
+                    "guidanceMode": s.get("guidanceMode", "point_and_explain"),
+                    "requiresScreenshotCheck": s.get("requiresScreenshotCheck", True),
+                    "canUserMarkDone": s.get("canUserMarkDone", True),
+                    "fallbackHints": s.get("fallbackHints", []),
+                    "status": "pending",
+                }
+            )
     return steps
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Combo: Plan + Locate in ONE call (cuts latency in half)
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def plan_and_locate(
     goal: str,
@@ -112,9 +129,10 @@ def plan_and_locate(
         }
     """
     recent = (session_messages or [])[-6:]
-    recent_text = "\n".join(
-        f"{m.get('role', 'user')}: {m.get('content', '')}" for m in recent
-    ) or "No earlier messages."
+    recent_text = (
+        "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in recent)
+        or "No earlier messages."
+    )
 
     images = None
     if image_base64:
@@ -123,7 +141,9 @@ def plan_and_locate(
     screen_hints = _summarize_screenshots(images)
 
     user_text = PLAN_LOCATE_COMBO_USER.format(
-        goal=goal, recentMessages=recent_text, screenHints=screen_hints,
+        goal=goal,
+        recentMessages=recent_text,
+        screenHints=screen_hints,
     )
 
     # Get raw text via LLM
@@ -161,7 +181,9 @@ def plan_and_locate(
     pointer = {
         "x": coord_x,
         "y": coord_y,
-        "label": pointer_data.get("label", data.get("assistantResponse", "element")[:30]),
+        "label": pointer_data.get(
+            "label", data.get("assistantResponse", "element")[:30]
+        ),
         "explanation": data.get("assistantResponse", ""),
         "shouldPoint": should_point and coord_x is not None,
     }
@@ -179,6 +201,7 @@ def plan_and_locate(
 # Planner (standalone) — matches planGoal() in planner-chain.js
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def plan_goal(
     goal: str,
     image_base64: Optional[str] = None,
@@ -187,9 +210,10 @@ def plan_goal(
 ) -> dict:
     """Create a plan from goal + screenshot. Returns {goal, assistantResponse, assumptions, steps}."""
     recent = (session_messages or [])[-6:]
-    recent_text = "\n".join(
-        f"{m.get('role', 'user')}: {m.get('content', '')}" for m in recent
-    ) or "No earlier messages."
+    recent_text = (
+        "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in recent)
+        or "No earlier messages."
+    )
 
     images = None
     if image_base64:
@@ -197,7 +221,9 @@ def plan_goal(
 
     screen_hints = _summarize_screenshots(images)
     user_text = PLANNER_USER_TEMPLATE.format(
-        goal=goal, recentMessages=recent_text, screenHints=screen_hints,
+        goal=goal,
+        recentMessages=recent_text,
+        screenHints=screen_hints,
     )
 
     data = call_llm_json(
@@ -222,6 +248,7 @@ def plan_goal(
 # ═══════════════════════════════════════════════════════════════════════════
 # Locator — matches locateStepTarget() in executor-chain.js
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def locate_step_target(
     goal: str,
@@ -374,6 +401,7 @@ def evaluate_step(
 # Replanner — matches replanGoal() in replanner-chain.js
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def replan_goal(
     goal: str,
     failed_step_title: str = "",
@@ -390,7 +418,9 @@ def replan_goal(
         images = [{"base64Jpeg": image_base64, "label": "Screen"}]
 
     user_text = REPLANNER_USER_TEMPLATE.format(
-        goal=goal, failedStepTitle=failed_step_title, rationale=rationale,
+        goal=goal,
+        failedStepTitle=failed_step_title,
+        rationale=rationale,
     )
 
     data = call_llm_json(
@@ -415,6 +445,7 @@ def replan_goal(
 # ═══════════════════════════════════════════════════════════════════════════
 # Fast Mode Chat — bypass plan, just chat with screen context
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def fast_mode_chat(
     text: str,

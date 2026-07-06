@@ -4,6 +4,7 @@ P2「动态重规划」单元与接口测试（5 条核心用例）
 运行方式：
     python -m pytest server/tests/test_replanner.py -v
 """
+
 from typing import List
 
 import pytest
@@ -14,7 +15,6 @@ from server.main import app
 from server.models.schemas import Blueprint, Intent, Step, UIElement
 from server.services.planning.replanner import replan_steps
 from server.storage.memory import TaskState, task_store
-
 
 client = TestClient(app)
 
@@ -262,7 +262,14 @@ def test_rollback_does_not_trigger_replanning(monkeypatch):
     _make_state(steps, current_step=2, state="executing")
 
     def _mock_call_replan_llm(prompt: str, timeout: int = 30):
-        return [{"step_index": 2, "action": "visit", "description": "d", "target_element_id": "~1"}]
+        return [
+            {
+                "step_index": 2,
+                "action": "visit",
+                "description": "d",
+                "target_element_id": "~1",
+            }
+        ]
 
     monkeypatch.setattr(
         "server.services.planning.replanner._call_replan_llm", _mock_call_replan_llm
@@ -316,9 +323,7 @@ def test_replan_llm_error_returns_original_steps(monkeypatch):
     monkeypatch.setattr(settings, "LLM_API_KEY", "fake-key")
     monkeypatch.setattr(settings, "LLM_BASE_URL", "http://127.0.0.1:1")
     monkeypatch.setattr(settings, "LLM_MODEL", "test")
-    monkeypatch.setattr(
-        "server.services.llm.client.httpx.Client", _FailingClient
-    )
+    monkeypatch.setattr("server.services.llm.client.httpx.Client", _FailingClient)
 
     updated = replan_steps("安装微信", 1, steps, new_elements)
 

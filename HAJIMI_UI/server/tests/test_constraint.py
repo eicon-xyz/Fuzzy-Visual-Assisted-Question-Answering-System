@@ -7,13 +7,14 @@ P4「约束条件提取」单元测试
 3. generate_steps 返回 steps + constraints 二元组
 4. 蓝图执行时约束提示追加到步骤描述
 """
+
 import pytest
 
 from server.config import settings
-from server.models.schemas import ProcessResponse, Step, Blueprint, Intent, UIElement
-from server.services.planning.router import generate_steps, process_query
+from server.models.schemas import Blueprint, Intent, ProcessResponse, Step
 from server.services.planning.blueprint_engine import BlueprintEngine
-from server.storage.memory import TaskState, task_store
+from server.services.planning.router import generate_steps, process_query
+from server.storage.memory import TaskState
 
 
 @pytest.fixture(autouse=True)

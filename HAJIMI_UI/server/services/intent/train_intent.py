@@ -12,6 +12,7 @@ Usage:
     - 基于 paraphrase-multilingual-MiniLM-L12-v2 训练 SetFit 分类器
     - 模型保存到 server/config.py 中 INTENT_MODEL_PATH 指定的目录
 """
+
 import json
 import os
 from pathlib import Path
@@ -58,9 +59,7 @@ def train(model_path: str | None = None, data_path: str | None = None) -> None:
     训练并保存 SetFit 意图分类模型。
     """
     model_path = model_path or settings.INTENT_MODEL_PATH
-    data_path = data_path or str(
-        Path(__file__).with_name("intent_data.json").resolve()
-    )
+    data_path = data_path or str(Path(__file__).with_name("intent_data.json").resolve())
 
     texts, labels, label_names = load_intent_data(data_path)
     print(

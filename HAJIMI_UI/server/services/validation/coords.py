@@ -4,10 +4,13 @@ HAJIMI_UI — Coordinate validation and normalization.
 Mirrors OpenGuider's src/validation/bounds-validator.js.
 Pure Python, zero dependencies.
 """
+
 from __future__ import annotations
 
 
-def normalize_coordinate(norm_x: float, norm_y: float, screen_w: int = 1920, screen_h: int = 1080) -> tuple[int, int]:
+def normalize_coordinate(
+    norm_x: float, norm_y: float, screen_w: int = 1920, screen_h: int = 1080
+) -> tuple[int, int]:
     """Convert 0-1000 normalized coordinates to absolute screen pixels.
 
     Args:
@@ -24,7 +27,9 @@ def normalize_coordinate(norm_x: float, norm_y: float, screen_w: int = 1920, scr
     return abs_x, abs_y
 
 
-def clamp_to_bounds(x: int, y: int, screen_w: int = 1920, screen_h: int = 1080, margin: int = 10) -> tuple[int, int, bool]:
+def clamp_to_bounds(
+    x: int, y: int, screen_w: int = 1920, screen_h: int = 1080, margin: int = 10
+) -> tuple[int, int, bool]:
     """Clamp coordinates to screen bounds with margin.
 
     Args:
@@ -55,7 +60,9 @@ def clamp_to_bounds(x: int, y: int, screen_w: int = 1920, screen_h: int = 1080, 
     return cx, cy, clamped
 
 
-def validate_coordinate(x: int, y: int, screen_w: int = 1920, screen_h: int = 1080) -> tuple[int, int, bool]:
+def validate_coordinate(
+    x: int, y: int, screen_w: int = 1920, screen_h: int = 1080
+) -> tuple[int, int, bool]:
     """Validate and clamp a coordinate. Convenience wrapper.
 
     Returns:

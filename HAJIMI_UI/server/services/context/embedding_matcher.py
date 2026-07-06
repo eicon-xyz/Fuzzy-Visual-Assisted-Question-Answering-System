@@ -4,7 +4,9 @@ Local embedding-based semantic matching.
 Matches OpenGuider's src/context/embedding-matcher.js.
 Uses sentence-transformers all-MiniLM-L6-v2 (384-dim) for cosine similarity matching.
 """
+
 from __future__ import annotations
+
 import logging
 from typing import List, Optional, Tuple
 
@@ -21,6 +23,7 @@ def _load_model():
     if _model is None:
         try:
             from sentence_transformers import SentenceTransformer
+
             logger.info("Loading embedding model: all-MiniLM-L6-v2...")
             _model = SentenceTransformer("all-MiniLM-L6-v2")
             logger.info("Embedding model loaded.")

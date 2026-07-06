@@ -2,9 +2,10 @@
 HAJIMI Demo API Pydantic 模型
 严格对应 docs/api-contract-demo.md 中的数据定义
 """
-from typing import Optional, List
-from pydantic import BaseModel, Field
 
+from typing import List, Optional
+
+from pydantic import BaseModel, Field
 
 # ────────────────────────── 基础模型 ──────────────────────────
 
@@ -36,7 +37,7 @@ class Intent(BaseModel):
 class UIElement(BaseModel):
     """截图中识别到的 UI 元素"""
 
-    element_id: str = Field(..., description="SoM 全局唯一编号，如 ~1")
+    element_id: str = Field(..., description="ID without prefix, e.g. '5'")
     bbox: List[float] = Field(..., min_length=4, max_length=4)
     element_type: str = Field(
         ...,
@@ -45,6 +46,30 @@ class UIElement(BaseModel):
     text: Optional[str] = ""
     confidence: float = Field(..., ge=0.0, le=1.0)
     center: Optional[List[int]] = Field(None, min_length=2, max_length=2)
+    # NEW: spatial relations
+    left_elem_ids: List[str] = Field(default_factory=list)
+    right_elem_ids: List[str] = Field(default_factory=list)
+    top_elem_ids: List[str] = Field(default_factory=list)
+    bottom_elem_ids: List[str] = Field(default_factory=list)
+
+
+class PlanningStep(BaseModel):
+    """Planner output — intent only, no coordinates"""
+
+    step_index: int = Field(..., ge=1)
+    instruction: str
+
+
+class ExecutedStep(BaseModel):
+    """Execution record — filled by Execution Agent at runtime"""
+
+    step_index: int = Field(..., ge=1)
+    instruction: str
+    action: Optional[str] = None
+    target_element_id: Optional[str] = None
+    params: Optional[dict] = None
+    action_summary: Optional[str] = None
+    status: str = Field("pending", pattern="^(pending|executing|done|failed)$")
 
 
 class Annotation(BaseModel):
@@ -73,6 +98,9 @@ class Step(BaseModel):
         pattern="^(pending|active|done|skipped|failed)$",
     )
     annotation: Optional[Annotation] = None
+    params: Optional[str] = Field(
+        None, description="操作参数（文本/组合键/坐标字符串）"
+    )
 
 
 class Blueprint(BaseModel):
@@ -134,25 +162,22 @@ class ProcessResponse(BaseModel):
 
     task_id: str
     success: bool
+    goal: str = ""  # NEW: from Planning Agent
     intent: Intent
     ui_elements: List[UIElement]
-    annotated_image: Optional[str] = Field(
-        None, description="带 SoM 标注的截图 Base64"
-    )
+    annotated_image: Optional[str] = Field(None, description="带 SoM 标注的截图 Base64")
     blueprint: Blueprint
-    steps: List[Step]
-    constraints: Optional[dict] = Field(
-        None, description="从用户输入提取的约束条件（如安装路径、保存位置）"
-    )
-    reference_resolution: Optional[List[int]] = Field(
-        None, description="截图物理像素 [w, h]，供 B 端坐标映射"
-    )
+    steps: List[ExecutedStep]
+    redline: Optional[RedlineInfo] = None
     detection_meta: Optional[dict] = Field(
         None, description="{latency_ms, element_count, backend}"
     )
-    redline: Optional[RedlineInfo] = Field(
-        None, description="红线检测结果，触发时不为 None"
-    )
+
+
+class CancelRequest(BaseModel):
+    """取消任务请求"""
+
+    task_id: str = Field(..., description="任务 ID")
 
 
 class StepRequest(BaseModel):
@@ -268,12 +293,8 @@ class InspectRequest(BaseModel):
         ...,
         description="Base64 截图，含 data URI 前缀",
     )
-    screen_width: Optional[int] = Field(
-        None, description="屏幕物理宽度（像素）"
-    )
-    screen_height: Optional[int] = Field(
-        None, description="屏幕物理高度（像素）"
-    )
+    screen_width: Optional[int] = Field(None, description="屏幕物理宽度（像素）")
+    screen_height: Optional[int] = Field(None, description="屏幕物理高度（像素）")
 
 
 class InspectResponse(BaseModel):

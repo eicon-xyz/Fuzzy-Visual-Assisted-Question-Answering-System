@@ -7,16 +7,21 @@ Matches OpenGuider's src/agent/task-orchestrator.js.
 Process flow: plan_and_locate → (user acts) → evaluate_step → advance/replan
 Pure vision LLM pipeline — no OmniParser dependency.
 """
+
 from __future__ import annotations
+
 import logging
 from typing import Optional
 
-from server.services.session.manager import session_manager
 from server.services.agent.chains import (
-    plan_and_locate, plan_goal, locate_step_target,
-    evaluate_step, replan_goal, fast_mode_chat,
+    evaluate_step,
+    fast_mode_chat,
+    locate_step_target,
+    plan_and_locate,
+    replan_goal,
 )
 from server.services.llm.providers import parse_point_tags
+from server.services.session.manager import session_manager
 from server.services.validation.postprocess import postprocess_pointer
 
 logger = logging.getLogger(__name__)
@@ -72,7 +77,9 @@ class TaskOrchestrator:
         self._session.add_message("user", query)
 
         session_msgs = self._session.get_messages()
-        history_dicts = [{"role": m["role"], "content": m["content"]} for m in session_msgs]
+        history_dicts = [
+            {"role": m["role"], "content": m["content"]} for m in session_msgs
+        ]
 
         # Single LLM call: plan + locate in one request
         logger.info(f"plan+locate: {query[:80]}...")
@@ -144,13 +151,17 @@ class TaskOrchestrator:
         coords = None
         if pointer.get("x") is not None and pointer.get("y") is not None:
             result = postprocess_pointer(
-                float(pointer["x"]), float(pointer["y"]),
+                float(pointer["x"]),
+                float(pointer["y"]),
                 label=pointer.get("label", "element"),
-                screen_w=screen_width, screen_h=screen_height,
+                screen_w=screen_width,
+                screen_h=screen_height,
             )
             coords = {
-                "x": result["x"], "y": result["y"],
-                "scaledX": result["scaledX"], "scaledY": result["scaledY"],
+                "x": result["x"],
+                "y": result["y"],
+                "scaledX": result["scaledX"],
+                "scaledY": result["scaledY"],
             }
 
         return {
@@ -235,9 +246,11 @@ class TaskOrchestrator:
                     # Post-process coordinates
                     if pointer.get("x") is not None and pointer.get("y") is not None:
                         result = postprocess_pointer(
-                            float(pointer["x"]), float(pointer["y"]),
+                            float(pointer["x"]),
+                            float(pointer["y"]),
                             label=pointer.get("label", "element"),
-                            screen_w=screen_width, screen_h=screen_height,
+                            screen_w=screen_width,
+                            screen_h=screen_height,
                         )
                         pointer["scaledX"] = result["x"]
                         pointer["scaledY"] = result["y"]
@@ -267,15 +280,19 @@ class TaskOrchestrator:
                     new_steps[0]["status"] = "active"
                     for s in new_steps[1:]:
                         s["status"] = "pending"
-                    self._session.set_active_plan({
-                        "goal": new_plan_data.get("goal", plan.get("goal", "")),
-                        "current_step_index": 0,
-                        "steps": new_steps,
-                        "status": "active",
-                    })
+                    self._session.set_active_plan(
+                        {
+                            "goal": new_plan_data.get("goal", plan.get("goal", "")),
+                            "current_step_index": 0,
+                            "steps": new_steps,
+                            "status": "active",
+                        }
+                    )
                     self._session.add_message(
                         "assistant",
-                        new_plan_data.get("assistantResponse", "Let me adjust the plan."),
+                        new_plan_data.get(
+                            "assistantResponse", "Let me adjust the plan."
+                        ),
                     )
                     self._session.set_status("waiting_user")
                 else:
@@ -339,14 +356,18 @@ class TaskOrchestrator:
 
             if pointer.get("x") is not None and pointer.get("y") is not None:
                 result = postprocess_pointer(
-                    float(pointer["x"]), float(pointer["y"]),
+                    float(pointer["x"]),
+                    float(pointer["y"]),
                     label=pointer.get("label", "element"),
-                    screen_w=screen_width, screen_h=screen_height,
+                    screen_w=screen_width,
+                    screen_h=screen_height,
                 )
                 pointer["scaledX"] = result["x"]
                 pointer["scaledY"] = result["y"]
 
-            self._session.add_message("assistant", pointer.get("explanation") or step.get("instruction", ""))
+            self._session.add_message(
+                "assistant", pointer.get("explanation") or step.get("instruction", "")
+            )
         except Exception as e:
             logger.error(f"Step help failed: {e}")
 

@@ -1,116 +1,153 @@
 """
-规划路由层（P0 + P2 核心实现区）— 纯视觉 LLM 管道版本
+规划路由层 — 红线检测 → 意图分类 → Planning Agent → 首帧截图
 
-移除 OmniParser 依赖，截图直接发给多模态 LLM。
-LLM 看图理解界面、生成步骤并用 [POINT:x,y:label] 标记位置。
+Runway: redline → intent → plan → screenshot (display-only).
+Execution happens later via ExecutionAgent in the engine.
 """
+
+import logging
 import uuid
 from typing import List, Optional
 
-from server.config import settings
 from server.models.schemas import (
-    UIElement,
-    Step,
     Blueprint,
+    ExecutedStep,
     Intent,
+    PlanningStep,
     ProcessResponse,
-    Annotation,
     RedlineInfo,
+    UIElement,
 )
 from server.services.redline_service import check_redline
-from server.services.planning.complexity_router import score_complexity, generate_l2_steps
-from server.services.agent.orchestrator import orchestrator
-from server.services.validation.coords import normalize_coordinate, clamp_to_bounds
-from server.services.validation.postprocess import postprocess_pointer
+
+logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Mock fallbacks — used when LLM is unavailable
+# Mock fallbacks
 # ═══════════════════════════════════════════════════════════════════════════
 
 _MOCK_FALLBACKS = {
     "wechat": [
-        {"action": "打开浏览器", "description": "找到桌面上的浏览器图标，双击打开。", "target_element_id": "~1"},
-        {"action": "访问微信官网", "description": "在地址栏输入 weixin.qq.com 并回车。", "target_element_id": ""},
-        {"action": "点击下载按钮", "description": "在官网首页找到「下载」按钮并点击。", "target_element_id": "~2"},
-        {"action": "运行安装程序", "description": "下载完成后，双击安装包按提示完成安装。", "target_element_id": ""},
+        {
+            "action": "click",
+            "description": "打开浏览器",
+            "bbox_center": [150, 375],
+            "params": None,
+        },
+        {
+            "action": "type",
+            "description": "输入微信官网地址",
+            "bbox_center": [500, 70],
+            "params": "weixin.qq.com",
+        },
+        {
+            "action": "click",
+            "description": "点击下载按钮",
+            "bbox_center": [480, 525],
+            "params": None,
+        },
+        {
+            "action": "click",
+            "description": "运行安装程序",
+            "bbox_center": [130, 630],
+            "params": None,
+        },
+    ],
+    "notepad": [
+        {
+            "action": "press_key",
+            "description": "按Win+R打开运行窗口",
+            "bbox_center": None,
+            "params": "win+r",
+        },
+        {
+            "action": "type",
+            "description": "输入notepad",
+            "bbox_center": None,
+            "params": "notepad",
+        },
+        {
+            "action": "press_key",
+            "description": "按回车启动记事本",
+            "bbox_center": None,
+            "params": "enter",
+        },
+    ],
+    "calculator": [
+        {
+            "action": "press_key",
+            "description": "按Win+R打开运行窗口",
+            "bbox_center": None,
+            "params": "win+r",
+        },
+        {
+            "action": "type",
+            "description": "输入calc",
+            "bbox_center": None,
+            "params": "calc",
+        },
+        {
+            "action": "press_key",
+            "description": "按回车启动计算器",
+            "bbox_center": None,
+            "params": "enter",
+        },
     ],
     "screenshot": [
-        {"action": "打开截图工具", "description": "按下 Win + Shift + S 打开系统截图工具。", "target_element_id": "~1"},
-        {"action": "选择截图区域", "description": "拖动鼠标选择要截取的区域。", "target_element_id": ""},
-        {"action": "保存截图", "description": "截图完成后，点击通知中的预览并保存。", "target_element_id": ""},
+        {
+            "action": "press_key",
+            "description": "打开截图工具",
+            "bbox_center": None,
+            "params": "win+shift+s",
+        },
+        {
+            "action": "click",
+            "description": "选择截图区域",
+            "bbox_center": [500, 300],
+            "params": None,
+        },
+        {
+            "action": "click",
+            "description": "保存截图",
+            "bbox_center": [200, 600],
+            "params": None,
+        },
     ],
     "default": [
-        {"action": "观察当前界面", "description": "仔细查看屏幕上的可点击元素。", "target_element_id": "~1"},
-        {"action": "按提示操作", "description": "根据系统指引逐步完成目标。", "target_element_id": ""},
+        {
+            "action": "wait",
+            "description": "等待界面加载",
+            "bbox_center": None,
+            "params": 2,
+        },
+        {
+            "action": "click",
+            "description": "点击目标元素",
+            "bbox_center": [500, 300],
+            "params": None,
+        },
     ],
 }
 
 
 def _choose_scenario(query: str) -> str:
-    """根据查询选择场景"""
     q = query.lower()
     if any(k in q for k in ["微信", "qq", "软件", "下载", "安装"]):
         return "wechat"
+    if any(k in q for k in ["记事本", "notepad", "文本"]):
+        return "notepad"
+    if any(k in q for k in ["计算器", "calc", "calculator"]):
+        return "calculator"
     if any(k in q for k in ["截图", "截屏", "snip"]):
         return "screenshot"
     return "default"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Annotation builder — from LLM [POINT] coordinates
+# 主入口
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _build_annotation_from_pointer(
-    pointer: dict,
-    screen_w: int = 1920,
-    screen_h: int = 1080,
-    label_text: str = "element",
-    annotation_type: str = "arrow_highlight",
-) -> Optional[Annotation]:
-    """Build an Annotation from LLM pointer coordinates (0-1000 normalized).
-
-    Args:
-        pointer: Dict with 'x', 'y', 'label' (0-1000 normalized)
-        screen_w, screen_h: Screen dimensions in pixels
-        label_text: Label for the annotation
-        annotation_type: 'arrow_highlight' or 'highlight_only'
-
-    Returns:
-        Annotation object, or None if pointer has no valid coordinates
-    """
-    x = pointer.get("x") if pointer else None
-    y = pointer.get("y") if pointer else None
-
-    if x is None or y is None:
-        return None
-
-    # Normalize 0-1000 -> absolute pixels
-    abs_x, abs_y = normalize_coordinate(float(x), float(y), screen_w, screen_h)
-
-    # Clamp to bounds
-    abs_x, abs_y, _ = clamp_to_bounds(abs_x, abs_y, screen_w, screen_h, margin=10)
-
-    # Create annotation with a small bounding box around the point
-    bbox_size = 40
-    bbox = [
-        max(0, abs_x - bbox_size // 2),
-        max(0, abs_y - bbox_size // 2),
-        min(screen_w, abs_x + bbox_size // 2),
-        min(screen_h, abs_y + bbox_size // 2),
-    ]
-
-    return Annotation(
-        type=annotation_type,
-        bbox=bbox,
-        center=[abs_x, abs_y],
-        label=label_text,
-    )
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Main process_query — pure vision LLM pipeline
-# ═══════════════════════════════════════════════════════════════════════════
 
 def process_query(
     query: str,
@@ -118,25 +155,17 @@ def process_query(
     screen_width: int = 1920,
     screen_height: int = 1080,
 ) -> ProcessResponse:
-    """处理用户查询，生成完整的 ProcessResponse。
-
-    纯视觉 LLM 管道：截图直接发给多模态 LLM，无需 OmniParser。
-
-    Args:
-        query: 用户原始查询
-        image_base64: Base64 编码截图（可选）
-        screen_width: 屏幕宽度（用于坐标映射）
-        screen_height: 屏幕高度（用于坐标映射）
-
-    Returns:
-        完整的处理响应
     """
-    # 0. 红线检测
+    Planning phase: redline → intent → Planning Agent → first screenshot.
+    Execution happens in engine via ExecutionAgent.
+    """
+    # 0. Redline check (unchanged)
     redline = check_redline(query)
     if redline.triggered:
         return ProcessResponse(
             task_id=str(uuid.uuid4()),
             success=False,
+            goal="",
             intent=Intent(
                 category="operation_guide",
                 summary="请求被拦截",
@@ -145,6 +174,7 @@ def process_query(
                 needs_clarification=False,
             ),
             ui_elements=[],
+            annotated_image=None,
             blueprint=Blueprint(
                 name="红线拦截",
                 total_steps=1,
@@ -160,7 +190,7 @@ def process_query(
             ),
         )
 
-    # 1. 意图分类（保留现有 SetFit 逻辑）
+    # 1. Intent classification (unchanged)
     from server.services.llm_ai import classify_intent, detect_reference_type
 
     category, summary, confidence = classify_intent(query)
@@ -173,165 +203,98 @@ def process_query(
         needs_clarification=confidence < 0.80,
     )
 
-    # ── L2/L3 路由 ──
-    complexity = score_complexity(query)
-    route = "L2" if complexity < 30 else "L3"
+    # 2. Planning Agent + OmniParser run in parallel (they are independent)
+    import concurrent.futures
 
-    raw_steps: Optional[List[dict]] = None
-    constraints: Optional[dict] = None
+    from server.services.planning.planner import PlanningResult, plan_steps
+
+    plan_result = None
+
+    def _call_planner():
+        nonlocal plan_result
+        try:
+            plan_result = plan_steps(query)
+        except Exception as e:
+            logger.error(f"Planning Agent failed: {e}")
+            plan_result = PlanningResult(
+                goal=query,
+                steps=[PlanningStep(step_index=1, instruction=query)],
+            )
+
+    planner_future = None
     ui_elements: List[UIElement] = []
-    annotated_image: Optional[str] = None
-    reference_resolution: Optional[List[int]] = [screen_width, screen_height]
-    detection_meta: Optional[dict] = {
-        "route": route,
-        "complexity": complexity,
-        "backend": "vision_llm",
-    }
-
-    # L2 快路径：本地模板匹配（不需要 LLM）
-    if route == "L2":
-        raw_steps = generate_l2_steps(query, ui_elements)
-
-    # L3 / L2 未命中降级：调用视觉 LLM
-    if not raw_steps:
-        route = "L3"
-        detection_meta["route"] = "L3"
-
-        # 优先使用 orchestrator（Plan+Locate 组合模式）
-        if settings.USE_REAL_LLM and image_base64:
+    annotated_image: Optional[str] = image_base64
+    detection_meta: dict = {"backend": "omniparser", "route": "L3"}
+    parse_result_temp = None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        planner_future = executor.submit(_call_planner)
+        # While Planning Agent runs, start OmniParser in main thread
+        if image_base64:
             try:
-                result = orchestrator.process_query(
-                    query=query,
-                    image_base64=image_base64,
-                    screen_width=screen_width,
-                    screen_height=screen_height,
-                )
+                from server.services.omniparser_client import parse_screenshot_full
 
-                if result.get("success") and result.get("plan"):
-                    plan = result["plan"]
-                    pointer = result.get("pointer") or {}
-
-                    # Convert orchestrator step format to HAJIMI Step schema
-                    steps: List[Step] = []
-                    for i, ps in enumerate(plan.get("steps", [])):
-                        step_index = i + 1
-                        # Build annotation from pointer if this is the first step
-                        annotation = None
-                        if i == 0 and pointer.get("x") is not None:
-                            annotation = _build_annotation_from_pointer(
-                                pointer,
-                                screen_w=screen_width,
-                                screen_h=screen_height,
-                                label_text=pointer.get("label", f"Step {step_index}"),
-                                annotation_type="arrow_highlight",
-                            )
-
-                        steps.append(Step(
-                            step_index=step_index,
-                            action=ps.get("title", f"Step {step_index}"),
-                            description=ps.get("instruction", ""),
-                            target_element_id=f"~step_{step_index}" if annotation else None,
-                            status="active" if i == 0 else "pending",
-                            annotation=annotation,
-                        ))
-
-                    blueprint = Blueprint(
-                        name=plan.get("goal", summary),
-                        total_steps=len(steps),
-                        current_step=1,
-                        state="pending_confirm",
-                    )
-
-                    # Extract reply text without [POINT] tag
-                    from server.services.llm.providers import parse_point_tags
-                    reply = result.get("reply", "")
-                    parsed = parse_point_tags(reply)
-
-                    return ProcessResponse(
-                        task_id=str(uuid.uuid4()),
-                        success=True,
-                        intent=intent,
-                        ui_elements=ui_elements,
-                        annotated_image=image_base64,  # Pass original image
-                        blueprint=blueprint,
-                        steps=steps,
-                        constraints=constraints,
-                        reference_resolution=reference_resolution,
-                        detection_meta=detection_meta,
-                    )
-
+                parse_result_temp = parse_screenshot_full(image_base64)
+                ui_elements = parse_result_temp.elements
+                annotated_image = parse_result_temp.annotated_image or image_base64
+                detection_meta.update(parse_result_temp.detection_meta or {})
             except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning(
-                    f"Orchestrator failed: {e}, falling back to legacy LLM path"
-                )
+                logger.error(f"OmniParser initial scan failed: {e}")
+        planner_future.result(timeout=30)
 
-        # Legacy fallback: direct LLM call with old prompt format
-        if settings.USE_REAL_LLM:
-            from server.services.llm.client import call_deepseek
-            llm_response = call_deepseek(
-                query,
-                elements=None,  # No pre-detected elements
-                image_base64=image_base64,
-                timeout=settings.LLM_TIMEOUT,
+    goal = plan_result.goal
+    planning_steps = plan_result.steps
+
+    # 3. Convert PlanningStep → ExecutedStep (all pending)
+    executed_steps: List[ExecutedStep] = []
+    for ps in planning_steps:
+        executed_steps.append(
+            ExecutedStep(
+                step_index=ps.step_index,
+                instruction=ps.instruction,
+                status="pending",
             )
-            if llm_response:
-                raw_steps = llm_response.get("steps", [])
-                constraints = llm_response.get("constraints")
+        )
 
-    # Fallback to mock data if no steps generated
-    if not raw_steps:
-        scenario = _choose_scenario(query)
-        raw_steps = _MOCK_FALLBACKS.get(scenario, _MOCK_FALLBACKS["default"]).copy()
+    # 4. These are populated during the parallel section above
 
-    # ── 构建 Step 列表 ──
-    steps: List[Step] = []
-    for i, raw in enumerate(raw_steps):
-        step_index = i + 1
-        target_id = raw.get("target_element_id", "")
-        annotation = None
-
-        if target_id:
-            annotation = Annotation(
-                type="arrow_highlight" if step_index == 1 else "highlight_only",
-                bbox=[100, 100, 200, 140],
-                center=[150, 120],
-                label=target_id,
-            )
-
-        steps.append(Step(
-            step_index=step_index,
-            action=raw.get("action", f"Step {step_index}"),
-            description=raw.get("description", ""),
-            target_element_id=target_id if target_id else None,
-            status="active" if step_index == 1 else "pending",
-            annotation=annotation,
-        ))
-
+    # 5. Build response
     blueprint = Blueprint(
-        name=summary,
-        total_steps=len(steps),
+        name=goal[:40] if goal else summary,
+        total_steps=len(executed_steps),
         current_step=1,
-        state="pending_confirm",
+        state="generated",
     )
 
     return ProcessResponse(
         task_id=str(uuid.uuid4()),
         success=True,
+        goal=goal,
         intent=intent,
         ui_elements=ui_elements,
-        annotated_image=image_base64,
+        annotated_image=annotated_image,
         blueprint=blueprint,
-        steps=steps,
-        constraints=constraints,
-        reference_resolution=reference_resolution,
+        steps=executed_steps,
         detection_meta=detection_meta,
     )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Relocate — pure vision LLM version
+# 兼容旧接口
 # ═══════════════════════════════════════════════════════════════════════════
+
+
+def generate_steps(
+    query: str,
+    elements: Optional[List[UIElement]] = None,
+    annotated_image: Optional[str] = None,
+):
+    """
+    [兼容] 生成操作步骤 — 供旧测试使用。
+    不调用 OmniParser，需要外部传入元素。
+    """
+    scenario = _choose_scenario(query)
+    return _MOCK_FALLBACKS.get(scenario, _MOCK_FALLBACKS["default"]).copy(), None
+
 
 def relocate_step(
     step_action: str,
@@ -339,69 +302,42 @@ def relocate_step(
     image_base64: str,
     screen_width: int = 1920,
     screen_height: int = 1080,
-) -> tuple:
-    """对新截图重定位指定步骤。纯视觉 LLM 匹配。
-
-    Returns:
-        (target_element_id, annotation, all_elements)
+):
     """
-    from server.services.agent.chains import locate_step_target
+    对当前屏幕重定位指定步骤（用于操作失败后的恢复）。
+    调用 OmniParser 重新检测元素 → 匹配最接近的元素。
+    """
+    try:
+        from server.services.omniparser_client import parse_screenshot_full
 
-    if not settings.USE_REAL_LLM:
+        parse_result = parse_screenshot_full(image_base64)
+        elements = parse_result.elements
+    except Exception:
         return None, None, []
 
-    try:
-        pointer = locate_step_target(
-            goal=step_description,
-            step={"title": step_action, "instruction": step_description},
-            image_base64=image_base64,
-            force_point=True,
-            provider=None,
+    if not elements:
+        return None, None, []
+
+    # 找最相关元素：优先 text 匹配，否则 type=button 优先级最高
+    best = None
+    best_score = 0
+    for el in elements:
+        score = 0
+        if el.text and any(w in el.text for w in step_description[:10]):
+            score += 3
+        if el.element_type in ("button", "icon"):
+            score += 2
+        if el.confidence > 0.7:
+            score += 1
+        if score > best_score:
+            best_score = score
+            best = el
+
+    if best:
+        bbox = best.bbox
+        return (
+            best.element_id,
+            {"type": "highlight_only", "highlight_bbox": [int(v) for v in bbox]},
+            [e.model_dump() for e in elements],
         )
-
-        if pointer.get("x") is not None and pointer.get("y") is not None:
-            target_id = f"~{step_action[:10]}"
-            annotation = _build_annotation_from_pointer(
-                pointer,
-                screen_w=screen_width,
-                screen_h=screen_height,
-                label_text=pointer.get("label", step_action[:20]),
-                annotation_type="arrow_highlight",
-            )
-            return target_id, annotation, []
-
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Relocate LLM call failed: {e}")
-
     return None, None, []
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Legacy compatibility: generate_steps (used by tests)
-# ═══════════════════════════════════════════════════════════════════════════
-
-def generate_steps(
-    query: str,
-    elements: Optional[List[UIElement]] = None,
-    annotated_image: Optional[str] = None,
-) -> tuple:
-    """生成操作步骤与约束条件（兼容旧接口）。
-
-    优先级：LLM > mock fallback
-    """
-    if settings.USE_REAL_LLM:
-        from server.services.llm.client import call_deepseek
-        llm_response = call_deepseek(
-            query,
-            elements=elements,
-            image_base64=annotated_image,
-            timeout=settings.LLM_TIMEOUT,
-        )
-        if llm_response:
-            steps = llm_response.get("steps", [])
-            constraints = llm_response.get("constraints")
-            return steps, constraints
-
-    scenario = _choose_scenario(query)
-    return _MOCK_FALLBACKS.get(scenario, _MOCK_FALLBACKS["default"]).copy(), None

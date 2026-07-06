@@ -4,6 +4,7 @@ Coordinate post-processing — validates and smooths LLM pointer coordinates.
 Matches OpenGuider's interaction-pipeline.js postprocess() logic.
 Pure Python, zero dependencies.
 """
+
 from __future__ import annotations
 
 # In-memory coordinate history for jump detection (shared across calls)
@@ -27,7 +28,7 @@ def postprocess_pointer(
       - clamped: whether bounds clamping was applied
       - jumped: whether a suspicious jump was detected (>500px from last valid)
     """
-    from server.services.validation.coords import normalize_coordinate, clamp_to_bounds
+    from server.services.validation.coords import clamp_to_bounds, normalize_coordinate
 
     # 1. Normalize 0-1000 -> absolute pixels
     abs_x, abs_y = normalize_coordinate(norm_x, norm_y, screen_w, screen_h)

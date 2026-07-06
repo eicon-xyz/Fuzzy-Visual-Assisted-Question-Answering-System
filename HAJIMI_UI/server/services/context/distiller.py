@@ -4,9 +4,10 @@ Context distillation — fast text-only LLM pre-call to summarize screen content
 Matches OpenGuider's src/context/context-analyzer.js.
 Reduces token usage and improves accuracy for the main vision LLM call.
 """
+
 from __future__ import annotations
+
 import logging
-from typing import Optional
 
 from server.config import settings
 

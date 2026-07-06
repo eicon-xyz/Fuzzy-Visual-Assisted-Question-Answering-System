@@ -5,6 +5,7 @@ The OmniParser API server is deployed separately (D:\\ominprester) and exposes
 POST /parse, which returns structured UI elements for a base64-encoded image.
 This module converts those elements into the HAJIMI UIElement schema.
 """
+
 import base64
 import io
 import re
@@ -17,7 +18,6 @@ from PIL import Image
 
 from server.config import settings
 from server.models.schemas import UIElement
-
 
 _OMNIPARSER_URL = settings.OMNIPARSER_URL.rstrip("/")
 _OMNIPARSER_TIMEOUT = settings.OMNIPARSER_TIMEOUT
@@ -64,6 +64,7 @@ def _decode_image_resolution(payload_base64: str) -> Optional[List[int]]:
     """Try to decode image dimensions from base64 using PIL as fallback."""
     try:
         from PIL import Image
+
         raw = base64.b64decode(payload_base64)
         with Image.open(io.BytesIO(raw)) as img:
             return [img.width, img.height]
@@ -74,10 +75,117 @@ def _decode_image_resolution(payload_base64: str) -> Optional[List[int]]:
 @dataclass
 class ParseResult:
     """Full result from OmniParser parse call."""
+
     elements: List[UIElement] = field(default_factory=list)
     annotated_image: Optional[str] = None
     reference_resolution: Optional[List[int]] = None
     detection_meta: Optional[dict] = None
+
+
+def _compute_spatial_relations(elements: List[UIElement]) -> None:
+    """Compute left/right/top/bottom neighbor relations for all elements.
+
+    Mutates elements in-place, populating their *_elem_ids fields.
+
+    Same row: y-axis IoU >= 0.3
+    Top/bottom: x-axis overlap >= 0.1 (share horizontal space — elements in the same column)
+    """
+    n = len(elements)
+    if n == 0:
+        return
+
+    # Reset all relation fields first
+    for el in elements:
+        el.left_elem_ids = []
+        el.right_elem_ids = []
+        el.top_elem_ids = []
+        el.bottom_elem_ids = []
+
+    for i in range(n):
+        a = elements[i]
+        ay1, ay2 = a.bbox[1], a.bbox[3]
+        ax1, ax2 = a.bbox[0], a.bbox[2]
+        ah = ay2 - ay1
+        ax2 - ax1
+        if ah <= 0:
+            continue
+
+        left_candidates = []
+        right_candidates = []
+        top_candidates = []
+        bottom_candidates = []
+
+        for j in range(n):
+            if i == j:
+                continue
+            b = elements[j]
+            by1, by2 = b.bbox[1], b.bbox[3]
+            bx1, bx2 = b.bbox[0], b.bbox[2]
+            bh = by2 - by1
+            bx2 - bx1
+            if bh <= 0:
+                continue
+
+            # y-axis intersection over union (for same-row detection)
+            y_overlap = max(0, min(ay2, by2) - max(ay1, by1))
+            y_union = max(ay2, by2) - min(ay1, by1)
+            y_iou = y_overlap / y_union if y_union > 0 else 0
+
+            # Same row for left/right: y-axis IoU >= 0.3
+            if y_iou >= 0.3:
+                if b.bbox[2] <= a.bbox[0]:  # b is to the left of a
+                    left_candidates.append((j, a.bbox[0] - b.bbox[2]))
+                elif b.bbox[0] >= a.bbox[2]:  # b is to the right of a
+                    right_candidates.append((j, b.bbox[0] - a.bbox[2]))
+
+            # Top/bottom: share horizontal space (x-overlap) AND one is above/below
+            # Use x-axis overlap ratio >= 0.1 (elements in same column)
+            x_overlap = max(0, min(ax2, bx2) - max(ax1, bx1))
+            x_union = max(ax2, bx2) - min(ax1, bx1)
+            x_iou = x_overlap / x_union if x_union > 0 else 0
+
+            if x_iou >= 0.1:
+                if by2 <= ay1:  # b is above a
+                    top_candidates.append((j, ay1 - by2))
+                elif by1 >= ay2:  # b is below a
+                    bottom_candidates.append((j, by1 - ay2))
+
+        # Sort by distance (ascending) and cap
+        left_candidates.sort(key=lambda x: x[1])
+        right_candidates.sort(key=lambda x: x[1])
+        top_candidates.sort(key=lambda x: x[1])
+        bottom_candidates.sort(key=lambda x: x[1])
+
+        a.left_elem_ids = [elements[k].element_id for k, _ in left_candidates[:5]]
+        a.right_elem_ids = [elements[k].element_id for k, _ in right_candidates[:5]]
+        a.top_elem_ids = [elements[k].element_id for k, _ in top_candidates[:3]]
+        a.bottom_elem_ids = [elements[k].element_id for k, _ in bottom_candidates[:3]]
+
+
+def _filter_elements_for_llm(elements: List[UIElement]) -> List[dict]:
+    """Return LLM-visible element data — no coordinates, no scores, no types.
+
+    Each element dict contains only:
+      - id: str (mapped from element_id)
+      - content: str (mapped from text, empty string if None)
+      - left_ids: List[str] (mapped from left_elem_ids)
+      - right_ids: List[str] (mapped from right_elem_ids)
+      - top_ids: List[str] (mapped from top_elem_ids)
+      - bottom_ids: List[str] (mapped from bottom_elem_ids)
+    """
+    result = []
+    for el in elements:
+        result.append(
+            {
+                "id": el.element_id,
+                "content": el.text or "",
+                "left_ids": el.left_elem_ids,
+                "right_ids": el.right_elem_ids,
+                "top_ids": el.top_elem_ids,
+                "bottom_ids": el.bottom_elem_ids,
+            }
+        )
+    return result
 
 
 def parse_screenshot(image_base64: Optional[str]) -> List[UIElement]:
@@ -89,12 +197,17 @@ def parse_screenshot(image_base64: Optional[str]) -> List[UIElement]:
     return parse_screenshot_full(image_base64).elements
 
 
-def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
+def parse_screenshot_full(
+    image_base64: Optional[str], compute_spatial: bool = True
+) -> ParseResult:
     """
     Call the local OmniParser V2 API and return a full ParseResult with metadata.
 
     Args:
         image_base64: Base64 image, with or without a data URI prefix.
+        compute_spatial: If True, compute spatial relations (left/right/top/bottom).
+                         Set to False for performance-sensitive callers that don't
+                         need spatial relations (e.g., repeated calls in agent loop).
 
     Returns:
         ParseResult with elements, annotated_image, reference_resolution, detection_meta.
@@ -122,7 +235,9 @@ def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
                 break  # success, exit retry loop
         except Exception as exc:
             last_exc = exc
-            print(f"[OmniParser Client] attempt {attempt+1}/{_OMNIPARSER_RETRY+1} failed: {exc}")
+            print(
+                f"[OmniParser Client] attempt {attempt+1}/{_OMNIPARSER_RETRY+1} failed: {exc}"
+            )
     else:
         # All retries exhausted
         print(f"[OmniParser Client] all retries exhausted: {last_exc}")
@@ -137,39 +252,72 @@ def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
     # If OmniParser returned all None IDs, assign sequential ones
     all_none = all(
         isinstance(e, dict) and e.get("id") is None
-        for e in raw_elements if isinstance(e, dict)
+        for e in raw_elements
+        if isinstance(e, dict)
     )
+
+    reference_resolution = None
+    # Try PIL decode first to get image dimensions for bbox normalization
+    try:
+        raw = base64.b64decode(payload_base64)
+        with Image.open(io.BytesIO(raw)) as img:
+            reference_resolution = [img.width, img.height]
+    except Exception:
+        reference_resolution = [1920, 1080]
 
     elements: List[UIElement] = []
     seq = 1
     for item in raw_elements:
         if not isinstance(item, dict):
             continue
-        bbox = item.get("bbox")
-        if not bbox or len(bbox) != 4:
+        bbox_raw = item.get("bbox")
+        if not bbox_raw or len(bbox_raw) != 4:
+            continue
+
+        # OmniParser returns normalized 0-1 bbox. Convert to pixel bbox.
+        x1, y1, x2, y2 = [float(v) for v in bbox_raw]
+        if max(abs(x1), abs(y1), abs(x2), abs(y2)) <= 1.0:
+            ref_w = reference_resolution[0]
+            ref_h = reference_resolution[1]
+            x1, x2 = int(x1 * ref_w), int(x2 * ref_w)
+            y1, y2 = int(y1 * ref_h), int(y2 * ref_h)
+
+        # Skip degenerate [0,0,0,0] bboxes
+        if x1 == 0 and y1 == 0 and x2 == 0 and y2 == 0:
             continue
 
         raw_id = item.get("id")
         if raw_id is not None:
-            element_id = f"~{raw_id}"
+            element_id = str(raw_id)  # strip ~ prefix — was: f"~{raw_id}"
         elif all_none:
-            element_id = f"~{seq}"
+            element_id = str(seq)  # strip ~ prefix — was: f"~{seq}"
             seq += 1
         else:
-            element_id = "~?"
+            element_id = "?"
 
-        x1, y1, x2, y2 = bbox
         center = item.get("center") or [(x1 + x2) / 2.0, (y1 + y2) / 2.0]
         center_int = [int(center[0]), int(center[1])]
 
-        raw_type = item.get("type", "other")
-        allowed_types = {"button", "input", "icon", "menu", "checkbox", "dropdown", "text", "other"}
+        raw_type = item.get("element_type", item.get("type", "other"))
+        allowed_types = {
+            "button",
+            "input",
+            "icon",
+            "menu",
+            "checkbox",
+            "dropdown",
+            "text",
+            "other",
+        }
         element_type = raw_type if raw_type in allowed_types else "other"
+
+        # Use OmniParser center if available, else bbox midpoint
+        center_int = [int((x1 + x2) / 2), int((y1 + y2) / 2)]
 
         elements.append(
             UIElement(
                 element_id=element_id,
-                bbox=bbox,
+                bbox=[x1, y1, x2, y2],
                 element_type=element_type,
                 text=item.get("text", "") or "",
                 confidence=float(item.get("confidence", 1.0)),
@@ -177,9 +325,19 @@ def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
             )
         )
 
+    # ── Compute spatial relations (left/right/top/bottom neighbors) ──
+    if compute_spatial:
+        _compute_spatial_relations(elements)
+
     # ── 提取 SoM 标注图 ──
     annotated_image = None
-    for key in ("som_image_base64", "som_image", "som_base64", "annotated_image", "labeled_image"):
+    for key in (
+        "som_image_base64",
+        "som_image",
+        "som_base64",
+        "annotated_image",
+        "labeled_image",
+    ):
         val = data.get(key)
         if isinstance(val, str) and val:
             annotated_image = _compress_som_image(val)
