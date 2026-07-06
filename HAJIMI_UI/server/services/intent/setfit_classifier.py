@@ -6,9 +6,10 @@ SetFit 意图分类推理模块
     - 模型不存在或加载失败时，自动回退到关键词规则
     - SetFit 预测置信度低于阈值时，同样回退到关键词规则
 """
+
 import os
 from pathlib import Path
-from typing import Tuple, Optional, Any
+from typing import Any, Optional, Tuple
 
 from server.config import settings
 
@@ -53,21 +54,33 @@ def _keywords_classify(query: str) -> Tuple[str, str, float]:
     if any(k in q for k in ["设置", "配置", "怎么调"]):
         return "ui_navigation", "查找设置", 0.82
 
-    if any(k in q for k in ["这个图标", "那个按钮", "是什么意思", "有什么用", "代表什么"]):
+    if any(
+        k in q for k in ["这个图标", "那个按钮", "是什么意思", "有什么用", "代表什么"]
+    ):
         return "element_cognition", "元素认知", 0.86
-    if any(k in q for k in ["错误", "报错", "失败", "无法", "不能", "出错", "闪退", "蓝屏"]):
+    if any(
+        k in q for k in ["错误", "报错", "失败", "无法", "不能", "出错", "闪退", "蓝屏"]
+    ):
         return "error_diagnosis", "错误诊断", 0.84
     if any(k in q for k in ["在哪里", "在哪", "怎么找", "哪个菜单", "位置", "界面"]):
         return "ui_navigation", "界面导航", 0.83
     if any(k in q for k in ["总结", "翻译", "提取", "内容", "文字", "复制", "识别"]):
         return "content_cognition", "内容认知", 0.83
-    if any(k in q for k in ["文件", "文件夹", "移动", "删除", "查找", "重命名", "压缩", "解压"]):
+    if any(
+        k in q
+        for k in ["文件", "文件夹", "移动", "删除", "查找", "重命名", "压缩", "解压"]
+    ):
         return "file_management", "文件管理", 0.82
     if any(k in q for k in ["提醒", "通知", "闹钟", "定时", "叫我", "到时"]):
         return "proactive_alert", "主动提醒", 0.82
-    if any(k in q for k in ["教程", "步骤", "录制成", "做成视频", "使用说明", "培训材料"]):
+    if any(
+        k in q for k in ["教程", "步骤", "录制成", "做成视频", "使用说明", "培训材料"]
+    ):
         return "tutorial_generation", "生成教程", 0.82
-    if any(k in q for k in ["不会", "搞不定", "着急", "卡住", "帮帮我", "沮丧", "担心", "耐心"]):
+    if any(
+        k in q
+        for k in ["不会", "搞不定", "着急", "卡住", "帮帮我", "沮丧", "担心", "耐心"]
+    ):
         return "emotion_comfort", "情绪安抚", 0.80
 
     return "operation_guide", "通用操作指引", 0.75

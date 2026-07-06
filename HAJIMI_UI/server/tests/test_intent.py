@@ -4,12 +4,12 @@ P1「SetFit 意图分类」单元测试（5 条核心用例）
 运行方式：
     python -m pytest server/tests/test_intent.py -v
 """
+
 from typing import Any, List, Tuple
 
 import pytest
 
-from server.services.intent import classify_intent, reset_classifier
-from server.services.intent import setfit_classifier
+from server.services.intent import classify_intent, reset_classifier, setfit_classifier
 
 
 @pytest.fixture(autouse=True)
@@ -72,13 +72,33 @@ def test_classify_all_nine_categories(monkeypatch: pytest.MonkeyPatch) -> None:
 
     cases: List[Tuple[str, str, Tuple[str, str, float]]] = [
         ("operation_guide", "怎么安装微信", ("operation_guide", "安装软件", 0.92)),
-        ("element_cognition", "这个图标是什么意思", ("element_cognition", "元素认知", 0.86)),
-        ("error_diagnosis", "提示网络错误怎么办", ("error_diagnosis", "错误诊断", 0.84)),
+        (
+            "element_cognition",
+            "这个图标是什么意思",
+            ("element_cognition", "元素认知", 0.86),
+        ),
+        (
+            "error_diagnosis",
+            "提示网络错误怎么办",
+            ("error_diagnosis", "错误诊断", 0.84),
+        ),
         ("ui_navigation", "亮度调节在哪个菜单", ("ui_navigation", "界面导航", 0.83)),
-        ("content_cognition", "总结一下这段文字", ("content_cognition", "内容认知", 0.83)),
+        (
+            "content_cognition",
+            "总结一下这段文字",
+            ("content_cognition", "内容认知", 0.83),
+        ),
         ("file_management", "怎么查找桌面文件", ("file_management", "文件管理", 0.82)),
-        ("proactive_alert", "提醒我下午三点开会", ("proactive_alert", "主动提醒", 0.82)),
-        ("tutorial_generation", "录制操作过程做成视频", ("tutorial_generation", "生成教程", 0.82)),
+        (
+            "proactive_alert",
+            "提醒我下午三点开会",
+            ("proactive_alert", "主动提醒", 0.82),
+        ),
+        (
+            "tutorial_generation",
+            "录制操作过程做成视频",
+            ("tutorial_generation", "生成教程", 0.82),
+        ),
         ("emotion_comfort", "我不会用这个软件", ("emotion_comfort", "情绪安抚", 0.80)),
     ]
 

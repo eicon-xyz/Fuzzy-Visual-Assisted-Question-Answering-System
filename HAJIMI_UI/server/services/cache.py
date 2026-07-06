@@ -3,10 +3,12 @@ Screenshot cache — TTL-based caching with concurrent call deduplication.
 
 Matches OpenGuider's src/screenshot.js caching pattern.
 """
+
 from __future__ import annotations
-import time
+
 import hashlib
 import threading
+import time
 from typing import Optional
 
 
@@ -19,7 +21,9 @@ class ScreenshotCache:
 
     def __init__(self, ttl_ms: int = 900):
         self._ttl_ms = ttl_ms
-        self._cache: dict[str, tuple[float, str]] = {}  # fingerprint → (timestamp, image_b64)
+        self._cache: dict[str, tuple[float, str]] = (
+            {}
+        )  # fingerprint → (timestamp, image_b64)
         self._lock = threading.Lock()
         self._inflight: dict[str, threading.Event] = {}  # Dedup in-flight requests
 
@@ -60,7 +64,11 @@ class ScreenshotCache:
         with self._lock:
             self._cache[fp] = (now_ms, image_base64)
             # Clean old entries
-            expired = [k for k, (ts, _) in self._cache.items() if now_ms - ts > self._ttl_ms * 5]
+            expired = [
+                k
+                for k, (ts, _) in self._cache.items()
+                if now_ms - ts > self._ttl_ms * 5
+            ]
             for k in expired:
                 del self._cache[k]
 

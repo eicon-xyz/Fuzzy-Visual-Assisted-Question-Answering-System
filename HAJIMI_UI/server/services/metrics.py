@@ -4,10 +4,10 @@ Performance metrics collection.
 Matches OpenGuider's src/performance-metrics.js.
 In-memory metrics with P95, ring buffers.
 """
+
 from __future__ import annotations
-import time
+
 from collections import defaultdict
-from typing import Any
 
 MAX_SAMPLES = 240
 
@@ -16,18 +16,22 @@ class PerformanceMetrics:
     """Thread-safe in-memory metrics collector."""
 
     def __init__(self):
-        self._metrics: dict[str, dict] = defaultdict(lambda: {
-            "count": 0,
-            "success_count": 0,
-            "error_count": 0,
-            "total_duration_ms": 0.0,
-            "min_duration_ms": float("inf"),
-            "max_duration_ms": 0.0,
-            "samples": [],  # ring buffer of durations
-            "last_meta": {},
-        })
+        self._metrics: dict[str, dict] = defaultdict(
+            lambda: {
+                "count": 0,
+                "success_count": 0,
+                "error_count": 0,
+                "total_duration_ms": 0.0,
+                "min_duration_ms": float("inf"),
+                "max_duration_ms": 0.0,
+                "samples": [],  # ring buffer of durations
+                "last_meta": {},
+            }
+        )
 
-    def record(self, name: str, duration_ms: float, ok: bool = True, meta: dict | None = None):
+    def record(
+        self, name: str, duration_ms: float, ok: bool = True, meta: dict | None = None
+    ):
         """Record a metric sample."""
         m = self._metrics[name]
         m["count"] += 1
@@ -77,7 +81,11 @@ class PerformanceMetrics:
                 "avg_ms": round(self.avg(name), 1),
                 "p50_ms": round(self.p50(name), 1),
                 "p95_ms": round(self.p95(name), 1),
-                "min_ms": round(m["min_duration_ms"], 1) if m["min_duration_ms"] != float("inf") else 0,
+                "min_ms": (
+                    round(m["min_duration_ms"], 1)
+                    if m["min_duration_ms"] != float("inf")
+                    else 0
+                ),
                 "max_ms": round(m["max_duration_ms"], 1),
                 "last_meta": m["last_meta"],
             }

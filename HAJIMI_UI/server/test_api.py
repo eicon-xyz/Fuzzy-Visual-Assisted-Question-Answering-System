@@ -2,13 +2,16 @@
 HAJIMI Demo API 测试脚本
 供前端开发者快速验证后端接口是否正常工作
 """
+
 import json
 import sys
+
 import httpx
 
 # Windows 控制台中文显示优化
 if sys.platform == "win32":
     import io
+
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 BASE_URL = "http://localhost:8010"

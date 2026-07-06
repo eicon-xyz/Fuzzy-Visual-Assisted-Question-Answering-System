@@ -4,12 +4,14 @@ Local Tesseract OCR engine — screen text extraction fallback.
 Matches OpenGuider's src/perception/ocr-engine.js.
 Supports English + Chinese text extraction with bounding boxes.
 """
+
 from __future__ import annotations
-import io
+
 import base64
+import io
 import logging
-from typing import List, Optional
 from dataclasses import dataclass, field
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +47,9 @@ def _ensure_tesseract() -> bool:
         return True
 
     try:
-        import pytesseract
         import os
+
+        import pytesseract
 
         for p in _TESSERACT_PATHS:
             if os.path.exists(p):
@@ -60,7 +63,9 @@ def _ensure_tesseract() -> bool:
         _initialized = True
         return True
     except ImportError:
-        logger.warning("pytesseract not installed. Install with: pip install pytesseract")
+        logger.warning(
+            "pytesseract not installed. Install with: pip install pytesseract"
+        )
         return False
     except Exception as e:
         logger.error(f"Failed to initialize Tesseract: {e}")
@@ -98,7 +103,6 @@ def recognize_image(
 
     try:
         import pytesseract
-        from PIL import Image
 
         img = _decode_image(image_base64)
 
@@ -107,7 +111,9 @@ def recognize_image(
 
         # Get word-level data with bounding boxes
         word_data = pytesseract.image_to_data(
-            img, lang=language, output_type=pytesseract.Output.DICT,
+            img,
+            lang=language,
+            output_type=pytesseract.Output.DICT,
         )
 
         words = []
@@ -159,6 +165,7 @@ def ocr_text_only(image_base64: str, language: str = "eng+chi_sim") -> str:
 
     try:
         import pytesseract
+
         img = _decode_image(image_base64)
         return pytesseract.image_to_string(img, lang=language).strip()
     except Exception as e:

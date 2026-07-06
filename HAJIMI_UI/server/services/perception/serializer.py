@@ -2,6 +2,7 @@
 UI 元素序列化器
 将 OmniParser 输出的 UI 元素列表转换为 LLM prompt 文本
 """
+
 from typing import List
 
 from server.models.schemas import UIElement
@@ -26,6 +27,6 @@ def serialize_elements(elements: List[UIElement], max_count: int = 25) -> str:
     for e in sorted_els:
         text = e.text.strip() if e.text else "(无文本)"
         lines.append(
-            f"  {e.element_id}: {e.element_type} \"{text}\" (置信度:{e.confidence:.2f})"
+            f'  {e.element_id}: {e.element_type} "{text}" (置信度:{e.confidence:.2f})'
         )
     return "\n".join(lines)

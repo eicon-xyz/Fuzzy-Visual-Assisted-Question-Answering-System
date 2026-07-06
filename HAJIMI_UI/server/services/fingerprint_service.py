@@ -6,6 +6,7 @@
 
 参考：设计文档 §4.3.2 蓝图保护机制
 """
+
 import hashlib
 from typing import List, Optional
 

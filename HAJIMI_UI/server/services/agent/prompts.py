@@ -4,6 +4,7 @@ HAJIMI_UI — Agent Prompts
 Transplanted from OpenSource hajimi-og-v2/server/services/agent/prompts.py.
 Matches OpenGuider's planner-chain.js, executor-chain.js, evaluator-chain.js prompts.
 """
+
 from __future__ import annotations
 
 # ═══════════════════════════════════════════════════════════════════════════

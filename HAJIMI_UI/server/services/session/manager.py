@@ -4,7 +4,9 @@ HAJIMI_UI — Session Manager
 Mirrors OpenGuider's src/session/session-manager.js.
 State machine for task session state.
 """
+
 from __future__ import annotations
+
 import logging
 import time
 from typing import Optional
@@ -22,7 +24,9 @@ class SessionManager:
         self._session_id = session_id
         self._messages: list[dict] = []
         self._status: str = "idle"
-        self._active_plan: Optional[dict] = None  # {goal, steps[], current_step_index, status}
+        self._active_plan: Optional[dict] = (
+            None  # {goal, steps[], current_step_index, status}
+        )
         self._last_pointer: Optional[dict] = None  # {x, y, label, explanation}
         self._evaluation_history: list[dict] = []
         self._last_screenshots: list = []
@@ -159,6 +163,7 @@ class SessionManager:
     def reset(self):
         """Full session reset."""
         from server.services.validation.postprocess import reset_history
+
         self._messages = []
         self._status = "idle"
         self._active_plan = None

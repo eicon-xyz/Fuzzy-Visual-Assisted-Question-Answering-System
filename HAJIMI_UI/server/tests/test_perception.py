@@ -4,6 +4,7 @@ P0「LLM 元素感知」单元测试（6 条核心用例）
 运行方式：
     python -m pytest server/tests/test_perception.py -v
 """
+
 from typing import List, Optional
 
 import pytest
@@ -58,11 +59,17 @@ def test_semantic_match_download_button(monkeypatch):
     )
     captured: List[Optional[List[UIElement]]] = []
 
-    def _mock_call(query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30):
+    def _mock_call(
+        query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30
+    ):
         captured.append(elements)
         return {
             "steps": [
-                {"action": "点击下载", "description": "点击下载按钮", "target_element_id": "~1"},
+                {
+                    "action": "点击下载",
+                    "description": "点击下载按钮",
+                    "target_element_id": "~1",
+                },
             ]
         }
 
@@ -87,10 +94,16 @@ def test_type_text_match_password_input(monkeypatch):
         {"wechat": [], "screenshot": [], "default": elements},
     )
 
-    def _mock_call(query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30):
+    def _mock_call(
+        query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30
+    ):
         return {
             "steps": [
-                {"action": "输入密码", "description": "在密码框输入密码", "target_element_id": "~3"},
+                {
+                    "action": "输入密码",
+                    "description": "在密码框输入密码",
+                    "target_element_id": "~3",
+                },
             ]
         }
 
@@ -107,10 +120,16 @@ def test_conceptual_step_has_no_binding(monkeypatch):
     """3. 概念性步骤：target_element_id 为空 → 无 overlay"""
     monkeypatch.setattr(settings, "USE_REAL_LLM", True)
 
-    def _mock_call(query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30):
+    def _mock_call(
+        query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30
+    ):
         return {
             "steps": [
-                {"action": "等待下载完成", "description": "请等待下载进度完成", "target_element_id": ""},
+                {
+                    "action": "等待下载完成",
+                    "description": "请等待下载进度完成",
+                    "target_element_id": "",
+                },
             ]
         }
 
@@ -126,10 +145,16 @@ def test_hallucinated_element_id_falls_back(monkeypatch):
     """4. LLM 幻觉 ID：返回不存在的 ~99 → 安全降级为空"""
     monkeypatch.setattr(settings, "USE_REAL_LLM", True)
 
-    def _mock_call(query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30):
+    def _mock_call(
+        query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30
+    ):
         return {
             "steps": [
-                {"action": "点击下载", "description": "点击下载按钮", "target_element_id": "~99"},
+                {
+                    "action": "点击下载",
+                    "description": "点击下载按钮",
+                    "target_element_id": "~99",
+                },
             ]
         }
 
@@ -149,11 +174,21 @@ def test_empty_elements_generate_text_only_steps(monkeypatch):
         {"wechat": [], "screenshot": [], "default": []},
     )
 
-    def _mock_call(query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30):
+    def _mock_call(
+        query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30
+    ):
         return {
             "steps": [
-                {"action": "观察界面", "description": "查看当前屏幕", "target_element_id": ""},
-                {"action": "等待加载", "description": "等待内容加载", "target_element_id": ""},
+                {
+                    "action": "观察界面",
+                    "description": "查看当前屏幕",
+                    "target_element_id": "",
+                },
+                {
+                    "action": "等待加载",
+                    "description": "等待内容加载",
+                    "target_element_id": "",
+                },
             ]
         }
 

@@ -2,13 +2,16 @@
 HAJIMI Demo 蓝图状态机
 实现 advance / rollback / skip / terminate / suspend 五种操作
 """
-from typing import Tuple, Optional, Dict, Any
 
+from typing import Any, Dict, Optional, Tuple
+
+from server.models.schemas import Step
 from server.storage.memory import TaskState
-from server.models.schemas import Blueprint, Step
 
 
-def _build_constraint_hint(constraints: Optional[Dict[str, Any]], step_description: str) -> str:
+def _build_constraint_hint(
+    constraints: Optional[Dict[str, Any]], step_description: str
+) -> str:
     """根据约束条件生成步骤描述后缀提示"""
     if not constraints:
         return ""
@@ -16,13 +19,19 @@ def _build_constraint_hint(constraints: Optional[Dict[str, Any]], step_descripti
     hints = []
     desc = step_description.lower()
 
-    if "install_path" in constraints and ("安装" in desc or "路径" in desc or "位置" in desc):
+    if "install_path" in constraints and (
+        "安装" in desc or "路径" in desc or "位置" in desc
+    ):
         hints.append(f"（注意：{constraints['install_path']}）")
-    if "save_path" in constraints and ("保存" in desc or "路径" in desc or "位置" in desc):
+    if "save_path" in constraints and (
+        "保存" in desc or "路径" in desc or "位置" in desc
+    ):
         hints.append(f"（注意：{constraints['save_path']}）")
     if "version" in constraints and ("版本" in desc or "下载" in desc):
         hints.append(f"（注意：{constraints['version']}）")
-    if "avoid_options" in constraints and ("勾选" in desc or "选项" in desc or "取消" in desc):
+    if "avoid_options" in constraints and (
+        "勾选" in desc or "选项" in desc or "取消" in desc
+    ):
         hints.append(f"（注意：{constraints['avoid_options']}）")
 
     return "".join(hints)
@@ -68,7 +77,9 @@ class BlueprintEngine:
                 current_idx = bp.current_step - 1
                 if 0 <= current_idx < len(steps):
                     steps[current_idx].status = "active"
-                return "suspended", steps[current_idx] if 0 <= current_idx < len(steps) else None
+                return "suspended", (
+                    steps[current_idx] if 0 <= current_idx < len(steps) else None
+                )
 
         # 标记当前步骤为 done
         current_idx = bp.current_step - 1

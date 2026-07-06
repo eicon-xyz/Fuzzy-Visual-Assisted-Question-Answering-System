@@ -4,12 +4,14 @@ Windows window enumeration via PowerShell / Win32 API.
 Matches OpenGuider's src/perception/window-enum.js.
 Returns visible window titles, class names, rectangles, and cursor position.
 """
+
 from __future__ import annotations
-import subprocess
+
 import json
 import logging
-import tempfile
 import os
+import subprocess
+import tempfile
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -121,6 +123,7 @@ def enumerate_windows(timeout: int = 8) -> Optional[dict]:
     try:
         # Write script to temp file (cached — only rewritten if content changes)
         import hashlib
+
         script_hash = hashlib.md5(_ENUM_WINDOWS_PS.encode()).hexdigest()[:8]
         tmp_dir = os.path.join(tempfile.gettempdir(), "hajimi-ps")
         os.makedirs(tmp_dir, exist_ok=True)
@@ -131,7 +134,14 @@ def enumerate_windows(timeout: int = 8) -> Optional[dict]:
                 f.write(_ENUM_WINDOWS_PS)
 
         result = subprocess.run(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script_path],
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                script_path,
+            ],
             capture_output=True,
             text=True,
             timeout=timeout,

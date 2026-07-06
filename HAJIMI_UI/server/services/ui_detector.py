@@ -1,14 +1,15 @@
 """可插拔 UI 元素检测 — Replicate 或本地 omniparserserver。"""
+
 from __future__ import annotations
 
-import base64
 import ast
+import base64
 import os
 import re
 import time
 from dataclasses import dataclass
 from io import BytesIO
-from typing import List, Optional, Tuple, Dict, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 from PIL import Image
@@ -144,7 +145,9 @@ def get_detector_health_info() -> Dict[str, Any]:
             info["detector_active"] = active
             info["detector_device"] = device
             info["omniparser_url"] = url or None
-            info["omniparser_ready"] = ready if url else bool(settings.REPLICATE_API_TOKEN)
+            info["omniparser_ready"] = (
+                ready if url else bool(settings.REPLICATE_API_TOKEN)
+            )
         except DetectorError:
             info["detector_active"] = None
             info["detector_device"] = None
@@ -224,7 +227,9 @@ def _detect_local_omniparser(
     if pil_image.mode != "RGB":
         pil_image = pil_image.convert("RGB")
 
-    work_image, scale_x, scale_y = _maybe_downscale(pil_image, settings.OMNIPARSER_LOCAL_MAX_SIDE)
+    work_image, scale_x, scale_y = _maybe_downscale(
+        pil_image, settings.OMNIPARSER_LOCAL_MAX_SIDE
+    )
 
     t0 = time.perf_counter()
     b64 = _pil_to_png_base64(work_image)
@@ -365,7 +370,11 @@ def _parse_replicate_output(output) -> List[dict]:
         return []
 
     if isinstance(output, dict):
-        parsed = output.get("parsed_content") or output.get("boxes") or output.get("elements")
+        parsed = (
+            output.get("parsed_content")
+            or output.get("boxes")
+            or output.get("elements")
+        )
         if parsed is not None:
             return _coerce_item_list(parsed)
         return _coerce_item_list(output)
@@ -387,7 +396,9 @@ def _coerce_item_list(data) -> List[dict]:
     return []
 
 
-def _normalize_elements(raw_items: List[dict], img_w: int, img_h: int) -> List[UIElement]:
+def _normalize_elements(
+    raw_items: List[dict], img_w: int, img_h: int
+) -> List[UIElement]:
     candidates = []
     for item in raw_items:
         bbox = _normalize_bbox(item.get("bbox") or item.get("box"), img_w, img_h)
@@ -404,16 +415,18 @@ def _normalize_elements(raw_items: List[dict], img_w: int, img_h: int) -> List[U
         confidence = max(0.0, min(1.0, confidence))
         cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
         area = max(1, (x2 - x1) * (y2 - y1))
-        candidates.append({
-            "bbox": bbox,
-            "element_type": element_type,
-            "text": text,
-            "confidence": confidence,
-            "center": [cx, cy],
-            "area": area,
-            "y1": y1,
-            "x1": x1,
-        })
+        candidates.append(
+            {
+                "bbox": bbox,
+                "element_type": element_type,
+                "text": text,
+                "confidence": confidence,
+                "center": [cx, cy],
+                "area": area,
+                "y1": y1,
+                "x1": x1,
+            }
+        )
 
     candidates.sort(key=lambda c: (c["y1"], c["x1"]))
 
@@ -469,10 +482,13 @@ def _filter_elements(elements: List[UIElement]) -> List[UIElement]:
 
 def _fallback_preset_elements(sw: int, sh: int) -> List[UIElement]:
     """检测失败时的 dev fallback（比例坐标）。"""
+
     def box(xr, yr, wr, hr):
         return [
-            int(sw * xr), int(sh * yr),
-            int(sw * (xr + wr)), int(sh * (yr + hr)),
+            int(sw * xr),
+            int(sh * yr),
+            int(sw * (xr + wr)),
+            int(sh * (yr + hr)),
         ]
 
     presets = [

@@ -4,13 +4,12 @@
 目的：在并行重构期间，确保未开启特性开关时，现有行为不变。
 任何导致这些测试失败的重构都是非法的。
 """
-import pytest
 
+from server.config import settings
+from server.models.schemas import Blueprint, Intent, Step
 from server.services.llm_ai import classify_intent, generate_steps, process_query
 from server.services.planning.blueprint_engine import BlueprintEngine
 from server.storage.memory import TaskState
-from server.models.schemas import Blueprint, Step, Intent
-from server.config import settings
 
 
 class TestClassifyIntent:
@@ -84,9 +83,13 @@ class TestProcessQuery:
 class TestBlueprintEngine:
     """蓝图状态机老逻辑快照"""
 
-    def _make_state(self, total_steps: int = 3, current_step: int = 1, state: str = "executing") -> TaskState:
+    def _make_state(
+        self, total_steps: int = 3, current_step: int = 1, state: str = "executing"
+    ) -> TaskState:
         steps = [
-            Step(step_index=i + 1, action=f"步骤{i+1}", description="", status="pending")
+            Step(
+                step_index=i + 1, action=f"步骤{i+1}", description="", status="pending"
+            )
             for i in range(total_steps)
         ]
         return TaskState(
@@ -99,7 +102,12 @@ class TestBlueprintEngine:
                 confidence=0.9,
                 needs_clarification=False,
             ),
-            blueprint=Blueprint(name="测试", total_steps=total_steps, current_step=current_step, state=state),
+            blueprint=Blueprint(
+                name="测试",
+                total_steps=total_steps,
+                current_step=current_step,
+                state=state,
+            ),
             steps=steps,
             ui_elements=[],
             created_at="2026-01-01T00:00:00",

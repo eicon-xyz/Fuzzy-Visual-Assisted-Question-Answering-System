@@ -7,11 +7,10 @@
 - rolling_back -> advance（与 executing 行为一致）
 - strict_fingerprint 真实指纹比对
 """
-import pytest
 
+from server.models.schemas import Blueprint, Intent, Step
 from server.services.planning.blueprint_engine import BlueprintEngine
 from server.storage.memory import TaskState
-from server.models.schemas import Blueprint, Step, Intent
 
 
 class TestBlueprintEngineP3:
@@ -25,7 +24,9 @@ class TestBlueprintEngineP3:
         fingerprint: str | None = None,
     ) -> TaskState:
         steps = [
-            Step(step_index=i + 1, action=f"步骤{i+1}", description="", status="pending")
+            Step(
+                step_index=i + 1, action=f"步骤{i+1}", description="", status="pending"
+            )
             for i in range(total_steps)
         ]
         return TaskState(
@@ -39,7 +40,10 @@ class TestBlueprintEngineP3:
                 needs_clarification=False,
             ),
             blueprint=Blueprint(
-                name="测试", total_steps=total_steps, current_step=current_step, state=state
+                name="测试",
+                total_steps=total_steps,
+                current_step=current_step,
+                state=state,
             ),
             steps=steps,
             ui_elements=[],

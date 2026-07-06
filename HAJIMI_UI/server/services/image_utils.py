@@ -1,4 +1,5 @@
 """Base64 / data-URI 截图解码。"""
+
 import base64
 import re
 from io import BytesIO

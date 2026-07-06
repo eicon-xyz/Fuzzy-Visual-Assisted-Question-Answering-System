@@ -2,10 +2,11 @@
 HAJIMI Demo 蓝图状态机
 实现 advance / rollback / skip / terminate 四种操作
 """
+
 from typing import Tuple
 
+from server.models.schemas import Step
 from server.storage.memory import TaskState
-from server.models.schemas import Blueprint, Step
 
 
 class BlueprintEngine:
