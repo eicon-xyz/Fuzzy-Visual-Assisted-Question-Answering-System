@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<title>HAJIMI v2.2 API 文档 (A-B / A-C / B-C)</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Microsoft YaHei","PingFang SC",-apple-system,sans-serif;background:#f7f8fa;color:#3c4043;line-height:1.6}
+/* header */
+.topbar{background:#fff;border-bottom:1px solid #e0e0e0;padding:18px 32px}
+.topbar h1{font-size:22px;color:#1a1a2e}.topbar span{color:#2775e0}
+.topbar p{color:#888;font-size:12px;margin-top:4px}
+.wrap{max-width:1200px;margin:0 auto;padding:20px}
+
+/* group */
+.group{margin-bottom:24px}
+.gtitle{font-size:16px;font-weight:700;color:#1a1a2e;padding:12px 20px;background:#fff;border-left:4px solid #2775e0;border-radius:0;margin-bottom:0}
+.gsub{font-size:13px;color:#666;background:#fff;padding:6px 20px 12px;border-bottom:1px solid #f0f0f0}
+
+/* api card */
+.api{background:#fff;border-bottom:1px solid #f0f0f0}
+.api:hover{background:#fafbfc}
+.api-row{display:flex;align-items:flex-start;padding:14px 20px;cursor:pointer}
+.api-method{display:inline-block;width:68px;text-align:center;padding:4px 0;border-radius:4px;color:#fff;font-size:12px;font-weight:700;margin-right:14px;flex-shrink:0;margin-top:2px}
+.get{background:#009d75} .post{background:#2775e0} .put{background:#de8c17} .delete{background:#d13c3c}
+.signal{background:#8e44ad}
+.api-url{font-family:"Consolas","Liberation Mono",Menlo,monospace;font-size:14px;font-weight:600;flex:1;word-break:break-all}
+.api-name{font-size:13px;color:#888;margin-left:auto;flex-shrink:0;white-space:nowrap}
+.api-auth{font-size:11px;padding:2px 7px;border-radius:3px;margin-left:10px;flex-shrink:0}
+.auth-no{background:#e8f5e9;color:#2e7d32}
+.auth-key{background:#fff3e0;color:#e65100}
+
+/* body */
+.api-body{padding:0 20px 16px 102px;display:none}
+.api.open .api-body{display:block}
+.api-body h4{font-size:12px;color:#999;margin:14px 0 6px;text-transform:uppercase;letter-spacing:1px}
+.api-body p{font-size:13px;color:#555;margin:4px 0}
+
+/* table */
+table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0 14px}
+th,td{padding:8px 12px;border:1px solid #eee;text-align:left}
+th{background:#f9fafb;font-weight:600;font-size:12px;color:#666}
+td:first-child{font-family:Consolas,Menlo,monospace;color:#2775e0;white-space:nowrap}
+
+/* code */
+pre{background:#1c1e21;color:#c9d1d9;padding:14px 18px;border-radius:6px;font-size:12px;overflow-x:auto;line-height:1.7;margin:8px 0 14px}
+pre .k{color:#79c0ff}pre .s{color:#a5d6ff}pre .n{color:#7ee787}pre .b{color:#ffa657}
+
+/* note */
+.note{background:#fffbe6;border:1px solid #ffe58f;padding:10px 14px;border-radius:4px;font-size:12px;margin:8px 0;color:#ad6800}
+
+/* tabs */
+.tabs{display:flex;gap:0;margin-bottom:20px}
+.tab{padding:10px 20px;background:#fff;border:1px solid #e0e0e0;border-bottom:none;font-size:13px;cursor:pointer;color:#666;border-radius:6px 6px 0 0}
+.tab.active{color:#2775e0;font-weight:700;border-bottom:2px solid #2775e0;background:#fff}
+.tab-section{display:none}
+.tab-section.active{display:block}
+
+.legend{font-size:12px;color:#999;padding:0 0 16px}
+.legend span{margin-right:16px}
+.legend .get,.legend .post,.legend .put,.legend .delete,.legend .signal{font-size:10px;padding:2px 6px;margin-right:4px}
+
+.foot{text-align:center;color:#bbb;font-size:11px;padding:30px}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1><span>HAJIMI</span> 自动操作助手 — 完整 API 文档 v2.2</h1>
+  <p>Base URL: http://127.0.0.1:8010 · 共 <b>31</b> 个 HTTP 接口 + <b>9</b> 个 B-C 进程内信号 · 2026-07-06</p>
+</div>
+
+<div class="wrap">
+
+<!-- ═══════════════════════ GUIDE ═══════════════════════ -->
+<p class="legend">
+  图例:
+  <span class="get">GET</span> 查询
+  <span class="post">POST</span> 提交
+  <span class="put">PUT</span> 更新
+  <span class="delete">DELETE</span> 删除
+  <span class="signal">SIGNAL</span> B-C 进程内信号
+</p>
+
+<!-- ═══════════════════════ PART I: A-B 接口 ═══════════════════════ -->
+<div class="group">
+<div class="gtitle">第一部分：A-B 接口 (HTTP REST — B 端客户端 ↔ A 端服务端)</div>
+<div class="gsub">B 端 PyQt5 通过 core/api_client.py 调用。Base: http://127.0.0.1:8010 · Auth: X-Demo-Key: hajimi-demo-2026</div>
+
+<!-- 1.1 health -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span>
+<span class="api-url">/api/demo/health</span>
+<span class="api-name">健康检查 + OmniParser 探测</span>
+<span class="api-auth auth-no">公开</span>
+</div>
+<div class="api-body">
+<p>B 端启动时轮询探测（延迟 12s，间隔 4s，最多 6 次）。C 端心跳检测。</p>
+<h4>RESPONSE 200</h4>
+<pre>{
+  <span class="k">"status"</span>: <span class="s">"ok"</span>,
+  <span class="k">"version"</span>: <span class="s">"2.0.0"</span>,
+  <span class="k">"detector_backend"</span>: <span class="s">"local_omniparser"</span>,
+  <span class="k">"detector_active"</span>: <span class="s">"local_omniparser"</span>,
+  <span class="k">"detector_device"</span>: <span class="s">"cuda"</span>,
+  <span class="k">"omniparser_url"</span>: <span class="s">"http://127.0.0.1:9800"</span>,
+  <span class="k">"omniparser_ready"</span>: <span class="n">true</span>
+}</pre>
+<h4>RESPONSE 503 (OmniParser 不可达)</h4>
+<pre>{
+  <span class="k">"status"</span>: <span class="s">"degraded"</span>,
+  <span class="k">"omniparser_ready"</span>: <span class="n">false</span>,
+  <span class="k">"message"</span>: <span class="s">"OmniParser 远程服务不可达"</span>
+}</pre>
+</div></div>
+
+<!-- 1.2 health/live -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span>
+<span class="api-url">/api/demo/health/live</span>
+<span class="api-name">轻量存活检查</span>
+<span class="api-auth auth-no">公开</span>
+</div>
+<div class="api-body"><p>仅返回 HTTP 200，不探测 OmniParser。B 端高频使用。</p></div></div>
+
+<!-- 1.3 execute -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method post">POST</span>
+<span class="api-url">/api/demo/execute</span>
+<span class="api-name">提交自动操作任务（V2.2 核心）</span>
+<span class="api-auth auth-key">X-Demo-Key</span>
+</div>
+<div class="api-body">
+<p>提交截图 + 自然语言指令，LLM 规划后返回操作步骤（含 click/type/dblclick 等 6 种动作及屏幕坐标）。</p>
+<h4>REQUEST</h4>
+<table>
+<tr><th>字段</th><th>类型</th><th>必填</th><th>说明</th></tr>
+<tr><td>query</td><td>string</td><td>✅</td><td>用户自然语言指令，1–500 字符</td></tr>
+<tr><td>image</td><td>string</td><td>✅</td><td>Base64 截图（data URI 前缀可选）</td></tr>
+</table>
+<pre>curl -X POST :8010/api/demo/execute \
+  -H <span class="s">"X-Demo-Key: hajimi-demo-2026"</span> \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d <span class="s">'{"query":"把微信安装到D盘","image":"data:image/png;base64,..."}'</span></pre>
+<h4>RESPONSE 200</h4>
+<pre>{
+  <span class="k">"task_id"</span>: <span class="s">"a1b2c3d4-..."</span>,
+  <span class="k">"success"</span>: <span class="n">true</span>,
+  <span class="k">"plan"</span>: {
+    <span class="k">"goal"</span>: <span class="s">"安装微信到D盘"</span>,
+    <span class="k">"total_steps"</span>: <span class="n">5</span>,
+    <span class="k">"steps"</span>: [{
+      <span class="k">"step_index"</span>: <span class="n">1</span>,
+      <span class="k">"action"</span>: <span class="s">"click"</span>,
+      <span class="k">"description"</span>: <span class="s">"双击桌面浏览器图标"</span>,
+      <span class="k">"target_element_id"</span>: <span class="s">"~3"</span>,
+      <span class="k">"element_type"</span>: <span class="s">"icon"</span>,
+      <span class="k">"bbox"</span>: [<span class="n">120</span>,<span class="n">340</span>,<span class="n">180</span>,<span class="n">410</span>],
+      <span class="k">"bbox_center"</span>: [<span class="n">150</span>,<span class="n">375</span>],
+      <span class="k">"risk_score"</span>: <span class="n">1</span>,
+      <span class="k">"status"</span>: <span class="s">"pending"</span>
+    }]
+  }
+}</pre>
+</div></div>
+
+<!-- 1.4 stream -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span>
+<span class="api-url">/api/demo/stream/{task_id}</span>
+<span class="api-name">SSE 实时进度推送</span>
+<span class="api-auth auth-no">公开</span>
+</div>
+<div class="api-body"><p>Server-Sent Events。事件类型: step, error, complete。B 端通过 EventSource 连接。</p></div></div>
+
+<!-- 1.5 cancel -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method post">POST</span>
+<span class="api-url">/api/demo/cancel</span>
+<span class="api-name">取消/暂停任务</span>
+<span class="api-auth auth-key">X-Demo-Key</span>
+</div>
+<div class="api-body"><p>Body: { "task_id": "..." }</p></div></div>
+
+<!-- 1.6 process -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method post">POST</span>
+<span class="api-url">/api/demo/process</span>
+<span class="api-name">[兼容 V1] 仅规划不执行（指引模式）</span>
+<span class="api-auth auth-key">X-Demo-Key</span>
+</div>
+<div class="api-body"><p>兼容 V1.x 指引模式：返回步骤 + 标注坐标，由 B 端覆盖层渲染（不自动点击）。</p></div></div>
+
+<!-- 1.7 step -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method post">POST</span>
+<span class="api-url">/api/demo/step</span>
+<span class="api-name">蓝图步骤推进/回退/跳过</span>
+<span class="api-auth auth-key">X-Demo-Key</span>
+</div>
+<div class="api-body"><p>Body: { task_id, action: advance|rollback|skip|terminate, step_index, fingerprint }</p></div></div>
+
+<!-- 1.8 inspect -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method post">POST</span>
+<span class="api-url">/api/demo/inspect</span>
+<span class="api-name">仅检测 UI 元素（不生成任务）</span>
+<span class="api-auth auth-key">X-Demo-Key</span>
+</div>
+<div class="api-body"><p>B 端 Settings "立即检测当前屏幕"。返回全量 ui_elements + SoM 图。超时 360s。</p></div></div>
+
+<!-- 1.9 relocate -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method post">POST</span>
+<span class="api-url">/api/demo/relocate</span>
+<span class="api-name">重定位（手动完成一步后重新截图标注）</span>
+<span class="api-auth auth-key">X-Demo-Key</span>
+</div>
+<div class="api-body"><p>当前画面找不到目标元素时，用户手动完成操作后 B 端调用。</p></div></div>
+
+<!-- 1.10 locate -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method post">POST</span>
+<span class="api-url">/api/demo/locate</span>
+<span class="api-name">单步定位</span>
+<span class="api-auth auth-key">X-Demo-Key</span>
+</div>
+<div class="api-body"><p>针对当前步骤在新截图中重新定位目标元素。</p></div></div>
+
+<!-- 1.11 clarify -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method post">POST</span>
+<span class="api-url">/api/demo/clarify</span>
+<span class="api-name">主动澄清应答</span>
+<span class="api-auth auth-key">X-Demo-Key</span>
+</div>
+<div class="api-body"><p>置信度 &lt; 80% 时触发，用户回答后更新意图。</p></div></div>
+
+<!-- 1.12 report -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method post">POST</span>
+<span class="api-url">/api/demo/report</span>
+<span class="api-name">任务结果与反馈上报</span>
+<span class="api-auth auth-key">X-Demo-Key</span>
+</div>
+<div class="api-body"><p>单个任务结束后上报。Demo 阶段由 C 端代报。</p></div></div>
+</div>
+
+<!-- ═══════════════════════ PART II: A-C 接口 ═══════════════════════ -->
+<div class="group">
+<div class="gtitle">第二部分：A-C 接口 (HTTP REST — C 端客户端 ↔ A 端服务端)</div>
+<div class="gsub">C 端通过 httpx 调用。Base: http://127.0.0.1:8010 · Auth: X-Demo-Key (审计/配置) / X-Admin-Key (管理)</div>
+
+<!-- 2.1 audit/report -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method post">POST</span>
+<span class="api-url">/api/audit/report</span>
+<span class="api-name">批量审计上报</span>
+<span class="api-auth auth-key">X-Demo-Key</span>
+</div>
+<div class="api-body">
+<p>C 端审计代理批量上报脱敏日志，写入 t_transactions。</p>
+<table>
+<tr><th>字段</th><th>类型</th><th>必填</th><th>说明</th></tr>
+<tr><td>client_id</td><td>string</td><td>✅</td><td>客户端唯一标识</td></tr>
+<tr><td>batch</td><td>array</td><td>✅</td><td>1–100 条审计记录</td></tr>
+<tr><td>batch[].task_id</td><td>uuid</td><td>✅</td><td>任务 ID</td></tr>
+<tr><td>batch[].query</td><td>string</td><td>✅</td><td>脱敏后用户提问</td></tr>
+<tr><td>batch[].intent_category</td><td>string</td><td>✅</td><td>九大意图域</td></tr>
+<tr><td>batch[].route</td><td>string</td><td>✅</td><td>L2 / L3</td></tr>
+<tr><td>batch[].result</td><td>string</td><td>✅</td><td>success / fail / cancel / redirect / rejected</td></tr>
+<tr><td>batch[].duration_ms</td><td>int</td><td>✅</td><td>耗时(毫秒)</td></tr>
+</table>
+<pre>{ <span class="k">"received"</span>: <span class="n">10</span>, <span class="k">"server_queue_depth"</span>: <span class="n">45</span> }</pre>
+</div></div>
+
+<!-- 2.2 feedback -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method post">POST</span>
+<span class="api-url">/api/audit/feedback</span>
+<span class="api-name">单独用户反馈</span>
+<span class="api-auth auth-key">X-Demo-Key</span>
+</div>
+<div class="api-body"><p>与批量审计解耦。Body: { task_id, feedback_type: useful|useless|neutral, comment }。写入 t_feedback。</p>
+<pre>{ <span class="k">"received"</span>: <span class="n">true</span> }</pre></div></div>
+
+<!-- 2.3 config/pull -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span>
+<span class="api-url">/api/config/pull</span>
+<span class="api-name">配置拉取 (ETag)</span>
+<span class="api-auth auth-key">X-Demo-Key</span>
+</div>
+<div class="api-body"><p>C 端配置轮询器定时拉取。Headers: X-Client-Version, If-None-Match。304 = 无更新。</p></div></div>
+
+<!-- 2.4 auth/login -->
+<div class="api">
+<div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method post">POST</span>
+<span class="api-url">/api/auth/login</span>
+<span class="api-name">Web 管理面板登录</span>
+<span class="api-auth auth-no">公开</span>
+</div>
+<div class="api-body"><p>JWT 签发 (2h access)。Body: { username, password }。</p>
+<pre>{ <span class="k">"access_token"</span>: <span class="s">"eyJ..."</span>, <span class="k">"token_type"</span>: <span class="s">"bearer"</span>, <span class="k">"expires_in"</span>: <span class="n">7200</span> }</pre></div></div>
+
+<!-- ADMIN endpoints -->
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span><span class="api-url">/api/admin/stats/overview</span><span class="api-name">仪表盘 KPI 总览</span><span class="api-auth auth-key">X-Admin-Key</span></div><div class="api-body"><p>事务量/在线数/成功率/失败率/API 费用。</p></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span><span class="api-url">/api/admin/stats/top-tasks</span><span class="api-name">高频任务 TOP 10</span><span class="api-auth auth-key">X-Admin-Key</span></div><div class="api-body"><p>参数: limit (默认 10)。</p></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span><span class="api-url">/api/admin/stats/trend</span><span class="api-name">24h 趋势</span><span class="api-auth auth-key">X-Admin-Key</span></div><div class="api-body"><p>参数: metric (volume|latency), range (1h|24h|7d)。</p></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span><span class="api-url">/api/admin/stats/redline</span><span class="api-name">红线拦截统计</span><span class="api-auth auth-key">X-Admin-Key</span></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span><span class="api-url">/api/admin/stats/feedback</span><span class="api-name">反馈分布 + L2/L3 占比</span><span class="api-auth auth-key">X-Admin-Key</span></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span><span class="api-url">/api/admin/failures/list</span><span class="api-name">失败详情列表</span><span class="api-auth auth-key">X-Admin-Key</span></div><div class="api-body"><p>游标分页。参数: cursor, limit, type。</p></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span><span class="api-url">/api/admin/failures/detail/{task_id}</span><span class="api-name">单条失败详情</span><span class="api-auth auth-key">X-Admin-Key</span></div><div class="api-body"><p>含 LLM 输入/输出快照。</p></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span><span class="api-url">/api/admin/config/current</span><span class="api-name">获取全部系统配置</span><span class="api-auth auth-key">X-Admin-Key</span></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method post">POST</span><span class="api-url">/api/admin/config/deploy</span><span class="api-name">热部署配置</span><span class="api-auth auth-key">X-Admin-Key</span></div><div class="api-body"><p>Body: 任意 JSON 键值对。写入 t_system_configs。</p>
+<pre>{ <span class="k">"deployed"</span>:<span class="n">true</span>, <span class="k">"version"</span>:<span class="s">"v2.2.1"</span>, <span class="k">"affected_clients"</span>:<span class="n">42</span> }</pre></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span><span class="api-url">/api/admin/metrics</span><span class="api-name">性能指标 (P95/P50/平均)</span><span class="api-auth auth-key">X-Admin-Key</span></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span><span class="api-url">/api/admin/session/status</span><span class="api-name">会话状态</span><span class="api-auth auth-key">X-Admin-Key</span></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span><span class="api-url">/api/admin/flow/topology</span><span class="api-name">数据流拓扑</span><span class="api-auth auth-key">X-Admin-Key</span></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span><span class="api-url">/api/admin/flow/metrics</span><span class="api-name">接口 QPS + 成功率</span><span class="api-auth auth-key">X-Admin-Key</span></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span><span class="api-url">/api/admin/flow/versions</span><span class="api-name">客户端版本分布</span><span class="api-auth auth-key">X-Admin-Key</span></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span><span class="api-url">/api/admin/monitor/health</span><span class="api-name">组件健康 + 资源指标</span><span class="api-auth auth-key">X-Admin-Key</span></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">GET</span><span class="api-url">/api/admin/monitor/alerts</span><span class="api-name">告警列表</span><span class="api-auth auth-key">X-Admin-Key</span></div><div class="api-body"><p>参数: limit (默认 20), status (all|unread|read)。</p></div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method post">POST</span><span class="api-url">/api/admin/monitor/alerts/read-all</span><span class="api-name">全部告警标记已读</span><span class="api-auth auth-key">X-Admin-Key</span></div></div>
+</div>
+
+<!-- ═══════════════════════ PART III: B-C 信号 ═══════════════════════ -->
+<div class="group">
+<div class="gtitle">第三部分：B-C 进程内信号 (Qt Signals — 同一 PyQt5 进程)</div>
+<div class="gsub">B 端与 C 端通过 PyQt5 信号/槽通信。C 端 bc_adapter.py 提供接入。</div>
+
+<div class="api"><div class="api-row">
+<span class="api-method signal">→</span><span class="api-url">asr_start / asr_stop</span><span class="api-name">ASR 录音控制 (B→C)</span>
+</div><div class="api-body" style="display:block;padding-top:6px"><p>mic_button.pressed → C 开始录音；released → 停止录音并转写。</p></div></div>
+
+<div class="api"><div class="api-row">
+<span class="api-method signal">←</span><span class="api-url">asr_result</span><span class="api-name">ASR 转写结果 (C→B)</span>
+</div><div class="api-body" style="display:block;padding-top:6px"><p>参数: (transcript: string, confidence: float, engine: string, error: string|null)。</p></div></div>
+
+<div class="api"><div class="api-row">
+<span class="api-method signal">→</span><span class="api-url">tts_enqueue</span><span class="api-name">TTS 播报触发 (B→C)</span>
+</div><div class="api-body" style="display:block;padding-top:6px"><p>参数: (text: string, priority: int=0, interrupt_current: bool=false)。步骤切换时触发。</p></div></div>
+
+<div class="api"><div class="api-row">
+<span class="api-method signal">←</span><span class="api-url">tts_status</span><span class="api-name">TTS 状态回传 (C→B)</span>
+</div><div class="api-body" style="display:block;padding-top:6px"><p>参数: (status: playing|completed|error, text: string, queue_depth: int)。</p></div></div>
+
+<div class="api"><div class="api-row">
+<span class="api-method signal">⇄</span><span class="api-url">voice_settings</span><span class="api-name">语音设置同步 (B↔C 共享状态)</span>
+</div><div class="api-body" style="display:block;padding-top:6px"><p>dict: { tts_enabled, tts_speed(0.5~1.5), tts_engine, asr_enabled, asr_engine, asr_language }。</p></div></div>
+
+<div class="api"><div class="api-row">
+<span class="api-method signal">→</span><span class="api-url">audit_submit</span><span class="api-name">审计数据提交 (B→C)</span>
+</div><div class="api-body" style="display:block;padding-top:6px"><p>任务结束 emit AuditRecord → C 审计代理脱敏后入本地 SQLite 队列。</p></div></div>
+
+<div class="api"><div class="api-row">
+<span class="api-method signal">←</span><span class="api-url">audit_status</span><span class="api-name">审计上报状态 (C→B)</span>
+</div><div class="api-body" style="display:block;padding-top:6px"><p>参数: (status: success|failed|queued, batch_size: int, queue_depth: int, error: string|null)。</p></div></div>
+
+<div class="api"><div class="api-row">
+<span class="api-method signal">←</span><span class="api-url">config_updated</span><span class="api-name">配置变更通知 (C→B)</span>
+</div><div class="api-body" style="display:block;padding-top:6px"><p>参数: (config_dict)。C 端 poller 检测到变更后通知 B 热加载。</p></div></div>
+
+<div class="api"><div class="api-row">
+<span class="api-method signal">→</span><span class="api-url">health_check</span><span class="api-name">健康检测 (B→C 方法调用)</span>
+</div><div class="api-body" style="display:block;padding-top:6px"><p>返回 HealthStatus: { asr_available, tts_available, audit_db_ok, server_reachable, queue_depth, overall }。</p></div></div>
+</div>
+
+<!-- ═══════════════════════ ANNEX ═══════════════════════ -->
+<div class="group">
+<div class="gtitle">附录</div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">AUTH</span><span class="api-url">认证方式</span>
+</div><div class="api-body">
+<table>
+<tr><th>接口前缀</th><th>Header</th><th>Key 值</th></tr>
+<tr><td>/api/demo/*</td><td>X-Demo-Key</td><td>hajimi-demo-2026</td></tr>
+<tr><td>/api/audit/*</td><td>X-Demo-Key</td><td>hajimi-demo-2026</td></tr>
+<tr><td>/api/config/*</td><td>X-Demo-Key</td><td>hajimi-demo-2026</td></tr>
+<tr><td>/api/admin/*</td><td>X-Admin-Key</td><td>hajimi-demo-2026</td></tr>
+<tr><td>/api/auth/*</td><td>—</td><td>登录接口本身</td></tr>
+<tr><td>/api/demo/health</td><td>—</td><td>公开</td></tr>
+</table>
+</div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">ERROR</span><span class="api-url">统一错误码</span>
+</div><div class="api-body">
+<pre>{ <span class="k">"error"</span>: { <span class="k">"code"</span>: <span class="s">"AUTH_FAILED"</span>, <span class="k">"message"</span>: <span class="s">"..."</span>, <span class="k">"details"</span>: {} } }</pre>
+<table>
+<tr><th>HTTP</th><th>code</th><th>说明</th></tr>
+<tr><td>400</td><td>MISSING_IMAGE</td><td>截图缺失</td></tr>
+<tr><td>401</td><td>AUTH_FAILED</td><td>Key 无效</td></tr>
+<tr><td>404</td><td>NOT_FOUND</td><td>task_id 不存在</td></tr>
+<tr><td>422</td><td>NO_ELEMENTS</td><td>未检出 UI 元素</td></tr>
+<tr><td>502</td><td>DETECTOR_FAILED</td><td>OmniParser 不可用</td></tr>
+</table>
+</div></div>
+
+<div class="api"><div class="api-row" onclick="this.parentElement.classList.toggle('open')">
+<span class="api-method get">V2.2</span><span class="api-url">自动操作动作类型 (execute 响应 action 字段)</span>
+</div><div class="api-body">
+<table>
+<tr><th>action</th><th>说明</th><th>执行</th><th>关键参数</th></tr>
+<tr><td>click</td><td>单击</td><td>pyautogui.click</td><td>bbox_center</td></tr>
+<tr><td>double_click</td><td>双击</td><td>pyautogui.doubleClick</td><td>bbox_center</td></tr>
+<tr><td>type</td><td>输入文本</td><td>pyautogui.write</td><td>params (内容)</td></tr>
+<tr><td>hotkey</td><td>组合键</td><td>pyautogui.hotkey</td><td>params ("ctrl+c")</td></tr>
+<tr><td>drag</td><td>拖拽</td><td>pyautogui.drag</td><td>from→to bbox</td></tr>
+<tr><td>scroll</td><td>滚轮</td><td>pyautogui.scroll</td><td>params</td></tr>
+</table>
+<div class="note">执行前经风险评分(1-5)+红线拦截+信任级别三重审核。高风险操作(≥4)需用户确认。</div>
+</div></div>
+</div>
+
+<p class="foot">HAJIMI 自动操作助手 API v2.2 · 31 HTTP + 9 B-C Signals · Base: http://127.0.0.1:8010</p>
+
+</div>
+<script>document.querySelectorAll('.api:first-of-type').forEach(a=>a.classList.add('open'))</script>
+</body>
+</html>
