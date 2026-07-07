@@ -10,7 +10,7 @@ from typing import Dict, Optional
 
 from pydantic import BaseModel
 
-from server.models.schemas import Blueprint, Intent, ProcessResponse, Step
+from server.models.schemas import Blueprint, ExecutedStep, Intent, ProcessResponse
 
 
 class TaskState(BaseModel):
@@ -20,7 +20,7 @@ class TaskState(BaseModel):
     query: str
     intent: Intent
     blueprint: Blueprint
-    steps: list[Step]
+    steps: list[ExecutedStep]
     ui_elements: list[dict]
     created_at: str
     updated_at: str

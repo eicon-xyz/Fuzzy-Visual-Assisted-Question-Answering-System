@@ -77,12 +77,17 @@ class TaskRepository:
 
             # 记录步骤日志
             for step in response.steps:
+                action_text = getattr(step, "action", None) or step.instruction
                 step_log = StepLog(
                     task_id=response.task_id,
                     step_index=step.step_index,
-                    action=step.action,
-                    target_element_id=step.target_element_id,
-                    target_bbox=None,  # ExecutedStep has no .annotation field
+                    action=action_text,
+                    target_element_id=getattr(step, "target_element_id", None),
+                    target_bbox=(
+                        getattr(step, "target_bbox", None)
+                        if hasattr(step, "target_bbox")
+                        else None
+                    ),
                     status=step.status,
                 )
                 db.add(step_log)
