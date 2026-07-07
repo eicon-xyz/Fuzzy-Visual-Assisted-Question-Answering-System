@@ -38,7 +38,7 @@ if errorlevel 1 (
 echo [HAJIMI] A-end live - L4 tasks need LLM only (inspect/precision still need OmniParser)
 
 echo [HAJIMI] Starting B-end UI ...
-start "HAJIMI-B-end" cmd /k "set HAJIMI_PORT=%HAJIMI_PORT%&& set HAJIMI_API_URL=%HAJIMI_API_URL%&& call %~dp0start_ui.bat"
+start "HAJIMI-B-end" cmd /k "set PYTHON=&& set HAJIMI_PORT=%HAJIMI_PORT%&& set HAJIMI_API_URL=%HAJIMI_API_URL%&& call %~dp0start_client.bat"
 
 echo [HAJIMI] Done. Use Settings - fast mode for L4 Vision path.
 endlocal

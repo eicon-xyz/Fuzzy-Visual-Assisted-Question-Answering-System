@@ -1,5 +1,5 @@
 # [VERIFY] L5 自动执行端点冒烟 — POST /execute + SSE heartbeat
-"""验证 A 端 L5 路由是否接线（不触发真实 pyautogui 点击）。"""
+"""验证 new_JIMI L5 Sidecar (:8011) 路由是否接线（不触发真实 pyautogui 点击）。"""
 from __future__ import annotations
 
 import argparse
@@ -12,11 +12,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from config import API_BASE_URL, DEMO_KEY  # noqa: E402
+from config import DEMO_KEY, L5_API_URL as _CONFIG_L5_URL  # noqa: E402
 
 
-def _get(path: str, timeout: float = 10.0) -> tuple[int, dict | str]:
-    req = urllib.request.Request(f"{API_BASE_URL.rstrip('/')}{path}", method="GET")
+def _get_base(override: str = "") -> str:
+    return (override or _CONFIG_L5_URL).rstrip("/")
+
+
+def _get(path: str, base: str, timeout: float = 10.0) -> tuple[int, dict | str]:
+    req = urllib.request.Request(f"{base}{path}", method="GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode("utf-8")
@@ -32,10 +36,10 @@ def _get(path: str, timeout: float = 10.0) -> tuple[int, dict | str]:
             return exc.code, raw
 
 
-def _post(path: str, payload: dict, *, timeout: float = 30.0) -> tuple[int, dict | str]:
+def _post(path: str, payload: dict, base: str, *, timeout: float = 30.0) -> tuple[int, dict | str]:
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        f"{API_BASE_URL.rstrip('/')}{path}",
+        f"{base}{path}",
         data=data,
         method="POST",
         headers={
@@ -59,41 +63,38 @@ def _post(path: str, payload: dict, *, timeout: float = 30.0) -> tuple[int, dict
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="L5 execute/stream/cancel 冒烟")
+    parser = argparse.ArgumentParser(description="L5 Sidecar execute/stream/cancel 冒烟")
+    parser.add_argument(
+        "--base-url",
+        default="",
+        help="覆盖 L5_API_URL（默认 config.L5_API_URL）",
+    )
     parser.add_argument(
         "--require-a",
         action="store_true",
-        help="A 端不可达时返回非零",
+        help="L5 Sidecar 不可达时返回非零",
     )
     args = parser.parse_args()
 
-    print("=== verify_l5 ===")
-    print(f"A 端: {API_BASE_URL}")
+    base = _get_base(args.base_url)
 
-    code, health = _get("/api/demo/health/live")
-    if code != 200:
-        msg = f"A 端 /health/live 不可达 (HTTP {code})"
+    print("=== verify_l5 ===")
+    print(f"L5 Sidecar: {base}")
+
+    code, health = _get("/api/demo/health/live", base)
+    if code == 404:
+        code, health = _get("/api/demo/health", base)
+    if code not in (200, 503):
+        msg = f"L5 Sidecar health 不可达 (HTTP {code})"
         print(f"SKIP: {msg}")
         return 1 if args.require_a else 0
-
-    code, audit_probe = _post(
-        "/api/audit/report",
-        {
-            "task_id": "verify-l5-probe",
-            "query": "probe",
-            "intent_category": "operation_guide",
-            "route": "L3",
-            "result": "success",
-        },
-    )
-    if code not in (200, 201):
-        print(f"FAIL: /api/audit/report HTTP {code}: {audit_probe}")
-        return 1
-    print("PASS: /api/audit/report")
+    if code == 503:
+        print("WARN: L5 Sidecar 已启动但 OmniParser 未就绪 (503 degraded)")
 
     code, execute_body = _post(
         "/api/demo/execute",
         {"query": "打开记事本", "image": None, "context": []},
+        base,
         timeout=120.0,
     )
     if code != 200:
@@ -106,7 +107,7 @@ def main() -> int:
     task_id = execute_body["task_id"]
     print(f"PASS: /execute task_id={task_id}")
 
-    stream_url = f"{API_BASE_URL.rstrip('/')}/api/demo/stream/{task_id}"
+    stream_url = f"{base}/api/demo/stream/{task_id}"
     req = urllib.request.Request(stream_url)
     saw_heartbeat = False
     try:
@@ -124,7 +125,7 @@ def main() -> int:
     else:
         print("WARN: 未收到 SSE heartbeat（任务可能极快结束）")
 
-    code, cancel_body = _post("/api/demo/cancel", {"task_id": task_id})
+    code, cancel_body = _post("/api/demo/cancel", {"task_id": task_id}, base)
     if code != 200:
         print(f"WARN: /cancel HTTP {code}: {cancel_body}")
     else:

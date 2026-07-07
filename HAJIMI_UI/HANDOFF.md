@@ -10,7 +10,8 @@
 | 端 | 路径 | 入口 |
 |----|------|------|
 | B 桌面 | `main.py`, `ui/`, `core/` | `python main.py` |
-| A 后端 | `server/` | `scripts\start_server.bat` 或 uvicorn :8010 |
+| A 后端 L3/L4 | `server/` | `scripts\start_server.bat` → :**8010** |
+| A 后端 L5 Sidecar | `../new_JIMI/HAJIMI_UI/server/` | `scripts\start_l5_sidecar.bat` → :**8011** |
 | C 集成 | （根项目实现） | Qt 信号挂到 B，HTTP 调 A admin |
 
 ---
@@ -23,7 +24,7 @@ scripts\setup.bat
 set HAJIMI_MOCK_ONLY=1
 python main.py
 
-# 全栈（需 server\.env + OmniParser）
+# 全栈（需 server\.env + OmniParser + new_JIMI L5 Sidecar）
 copy server\.env.example server\.env
 scripts\start_all.bat
 
@@ -43,7 +44,9 @@ scripts\start_l4_demo.bat
 | 2 | [`docs/FILE-MAP.md`](docs/FILE-MAP.md) | 文件分级 `[PRODUCTION]` / `[VERIFY]` / `[LEGACY]` |
 | 3 | [`docs/ARCHIVE-MANIFEST.md`](docs/ARCHIVE-MANIFEST.md) | 勿参考项、打包忽略、归档记录 |
 | 4 | [`docs/B端接口总结-对A与对C_v2.md`](docs/B端接口总结-对A与对C_v2.md) | AB/BC 契约 |
-| 5 | [`docs/DAY7-工作内容_v2.md`](docs/DAY7-工作内容_v2.md) | 最新 B 端功能（双保存、五方案主题） |
+| 5 | [`docs/ABC-完整调试距离与分工清单.md`](docs/ABC-完整调试距离与分工清单.md) | **三端进度 / 谁干什么 / 离完整多远** |
+| 6 | [`docs/repo外改动与边界登记.md`](docs/repo外改动与边界登记.md) | **new_JIMI / repo 外改动登记** |
+| 7 | [`docs/DAY7-工作内容_v2.md`](docs/DAY7-工作内容_v2.md) | 最新 B 端功能（双保存、五方案主题） |
 
 ---
 
@@ -57,7 +60,7 @@ scripts\verify_all.bat
 python scripts\verify_all.py
 ```
 
-全栈（A 端必须已启动 `:8010`）：
+全栈（A 端 :8010 + L5 Sidecar :8011 必须已启动）：
 
 ```powershell
 scripts\verify_all.bat --require-a
@@ -66,18 +69,21 @@ scripts\verify_all.bat --require-a
 也可逐项运行：
 
 ```powershell
-python scripts\verify_integration.py       # 需 A 端运行
+python scripts\verify_integration.py       # 需 A 端 :8010
 python scripts\verify_theme_apply.py
 python scripts\verify_settings_fragment.py
 python scripts\verify_bc_signals.py        # B↔C 信号桥（可选 client/）
-python scripts\verify_l4.py
-python scripts\verify_l5.py --require-a   # L5 execute/stream/cancel（需 A 端 + LLM）
+python scripts\verify_l4.py                # canonical :8010
+python scripts\verify_l5.py --require-a   # new_JIMI Sidecar :8011 + LLM
 ```
 
 **L5 自动执行**（默认指引路由）：
-- A 端本机 `:8010` + LLM；OmniParser 可远程 `:9800`
-- pyautogui 必须在用户本机（A 端不可整包部署在远程 GPU 容器）
+- **L5 Sidecar** 本机 `:8011`（`new_JIMI/HAJIMI_UI`，A 维护）；**L3/L4** 仍走 `:8010`
+- B 端 `L5_API_URL` 默认 `http://127.0.0.1:8011`（开发者 env，无普通设置 UI）
+- OmniParser 与 8010 **共用** `OMNIPARSER_URL`（:9800 隧道或 :8002 本地）
+- pyautogui 必须在用户本机（8011 不可整包部署在远程 GPU 容器）
 - Mock 模式（`HAJIMI_MOCK_ONLY=1`）不支持 L5
+- 8010 上 `/execute` 等路由 **deprecated**，B 客户端不再调用
 - 遗留未挂载：`ui/agent_panel.py` `[LEGACY/unused]`
 
 **C 端集成**：默认 `HAJIMI_C_ENABLED=1`；根项目需存在 `client/` 目录。禁用：`set HAJIMI_C_ENABLED=0`。仓库根路径：`HAJIMI_REPO_ROOT`（默认 HAJIMI_UI 的上级目录）。
@@ -122,4 +128,6 @@ python scripts\verify_l5.py --require-a   # L5 execute/stream/cancel（需 A 端
 | 组员 onboarding | [`docs/B端-组员快速启动.md`](docs/B端-组员快速启动.md) |
 | OpenAPI | [`docs/api-contract-demo_v2.yaml`](docs/api-contract-demo_v2.yaml) |
 | GPU 联调 | [`docs/校园GPU-B端联调清单_v2.md`](docs/校园GPU-B端联调清单_v2.md) |
-| 停止服务 | `scripts\stop_all.bat` |
+| 停止服务 | `scripts\stop_all.bat`（8010 + **8011** + Omni） |
+| ABC 分工总览 | [`docs/ABC-完整调试距离与分工清单.md`](docs/ABC-完整调试距离与分工清单.md) |
+| repo 外 / new_JIMI 边界 | [`docs/repo外改动与边界登记.md`](docs/repo外改动与边界登记.md) |

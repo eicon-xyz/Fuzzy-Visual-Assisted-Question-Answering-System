@@ -43,15 +43,32 @@ if errorlevel 1 (
 
 :install_deps
 echo [HAJIMI] Installing server dependencies into server\.venv ...
+REM Temporarily disable Windows IE proxy (127.0.0.1:7890) when Clash/V2Ray is off — pip uses it otherwise
+set "_HAJIMI_PROXY_ENABLE="
+for /f "tokens=3" %%A in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable 2^>nul ^| findstr ProxyEnable') do set "_HAJIMI_PROXY_ENABLE=%%A"
+if /I "%_HAJIMI_PROXY_ENABLE%"=="0x1" (
+    echo [HAJIMI] Disabling IE proxy for pip install ^(will restore after^) ...
+    reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable /t REG_DWORD /d 0 /f >nul
+)
+set HTTP_PROXY=
+set HTTPS_PROXY=
+set http_proxy=
+set https_proxy=
+set ALL_PROXY=
+set all_proxy=
 "%VENV_PY%" -m pip install --upgrade pip
 "%VENV_PY%" -m pip install -r server\requirements.txt
-if errorlevel 1 (
+set "_PIP_ERR=%ERRORLEVEL%"
+if /I "%_HAJIMI_PROXY_ENABLE%"=="0x1" (
+    reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable /t REG_DWORD /d 1 /f >nul
+)
+if not "%_PIP_ERR%"=="0" (
     echo [HAJIMI] ERROR: pip install failed
     exit /b 1
 )
 
 echo [HAJIMI] Verifying installation...
-"%VENV_PY%" -c "import fastapi, uvicorn, pydantic, sqlalchemy; print('fastapi', fastapi.__version__, 'sqlalchemy', sqlalchemy.__version__)"
+"%VENV_PY%" -c "import fastapi, uvicorn, pydantic, sqlalchemy, psutil; print('fastapi', fastapi.__version__, 'sqlalchemy', sqlalchemy.__version__, 'psutil', psutil.__version__)"
 if errorlevel 1 (
     echo [HAJIMI] ERROR: venv verification failed. Try:
     echo   set HAJIMI_RECREATE_VENV=1

@@ -1,12 +1,27 @@
 # A 端 ABC 整合改动指南（给 A 负责人）
 
-> **读者**：负责 `HAJIMI_UI/server/` 的后端成员  
-> **背景**：B 端已完成 B↔C 信号桥；C 的审计代理与配置轮询依赖下列 A 端 HTTP 路由。  
+> **读者**：负责 `HAJIMI_UI/server/`（**8010 L3/L4**）与/或 `new_JIMI/HAJIMI_UI/server/`（**8011 L5**）的后端成员  
+> **L5 外接**：B 端 L5 已改连 **:8011 Sidecar**；请在 `new_JIMI/` 维护 executor，**勿**等 B merge 进 canonical。  
+> **Sidecar 环境模板**：[`new_JIMI/HAJIMI_UI/server/.env.example`](../../new_JIMI/HAJIMI_UI/server/.env.example)  
+> **三端总览**：[`ABC-完整调试距离与分工清单.md`](ABC-完整调试距离与分工清单.md)  
 > **契约**：[`参考文档/a-c-api-contract.md`](../../参考文档/a-c-api-contract.md)
 
 ---
 
-## P0 — C 联调阻塞（优先实现）
+## L5 Sidecar（8011）— A 主责
+
+| 项 | 说明 |
+|----|------|
+| 目录 | `new_JIMI/HAJIMI_UI/server/` |
+| 端口 | `HAJIMI_PORT=8011` |
+| venv | `new_JIMI/HAJIMI_UI/server/.venv`（独立，A 自维护） |
+| .env | 从 `.env.example` 复制；**OMNIPARSER_URL 与 8010 一致** |
+| 更新 | `git pull` → restart 8011 或 B `start_l5_sidecar.bat` |
+| B 启动 | `HAJIMI_UI/scripts/start_l5_sidecar.bat`（薄封装 call 本目录 `start_server.bat`） |
+
+---
+
+## P0 — C 联调阻塞（8010 canonical，优先实现）
 
 ### 1. `POST /api/audit/report`
 

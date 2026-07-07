@@ -10,6 +10,8 @@ if exist server\.venv\Scripts\python.exe (
 
 if not defined HAJIMI_PORT set HAJIMI_PORT=8010
 set HAJIMI_API_URL=http://127.0.0.1:%HAJIMI_PORT%
+set NO_PROXY=127.0.0.1,localhost
+set no_proxy=127.0.0.1,localhost
 
 echo [HAJIMI] GPU API mode — requires scripts\start_tunnel_9800.bat in another window
 "%PYTHON%" scripts\check_gpu_api_tunnel.py
@@ -28,6 +30,8 @@ if not exist server\.venv\Scripts\python.exe (
 
 echo [HAJIMI] Starting local A-end on :%HAJIMI_PORT% (OmniParser via tunnel :9800) ...
 start "HAJIMI-A-end-GPU-API" cmd /k "set HAJIMI_PORT=%HAJIMI_PORT%&& call %~dp0start_server.bat"
+timeout /t 2 /nobreak >nul
+start "HAJIMI-L5-Sidecar" cmd /k "set L5_API_PORT=8011&& call %~dp0start_l5_sidecar.bat"
 
 echo [HAJIMI] Waiting for A-end health ...
 set /a WAIT=0
@@ -44,8 +48,26 @@ if errorlevel 1 (
 )
 echo [HAJIMI] A-end ready — omniparser via GPU tunnel
 
+if not defined L5_API_PORT set L5_API_PORT=8011
+echo [HAJIMI] Waiting for L5 Sidecar :%L5_API_PORT% ...
+set /a WAIT_L5=0
+:wait_l5
+set /a WAIT_L5+=1
+if %WAIT_L5% GTR 45 (
+    echo [HAJIMI] WARN: L5 Sidecar not ready — continuing with L3/L4 only.
+    echo [HAJIMI] Check HAJIMI-L5-Sidecar window; ensure new_JIMI\HAJIMI_UI\server\.venv and .env exist.
+    goto start_ui
+)
+"%PYTHON%" scripts\check_l5_sidecar_live.py --port %L5_API_PORT% 2>nul
+if errorlevel 1 (
+    timeout /t 2 /nobreak >nul
+    goto wait_l5
+)
+echo [HAJIMI] L5 Sidecar ready on :%L5_API_PORT%
+
+:start_ui
 echo [HAJIMI] Starting B-end UI ...
-start "HAJIMI-B-end" cmd /k "set HAJIMI_PORT=%HAJIMI_PORT%&& set HAJIMI_API_URL=%HAJIMI_API_URL%&& call %~dp0start_ui.bat"
+start "HAJIMI-B-end" cmd /k "set PYTHON=&& set HAJIMI_PORT=%HAJIMI_PORT%&& set HAJIMI_API_URL=%HAJIMI_API_URL%&& call %~dp0start_client.bat"
 
 echo [HAJIMI] Launched. UI uses local mode + OMNIPARSER_URL=http://127.0.0.1:9800
 endlocal

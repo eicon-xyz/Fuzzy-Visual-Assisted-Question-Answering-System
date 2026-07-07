@@ -28,6 +28,8 @@ KEYS = (
 def main() -> int:
     if not ENV_PATH.is_file():
         return 0
+    print('set "NO_PROXY=127.0.0.1,localhost"')
+    print('set "no_proxy=127.0.0.1,localhost"')
     values = dotenv_values(ENV_PATH)
     for key in KEYS:
         val = values.get(key)

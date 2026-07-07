@@ -42,7 +42,7 @@ echo [HAJIMI] Checking A-end server dependencies...
 
 "%PYTHON%" scripts\sync_llm_from_env.py >nul 2>&1
 
-"%PYTHON%" -c "import fastapi, uvicorn, sqlalchemy" 2>nul
+"%PYTHON%" -c "import fastapi, uvicorn, sqlalchemy, psutil" 2>nul
 
 if errorlevel 1 (
 

@@ -59,7 +59,7 @@ def probe_omniparser_url(base_url: str) -> Tuple[bool, Optional[str]]:
         return False, None
     try:
         timeout = float(settings.OMNIPARSER_PROBE_TIMEOUT)
-        with httpx.Client(timeout=timeout) as client:
+        with httpx.Client(timeout=timeout, trust_env=False) as client:
             resp = client.get(f"{url}/probe/")
             if resp.status_code != 200:
                 return False, None
@@ -235,7 +235,7 @@ def _detect_local_omniparser(
             write=30.0,
             pool=10.0,
         )
-        with httpx.Client(timeout=timeout) as client:
+        with httpx.Client(timeout=timeout, trust_env=False) as client:
             resp = client.post(
                 f"{base_url}/parse/",
                 json={"base64_image": b64},

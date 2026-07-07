@@ -4,18 +4,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from core.defaults import DEFAULT_VOICE_SETTINGS
 from PyQt5.QtCore import QObject, pyqtSignal
-
-
-DEFAULT_VOICE_SETTINGS: Dict[str, Any] = {
-    "tts_enabled": True,
-    "tts_speed": 0.85,
-    "tts_engine": "pyttsx3",
-    "asr_enabled": True,
-    "asr_engine": "vosk",
-    "asr_language": "zh-CN",
-    "config_pull_interval_min": 30,
-}
 
 
 class BCIntegrationSignals(QObject):

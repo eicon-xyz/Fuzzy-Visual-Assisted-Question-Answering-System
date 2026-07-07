@@ -68,6 +68,16 @@ def _a_end_reachable() -> bool:
         return False
 
 
+def _l5_sidecar_reachable() -> bool:
+    sys.path.insert(0, str(ROOT))
+    try:
+        from core.api_client import check_l5_health
+
+        return bool(check_l5_health())
+    except Exception:
+        return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="HAJIMI 交接验收一键脚本")
     parser.add_argument(
@@ -97,6 +107,7 @@ def main() -> int:
         ]
     )
     a_ok = _a_end_reachable()
+    l5_ok = _l5_sidecar_reachable()
 
     if not args.skip_l4:
         if a_ok or args.require_a:
@@ -107,9 +118,12 @@ def main() -> int:
 
     if a_ok:
         steps.append(("verify_integration", "verify_integration.py", None, True))
-        steps.append(("verify_l5", "verify_l5.py", ["--require-a"], True))
     else:
         steps.append(("verify_integration", None, None, False))
+
+    if l5_ok or args.require_a:
+        steps.append(("verify_l5", "verify_l5.py", ["--require-a"], True))
+    else:
         steps.append(("verify_l5", None, None, False))
 
     total = len(steps)
@@ -122,6 +136,8 @@ def main() -> int:
         if not should_run:
             if name == "verify_integration":
                 detail = "A 端不可达 :8010（先 scripts\\start_server.bat）"
+            elif name == "verify_l5":
+                detail = "L5 Sidecar 不可达 :8011（先 scripts\\start_l5_sidecar.bat）"
             else:
                 detail = "A 端不可达 :8010（L4 health 需 A 端；先 scripts\\start_l4_demo.bat）"
             if args.require_a:
@@ -155,7 +171,7 @@ def main() -> int:
     print()
     print(f"汇总: {passed} PASS, {failed} FAIL, {skipped} SKIP")
     if skipped and not args.require_a:
-        print("提示: 全栈验收请先 scripts\\start_server.bat 再运行 verify_all.bat --require-a")
+        print("提示: 全栈验收请先 scripts\\start_all.bat（8010+8011）再运行 verify_all.bat --require-a")
 
     return 1 if failed else 0
 

@@ -14,9 +14,11 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "scripts"
 
 try:
+    from config import L5_DEFAULT_PORT as _DEFAULT_L5_PORT
     from config import SERVER_DEFAULT_PORT as _DEFAULT_A_PORT
 except Exception:
     _DEFAULT_A_PORT = 8010
+    _DEFAULT_L5_PORT = 8011
 
 
 def _is_windows() -> bool:
@@ -82,14 +84,31 @@ def stop_port(port: int) -> List[int]:
     return killed
 
 
+def resolve_l5_root() -> Path:
+    """new_JIMI/HAJIMI_UI 路径；HAJIMI_L5_ROOT 可覆盖。"""
+    try:
+        from config import HAJIMI_L5_ROOT
+    except Exception:
+        HAJIMI_L5_ROOT = ""
+    env = (HAJIMI_L5_ROOT or os.environ.get("HAJIMI_L5_ROOT", "")).strip()
+    if env:
+        return Path(env).resolve()
+    return (ROOT.parent / "new_JIMI" / "HAJIMI_UI").resolve()
+
+
 def stop_backend_services(
-    a_port: int | None = None, omni_port: int = 8002
+    a_port: int | None = None,
+    omni_port: int = 8002,
+    l5_port: int | None = None,
 ) -> Dict[str, List[int]]:
-    """停止 A 端与 OmniParser（按端口）。"""
+    """停止 A 端、L5 Sidecar 与 OmniParser（按端口）。"""
     if a_port is None:
         a_port = _DEFAULT_A_PORT
+    if l5_port is None:
+        l5_port = _DEFAULT_L5_PORT
     return {
         "a_end": stop_port(a_port),
+        "l5_sidecar": stop_port(l5_port),
         "omniparser": stop_port(omni_port),
     }
 
@@ -153,6 +172,38 @@ def start_omniparser_window() -> None:
 
 def start_a_end_window() -> None:
     _start_in_new_console("HAJIMI-A-end", SCRIPTS / "start_server.bat")
+
+
+def start_l5_sidecar_window() -> None:
+    _start_in_new_console("HAJIMI-L5-Sidecar", SCRIPTS / "start_l5_sidecar.bat")
+
+
+def wait_l5_sidecar_live(timeout_sec: float = 30.0, poll_sec: float = 1.5) -> bool:
+    """轮询 L5 Sidecar 进程是否已监听（优先 /health/live，回退 /health）。"""
+    base = f"http://127.0.0.1:{_DEFAULT_L5_PORT}"
+    paths = ("/api/demo/health/live", "/api/demo/health")
+    deadline = time.monotonic() + timeout_sec
+    while time.monotonic() < deadline:
+        for path in paths:
+            url = f"{base}{path}"
+            try:
+                with urllib.request.urlopen(url, timeout=3) as resp:
+                    if resp.status in (200, 503):
+                        if path.endswith("/health/live"):
+                            data = json.loads(resp.read().decode("utf-8"))
+                            if data.get("status") == "ok":
+                                return True
+                        else:
+                            return True
+            except urllib.error.HTTPError as exc:
+                if exc.code == 404:
+                    continue
+                if exc.code == 503:
+                    return True
+            except Exception:
+                pass
+        time.sleep(poll_sec)
+    return False
 
 
 def wait_a_end_live(timeout_sec: float = 30.0, poll_sec: float = 1.5) -> bool:
@@ -238,17 +289,24 @@ def run_gpu_one_click_bat() -> None:
 
 
 def format_stop_summary(
-    result: Dict[str, List[int]], a_port: int | None = None
+    result: Dict[str, List[int]], a_port: int | None = None, l5_port: int | None = None
 ) -> str:
     if a_port is None:
         a_port = _DEFAULT_A_PORT
+    if l5_port is None:
+        l5_port = _DEFAULT_L5_PORT
     a = result.get("a_end") or []
+    l5 = result.get("l5_sidecar") or []
     o = result.get("omniparser") or []
     parts = []
     if a:
         parts.append(f"A 端 PID {a}")
     else:
         parts.append(f"A 端 :{a_port} 无监听")
+    if l5:
+        parts.append(f"L5 Sidecar PID {l5}")
+    else:
+        parts.append(f"L5 Sidecar :{l5_port} 无监听")
     if o:
         parts.append(f"OmniParser PID {o}")
     else:

@@ -16,6 +16,8 @@
 | [`校园GPU-远程启服与快速测试.md`](校园GPU-远程启服与快速测试.md) | Step 0 打开主机、远程启服、端口对照 |
 | [`GPU-API远程接入手册.md`](GPU-API远程接入手册.md) | OmniParser `:9800` 远程接入（A 端直调） |
 | **本文档** | B 端操作步骤 |
+| [`repo外改动与边界登记.md`](repo外改动与边界登记.md) | **new_JIMI / repo 外唯一改动与边界** |
+| [`ABC-完整调试距离与分工清单.md`](ABC-完整调试距离与分工清单.md) | 三端进度与 8010+8011 架构 |
 | [`A端-GPU容器部署详细指南-group2_v2.md`](../server/docs/A端-GPU容器部署详细指南-group2_v2.md) | 发给 A 同学 |
 
 ---
@@ -25,12 +27,15 @@
 | 谁 | 做什么 |
 |----|--------|
 | **A 端** | 容器内 OmniParser `:8002` + FastAPI `:8010` + `server/.env` |
-| **你（B 端）** | 校园网、SSH 隧道、系统设置「内网 API」、`python main.py` 验收 |
+| **你（B 端）** | 校园网、SSH 隧道、系统设置「内网 API」或 **gpu_api**、`python main.py` 验收 |
+| **L5 Sidecar** | **本机 Windows** `new_JIMI` **:8011**（pyautogui；B 用 `start_l5_sidecar.bat`） |
 
 ```mermaid
 flowchart LR
-  B["B Windows\npython main.py"] -->|内网 API| A["A FastAPI :8010"]
-  A --> OP["OmniParser GPU\n:8002 cuda"]
+  B["B Windows\npython main.py"] -->|L3/L4| A8010["8010 canonical\n或隧道转发"]
+  B -->|L5 execute| L8011["8011 new_JIMI\n本机 Sidecar"]
+  A8010 --> OP["OmniParser GPU\n:9800 隧道"]
+  L8011 --> OP
 ```
 
 ---
@@ -42,6 +47,27 @@ flowchart LR
 - [x] 本机可运行 `python main.py`
 - [x] 已把 A 端指南 + `校园gpu使用.md` 发给 A 同学
 - [ ] 阅读 [`B端接口总结-对A与对C_v2.md`](B端接口总结-对A与对C_v2.md) §3.1–3.3（可选）
+- [ ] **L5**：`new_JIMI/HAJIMI_UI` 已 `setup_server_env` + `server/.env`（见 [`repo外改动与边界登记.md`](repo外改动与边界登记.md)）
+
+---
+
+## 二-A、L5 Sidecar（8011 · 本机必做）
+
+L5 自动执行 **不走** 8010 隧道，Sidecar 必须在 **你的 Windows** 上跑。
+
+| 项 | 值 |
+|----|-----|
+| 源码 | `new_JIMI/HAJIMI_UI/server/` |
+| 端口 | **8011** |
+| B 启动 | `scripts\start_l5_sidecar.bat` 或 `start_gpu_api_demo.bat` / `start_all.bat` 已含 |
+| `.env` | 从 `new_JIMI/.../server/.env.example` 复制；`OMNIPARSER_URL=http://127.0.0.1:9800`（与 8010 一致） |
+| B 客户端 | `L5_API_URL=http://127.0.0.1:8011`（默认，无设置 UI） |
+
+**gpu_api 一键**：`scripts\start_gpu_one_click.bat` → 隧道 :9800 → 8010 + **8011** + UI。
+
+**内网 API 模式**：除 8010 隧道外，另启本机 `start_l5_sidecar.bat`；L5 规划同样依赖 **:9800 Omni 隧道**。
+
+验收：`curl http://127.0.0.1:8011/api/demo/health/live` · `python scripts\verify_l5.py --require-a`
 
 ---
 
@@ -193,6 +219,21 @@ python scripts/gpu_group2_deploy.py --all
 | [**校园GPU-远程启服与快速测试.md**](校园GPU-远程启服与快速测试.md) | **远程启服 + 5 分钟测试** |
 | [`DAY3-工作内容_v2.md`](DAY3-工作内容_v2.md) | 系统设置 UI 说明 |
 | [`B端接口总结-对A与对C_v2.md`](B端接口总结-对A与对C_v2.md) | 完整 HTTP 契约 |
+
+---
+
+## 七-A、一键脚本 UI 未弹出 / A-end TIMEOUT
+
+`start_gpu_one_click.bat` 在 **第 4 步** 才启动 UI；前面任一环失败会提前退出。
+
+| 检查项 | 说明 |
+|--------|------|
+| `TIMEOUT: A-end not ready` | 看 `HAJIMI-A-end-GPU-API` 窗口是否有 traceback；`curl http://127.0.0.1:8010/api/demo/health` 中 `omniparser_ready` 应为 `true` |
+| 隧道 OK 但 `omniparser_ready=false` | 常见原因：Windows IE 代理（`127.0.0.1:7890`）未开 Clash，A 端 httpx 连不上 `:9800`。**关代理或开 Clash**，关闭 A-end 窗口后重跑一键 |
+| 无 UI 但无 TIMEOUT | 看 `HAJIMI-B-end` 窗口是否 `PyQt5` 报错；应用 `start_client.bat`（videorag）而非 server venv |
+| L5 未就绪 | 现改为 WARN 后继续启 UI（L3/L4 可用）；L5 需 `new_JIMI\...\setup_server_env.bat` |
+
+手动只开 UI：`scripts\start_client.bat`（Mock：`set HAJIMI_MOCK_ONLY=1`）
 
 ---
 

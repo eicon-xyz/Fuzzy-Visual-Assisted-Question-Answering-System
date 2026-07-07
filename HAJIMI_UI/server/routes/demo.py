@@ -86,7 +86,7 @@ def _probe_omniparser_sync() -> Tuple[bool, Optional[str], str]:
     try:
         import httpx
 
-        with httpx.Client(timeout=3) as client:
+        with httpx.Client(timeout=3, trust_env=False) as client:
             health = client.get(f"{omni_url}/health")
             if health.status_code == 200:
                 body = health.json()
@@ -224,7 +224,10 @@ async def execute_task(
     request: ProcessRequest,
     demo_key: str = Depends(verify_demo_key),
 ):
-    """接收用户指令，生成执行计划并后台通过 Agent 循环自动执行。"""
+    """接收用户指令，生成执行计划并后台通过 Agent 循环自动执行。
+
+    DEPRECATED: B 端 L5 已改连 new_JIMI Sidecar (:8011)。本路由仅过渡期保留，勿再扩展。
+    """
     from server.services.executor.engine import (
         get_cancel_event,
         register_task as engine_register,
@@ -299,7 +302,10 @@ async def execute_task(
 
 @router.get("/stream/{task_id}", summary="SSE 执行进度推送")
 async def stream_events(task_id: str):
-    """实时推送 L5 任务执行进度 (Server-Sent Events)。"""
+    """实时推送 L5 任务执行进度 (Server-Sent Events)。
+
+    DEPRECATED: B 端 SSE 已改连 :8011 Sidecar。
+    """
     from server.services.executor.engine import register_task
 
     q = register_task(task_id)
@@ -333,6 +339,7 @@ async def cancel_task(
     request: CancelRequest,
     demo_key: str = Depends(verify_demo_key),
 ):
+    """DEPRECATED: B 端 cancel 已改连 :8011 Sidecar。"""
     from server.services.executor.engine import cancel_task as engine_cancel
 
     ok = engine_cancel(request.task_id)

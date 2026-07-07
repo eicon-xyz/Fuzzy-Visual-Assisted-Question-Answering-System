@@ -70,7 +70,7 @@ class ExecuteWorkerThread(QThread):
 
             self._task_id = result.get("task_id")
             if not self._task_id:
-                self.sig_execute_error.emit("A 端未返回 task_id")
+                self.sig_execute_error.emit("L5 Sidecar 未返回 task_id")
                 return
 
             self.sig_progress.emit(60, "L5 自动执行中…")
@@ -82,9 +82,9 @@ class ExecuteWorkerThread(QThread):
             self.sig_execute_error.emit(str(exc))
 
     def _consume_sse(self, task_id: str) -> None:
-        from config import API_BASE_URL
+        from config import L5_API_URL
 
-        url = f"{API_BASE_URL.rstrip('/')}/api/demo/stream/{task_id}"
+        url = f"{L5_API_URL.rstrip('/')}/api/demo/stream/{task_id}"
         try:
             req = urllib.request.Request(url)
             with urllib.request.urlopen(req, timeout=360) as resp:

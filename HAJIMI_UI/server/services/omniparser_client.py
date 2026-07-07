@@ -239,7 +239,7 @@ def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
         if attempt > 0:
             time.sleep(omni_retry_delay)
         try:
-            with httpx.Client(timeout=omni_timeout) as client:
+            with httpx.Client(timeout=omni_timeout, trust_env=False) as client:
                 for url in _parse_endpoints(omni_url):
                     for payload in _parse_payloads(payload_base64):
                         response = client.post(url, json=payload)

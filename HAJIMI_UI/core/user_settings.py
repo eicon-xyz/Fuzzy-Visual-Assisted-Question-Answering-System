@@ -6,7 +6,6 @@ import os
 from copy import deepcopy
 from typing import Any, Dict
 
-from core.bc_signals import DEFAULT_VOICE_SETTINGS
 from core.defaults import (
     DEFAULT_A_URL,
     DEFAULT_DEMO_KEY,
@@ -15,6 +14,7 @@ from core.defaults import (
     DEFAULT_LLM_MODEL,
     DEFAULT_OMNI_GPU_API_URL,
     DEFAULT_OMNI_LOCAL_URL,
+    DEFAULT_VOICE_SETTINGS,
 )
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
@@ -258,12 +258,15 @@ def _merge_ui_settings_headless(out: dict, data: dict) -> None:
 
 
 def _merge_defaults(data: dict) -> dict:
-    from ui.native.shell_appearance import migrate_appearance_settings
-
     out = deepcopy(DEFAULT_SETTINGS)
     if not isinstance(data, dict):
         return out
-    data = migrate_appearance_settings(data)
+    try:
+        from ui.native.shell_appearance import migrate_appearance_settings
+
+        data = migrate_appearance_settings(data)
+    except ImportError:
+        pass
     _merge_core_settings(out, data)
     try:
         _merge_ui_settings(out, data)

@@ -1467,27 +1467,24 @@ class MediumPanel(QWidget):
         self.set_stage_hint("L5 自动执行中 · 审计按 L3 上报")
 
     def ensure_l5_consent(self, parent=None) -> bool:
-        from PyQt5.QtWidgets import QCheckBox, QMessageBox
+        from core.user_settings import save_settings_fragment
+        from ui.native.themed_message_box import themed_warning_consent
 
         data = load_user_settings()
         if data.get("l5_consent_accepted"):
             return True
-        box = QMessageBox(parent or self)
-        box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle("L5 自动执行 — 知情确认")
-        box.setText(
+        theme_id = getattr(self, "_ui_theme", None) or data.get("ui_theme", "current")
+        accepted, dont_show = themed_warning_consent(
+            parent or self,
+            "L5 自动执行 — 知情确认",
             "您已选择 L5 自动执行模式。\n\n"
             "HAJIMI 将通过 A 端在本机自动操作鼠标与键盘完成步骤。"
-            "请确保屏幕无敏感内容，且可随时按 J 或「停止」终止任务。"
+            "请确保屏幕无敏感内容，且可随时按 J 或「停止」终止任务。",
+            theme_id=theme_id,
         )
-        dont_show = QCheckBox("不再提示")
-        box.setCheckBox(dont_show)
-        box.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
-        if box.exec_() != QMessageBox.Ok:
+        if not accepted:
             return False
-        if dont_show.isChecked():
-            from core.user_settings import save_settings_fragment
-
+        if dont_show:
             save_settings_fragment({"l5_consent_accepted": True})
         return True
 

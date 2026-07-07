@@ -1,6 +1,13 @@
 import os
 
-from core.defaults import DEFAULT_A_HOST, DEFAULT_A_PORT, DEFAULT_DEMO_KEY, DEFAULT_DEPLOYMENT_MODE
+from core.defaults import (
+    DEFAULT_A_HOST,
+    DEFAULT_A_PORT,
+    DEFAULT_DEMO_KEY,
+    DEFAULT_DEPLOYMENT_MODE,
+    DEFAULT_L5_HOST,
+    DEFAULT_L5_PORT,
+)
 
 _DEFAULT_PORT = os.environ.get("HAJIMI_PORT", str(DEFAULT_A_PORT))
 _DEFAULT_HOST = os.environ.get("HAJIMI_HOST", DEFAULT_A_HOST)
@@ -15,6 +22,32 @@ def _build_default_api_url() -> str:
 _DEFAULT_API_URL = _build_default_api_url()
 
 API_BASE_URL = os.environ.get("HAJIMI_API_URL", _DEFAULT_API_URL)
+
+
+def _build_default_l5_api_url() -> str:
+    host = os.environ.get("L5_API_HOST", DEFAULT_L5_HOST)
+    port = os.environ.get("L5_API_PORT", str(DEFAULT_L5_PORT))
+    return f"http://{host}:{port}"
+
+
+L5_API_URL = os.environ.get("L5_API_URL", _build_default_l5_api_url())
+L5_DEFAULT_PORT = int(os.environ.get("L5_API_PORT", str(DEFAULT_L5_PORT)))
+# new_JIMI Sidecar 根目录（空则 service_manager 解析为 ../new_JIMI/HAJIMI_UI）
+HAJIMI_L5_ROOT = os.environ.get("HAJIMI_L5_ROOT", "").strip()
+AUTO_LAUNCH_A_END = os.environ.get("HAJIMI_AUTO_LAUNCH_A_END", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+)
+AUTO_LAUNCH_L5 = os.environ.get("HAJIMI_AUTO_LAUNCH_L5", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+)
+L5_START_HINT = (
+    f"scripts\\start_l5_sidecar.bat  (new_JIMI L5 Sidecar default :{DEFAULT_L5_PORT})"
+)
+
 DEMO_KEY = os.environ.get("HAJIMI_DEMO_KEY", DEFAULT_DEMO_KEY)
 USE_MOCK_ONLY = os.environ.get("HAJIMI_MOCK_ONLY", "").lower() in ("1", "true", "yes")
 ALLOW_MOCK_FALLBACK = os.environ.get("HAJIMI_MOCK_FALLBACK", "").lower() in (
@@ -80,7 +113,9 @@ INSPECT_MAX_SIDE = int(os.environ.get("HAJIMI_INSPECT_MAX_SIDE", "960"))
 
 def reload_from_env() -> None:
     """从 os.environ 刷新模块级配置（user_settings.apply 后调用）。"""
-    global API_BASE_URL, DEMO_KEY, USE_MOCK_ONLY, ALLOW_MOCK_FALLBACK
+    global API_BASE_URL, L5_API_URL, L5_DEFAULT_PORT, HAJIMI_L5_ROOT
+    global AUTO_LAUNCH_A_END, AUTO_LAUNCH_L5, L5_START_HINT
+    global DEMO_KEY, USE_MOCK_ONLY, ALLOW_MOCK_FALLBACK
     global API_TIMEOUT, INSPECT_TIMEOUT, PROCESS_TIMEOUT, HEALTH_TIMEOUT
     global DEPLOYMENT_MODE, SERVER_DEFAULT_PORT, SERVER_START_HINT, L4_START_HINT
     global SCREENSHOT_MAX_SIDE, INSPECT_MAX_SIDE, L4_UPLOAD_MAX_SIDE, L4_UPLOAD_MAX_SIDE
@@ -89,6 +124,24 @@ def reload_from_env() -> None:
     host = os.environ.get("HAJIMI_HOST", DEFAULT_A_HOST)
     default_url = f"http://{host}:{port}"
     API_BASE_URL = os.environ.get("HAJIMI_API_URL", default_url)
+    l5_host = os.environ.get("L5_API_HOST", DEFAULT_L5_HOST)
+    l5_port = os.environ.get("L5_API_PORT", str(DEFAULT_L5_PORT))
+    L5_API_URL = os.environ.get("L5_API_URL", f"http://{l5_host}:{l5_port}")
+    L5_DEFAULT_PORT = int(l5_port)
+    HAJIMI_L5_ROOT = os.environ.get("HAJIMI_L5_ROOT", "").strip()
+    AUTO_LAUNCH_A_END = os.environ.get("HAJIMI_AUTO_LAUNCH_A_END", "1").lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+    AUTO_LAUNCH_L5 = os.environ.get("HAJIMI_AUTO_LAUNCH_L5", "1").lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+    L5_START_HINT = (
+        f"scripts\\start_l5_sidecar.bat  (new_JIMI L5 Sidecar default :{L5_DEFAULT_PORT})"
+    )
     DEMO_KEY = os.environ.get("HAJIMI_DEMO_KEY", DEFAULT_DEMO_KEY)
     USE_MOCK_ONLY = os.environ.get("HAJIMI_MOCK_ONLY", "").lower() in ("1", "true", "yes")
     ALLOW_MOCK_FALLBACK = os.environ.get("HAJIMI_MOCK_FALLBACK", "").lower() in (

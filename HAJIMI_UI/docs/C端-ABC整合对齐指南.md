@@ -2,7 +2,8 @@
 
 > **读者**：负责根项目 `client/` 与 `web-admin/` 的成员  
 > **背景**：B 端（`HAJIMI_UI`）已在 `main_widget._init_c_integration()` 中加载 `VoiceIntegrationController` 并绑定 `BCIntegrationSignals`。  
-> **契约**：[`docs/b-c-api-contract.md`](b-c-api-contract.md)
+> **契约**：[`docs/b-c-api-contract.md`](b-c-api-contract.md)  
+> **L5 说明**：L5 自动执行走 **new_JIMI Sidecar :8011**；web-admin 默认连 **:8010**，**暂无 L5 任务统计**（远期 issue：只读 `L5_API_URL` metrics）。详见 [`ABC-完整调试距离与分工清单.md`](ABC-完整调试距离与分工清单.md)。
 
 ---
 

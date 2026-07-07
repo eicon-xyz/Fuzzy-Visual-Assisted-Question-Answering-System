@@ -2,6 +2,35 @@
 
 > 5 分钟内跑通 **UI 窗口**；完整 AI 联调见下文可选步骤。
 
+## 从仓库根目录（无需 cd HAJIMI_UI）
+
+在 clone 后的 **repo 根** 直接运行：
+
+| 命令 | 说明 |
+|------|------|
+| `start_gpu_one_click.bat` | 校园 GPU 一键（隧道 + 8010 + 8011 + UI） |
+| `start_all.bat` | 本机 / gpu_api 全栈 |
+| `start_ui.bat` | 仅 B 端 UI（后端已开好） |
+| `start_mock.bat` | Mock 演示（无 OmniParser） |
+| `stop_all.bat` | 停止 8010 / 8011 / OmniParser 等 |
+
+等价于进入 `HAJIMI_UI\` 后执行同名或 `scripts\` 下脚本。
+
+## 我该用哪个脚本？（在 HAJIMI_UI 目录内）
+
+| 你想做什么 | 命令 |
+|------------|------|
+| **校园 GPU 一键**（远程启服 + 隧道 + 8010 + 8011 + UI） | `scripts\start_gpu_one_click.bat` |
+| **只看 UI**（不连后端） | `set HAJIMI_MOCK_ONLY=1` + `scripts\start_client.bat` |
+| **后端已开好，只开界面** | `scripts\start_client.bat` |
+| **本机 CPU 全栈**（OmniParser :8002 + 8010 + 8011 + UI） | `scripts\start_all.bat`（`deployment_mode=local`） |
+| **L4 专项**（8010 + UI，不等 OmniParser） | `scripts\start_l4_demo.bat` |
+| **分步单服务** | `start_server` / `start_l5_sidecar` / `start_omniparser` |
+
+**端口**：`:9800` 隧道 Omni · `:8010` L3/L4 · `:8011` L5 Sidecar · B UI = `main.py`
+
+---
+
 ## 1. 克隆与依赖
 
 ```powershell
@@ -74,7 +103,9 @@ scripts\start_all.bat
 
 | 现象 | 处理 |
 |------|------|
-| `start_client.bat` 找不到 Python | 先 `activate` venv，或 `scripts\start_ui.bat` |
+| 一键脚本 `TIMEOUT: A-end not ready` | 看 `HAJIMI-A-end-GPU-API` 窗口 traceback；确认 `:9800` 隧道 OK；**重启 A-end**（旧进程可能因 IE 代理导致 `omniparser_ready=false`） |
+| 一键脚本卡住后无 UI | 看是否打印 `TIMEOUT`；看 `HAJIMI-B-end` 是否 PyQt5 报错；手动试 `scripts\start_client.bat` |
+| `start_client.bat` 找不到 Python | 先 `activate` videorag，或 `set VIDEO_RAG_PY=...` |
 | 满屏「A 端未启动」红色 | 使用 `HAJIMI_MOCK_ONLY=1` 只看 UI，或 `start_server.bat` |
 | 「内网 A 端不可达」 | 检查 VPN + SSH 隧道，或改回「本地启动」 |
 | OmniParser 找不到 | 设置 `OMNI_ROOT` 或运行 `scripts\setup_omniparser.bat` |

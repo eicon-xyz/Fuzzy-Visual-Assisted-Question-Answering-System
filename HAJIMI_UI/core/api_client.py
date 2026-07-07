@@ -12,6 +12,7 @@ from config import (
     HEALTH_TIMEOUT,
     INSPECT_TIMEOUT,
     L4_START_HINT,
+    L5_START_HINT,
     PROCESS_TIMEOUT,
     SERVER_START_HINT,
     START_ALL_HINT,
@@ -32,6 +33,10 @@ def reload_client_config() -> None:
 
 def _api_base_url() -> str:
     return config.API_BASE_URL
+
+
+def _l5_api_base_url() -> str:
+    return config.L5_API_URL
 
 
 def _demo_key() -> str:
@@ -78,6 +83,54 @@ def check_health() -> bool:
         return True
     data = _fetch_health()
     return bool(data and data.get("status") == "ok")
+
+
+def _fetch_l5_health_live() -> Optional[dict]:
+    """L5 Sidecar (:8011) 轻量存活探测；无 /health/live 时回退 /health。"""
+    base = _l5_api_base_url().rstrip("/")
+    for path in ("/api/demo/health/live", "/api/demo/health"):
+        req = urllib.request.Request(f"{base}{path}", method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=HEALTH_TIMEOUT) as resp:
+                if resp.status not in (200, 503):
+                    continue
+                data = json.loads(resp.read().decode("utf-8"))
+                if path.endswith("/health") and resp.status == 503:
+                    return {"status": "ok", "degraded": True, **data}
+                return data
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                continue
+            if exc.code == 503:
+                try:
+                    data = json.loads(exc.read().decode("utf-8"))
+                except Exception:
+                    data = {}
+                return {"status": "ok", "degraded": True, **data}
+        except Exception:
+            continue
+    return None
+
+
+def check_l5_health() -> bool:
+    """探测 L5 Sidecar (new_JIMI :8011) 是否可用。"""
+    live = _fetch_l5_health_live()
+    return bool(live and live.get("status") in ("ok", "degraded"))
+
+
+def fetch_l5_health() -> Optional[dict]:
+    """GET L5 Sidecar /api/demo/health，不可用时返回 None。"""
+    req = urllib.request.Request(
+        f"{_l5_api_base_url().rstrip('/')}/api/demo/health",
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=HEALTH_TIMEOUT) as resp:
+            if resp.status != 200:
+                return None
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
 
 
 def fetch_health() -> Optional[dict]:
@@ -532,27 +585,32 @@ def _request_json(
     *,
     method: str = "POST",
     timeout: Optional[int] = None,
+    base_url: Optional[str] = None,
 ) -> dict:
+    root = (base_url or _api_base_url()).rstrip("/")
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     headers = {"Content-Type": "application/json", "X-Demo-Key": _demo_key()}
     req = urllib.request.Request(
-        f"{_api_base_url()}{path}",
+        f"{root}{path}",
         data=data,
         headers=headers,
         method=method,
     )
+    is_l5 = root.rstrip("/") == _l5_api_base_url().rstrip("/")
+    start_hint = L5_START_HINT if is_l5 else SERVER_START_HINT
+    label = "L5 Sidecar" if is_l5 else "A 端"
     try:
         with urllib.request.urlopen(req, timeout=timeout or _api_timeout()) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code == 401:
             raise ApiError("X-Demo-Key 不匹配，请检查 HAJIMI_DEMO_KEY") from exc
-        raise ApiError(f"A 端 HTTP {exc.code}: {_read_http_error(exc)}") from exc
+        raise ApiError(f"{label} HTTP {exc.code}: {_read_http_error(exc)}") from exc
     except (TimeoutError, urllib.error.URLError) as exc:
         if _is_timeout_error(exc):
-            raise ApiError(f"A 端请求超时（{timeout or _api_timeout()}s）") from exc
+            raise ApiError(f"{label} 请求超时（{timeout or _api_timeout()}s）") from exc
         raise ApiError(
-            f"A 端不可达 ({getattr(exc, 'reason', exc)})。请先运行: {SERVER_START_HINT}"
+            f"{label} 不可达 ({getattr(exc, 'reason', exc)})。请先运行: {start_hint}"
         ) from exc
 
 
@@ -814,6 +872,18 @@ def advance_step(
         raise
 
 
+def _ensure_l5_ready() -> tuple[bool, str]:
+    """L5 路径：预检 8011 Sidecar，失败时尝试 auto-launch。"""
+    if check_l5_health():
+        return True, ""
+    try:
+        from core.l5_sidecar_launcher import ensure_l5_sidecar_running
+
+        return ensure_l5_sidecar_running()
+    except Exception as exc:
+        return False, f"L5 Sidecar 不可用: {exc}"
+
+
 def execute_task(
     query: str,
     image_data_uri: Optional[str] = None,
@@ -821,13 +891,13 @@ def execute_task(
     screen_width: int = 1920,
     screen_height: int = 1080,
 ) -> dict:
-    """L5：提交自动执行任务，返回 plan + task_id。"""
+    """L5：提交自动执行任务到 new_JIMI Sidecar (:8011)，返回 plan + task_id。"""
     if USE_MOCK_ONLY:
         raise ApiError("Mock 模式不支持 L5 自动执行")
 
-    ok, reason = _ensure_process_ready()
+    ok, reason = _ensure_l5_ready()
     if not ok:
-        raise ApiError(reason)
+        raise ApiError(reason or f"L5 Sidecar 未就绪，请先运行: {L5_START_HINT}")
 
     payload: dict = {
         "query": query,
@@ -836,24 +906,30 @@ def execute_task(
         "screen_width": screen_width,
         "screen_height": screen_height,
     }
-    data = _request_json("/api/demo/execute", payload, timeout=PROCESS_TIMEOUT)
+    data = _request_json(
+        "/api/demo/execute",
+        payload,
+        timeout=PROCESS_TIMEOUT,
+        base_url=_l5_api_base_url(),
+    )
     if not data.get("success"):
         err = data.get("error") or {}
         if isinstance(err, dict):
             raise ApiError(err.get("message") or "L5 执行提交失败")
         raise ApiError("L5 执行提交失败")
     if not data.get("task_id"):
-        raise ApiError("A 端未返回 task_id")
-    data["_source"] = "server"
+        raise ApiError("L5 Sidecar 未返回 task_id")
+    data["_source"] = "l5_sidecar"
     return data
 
 
 def cancel_task(task_id: str) -> dict:
-    """L5：取消进行中的自动执行任务。"""
+    """L5：取消进行中的自动执行任务（Sidecar :8011）。"""
     if USE_MOCK_ONLY:
         return {"success": False, "message": "Mock 模式无 L5 任务"}
     return _request_json(
         "/api/demo/cancel",
         {"task_id": task_id},
         timeout=min(_api_timeout(), 30),
+        base_url=_l5_api_base_url(),
     )
