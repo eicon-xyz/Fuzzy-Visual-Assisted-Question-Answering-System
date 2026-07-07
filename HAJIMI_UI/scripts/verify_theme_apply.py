@@ -1,3 +1,6 @@
+# [VERIFY] 验收脚本 — 见 docs/FILE-MAP.md
+# 用途: 主题 QSS / 壳层 / 五方案 / 橘猫 apply 链
+# 运行: python scripts/verify_theme_apply.py
 """Verify theme apply chain: stylesheet, shell mode, painter, opaque shell guard."""
 from __future__ import annotations
 
@@ -12,7 +15,17 @@ from core.user_settings import _merge_defaults
 from ui.native.compact_bar import CompactBar
 from ui.native.luxury.title import DEFAULT_SCRIPT_FONT_ID, ensure_luxury_fonts
 from ui.native.medium_panel import MediumPanel
-from ui.native.shell_appearance import AppearanceSettings
+from ui.native.shell_appearance import (
+    AppearanceSettings,
+    SCHEME_ELEGANT_BLACK,
+    SCHEME_KRAFT_PAPER,
+    SCHEME_LUXURY_GOLD,
+    SCHEME_ORANGE_CAT,
+    is_orange_cat_theme,
+    scheme_to_settings,
+    settings_to_scheme,
+)
+from ui.native.orange_cat.tokens import PRIMARY, PRIMARY_DARK
 from ui.native.theme_manager import compose_stylesheet, get_theme_manager
 from ui.native.visual_tokens import accent_for_theme
 
@@ -27,9 +40,8 @@ def _check_theme(theme_id: str, shell_style: str) -> None:
 
 
 def main() -> int:
-    for tid in ("current", "variant_b", "variant_c"):
-        _check_theme(tid, "qss")
-        _check_theme(tid, "crystal_light")
+    _check_theme("current", "qss")
+    _check_theme("current", "crystal_edge")
 
     luxury_merged = _merge_defaults({"ui_theme": "variant_luxury"})
     luxury_qss = compose_stylesheet(
@@ -41,7 +53,25 @@ def main() -> int:
     assert "#NavDrawer" in luxury_qss
     assert "background: transparent" in luxury_qss or "background-color: transparent" in luxury_qss
 
-    merged = _merge_defaults({"ui_theme": "variant_b", "shell_style": "crystal_light"})
+    orange_merged = _merge_defaults({"ui_theme": "variant_orange_cat"})
+    orange_qss = compose_stylesheet(
+        "variant_orange_cat",
+        AppearanceSettings.from_user_settings(orange_merged),
+    )
+    assert "SendBtnOrange" in orange_qss
+    assert "#FFFBF7" in orange_qss or "bubble-system" in orange_qss
+    assert "rgba(15, 23, 42, 0.89)" not in orange_qss
+
+    migrated = _merge_defaults({"ui_theme": "variant_b", "shell_style": "crystal_light"})
+    assert migrated["ui_theme"] == "current"
+    assert settings_to_scheme(migrated) == SCHEME_ELEGANT_BLACK
+
+    kraft = scheme_to_settings(SCHEME_KRAFT_PAPER)
+    assert kraft["ui_theme"] == "variant_luxury"
+    assert kraft["luxury_bg_mode"] == "kraft"
+    assert settings_to_scheme(kraft) == SCHEME_KRAFT_PAPER
+
+    merged = _merge_defaults(scheme_to_settings(SCHEME_ELEGANT_BLACK))
     app = QApplication(sys.argv)
     panel = MediumPanel()
     compact = CompactBar()
@@ -57,7 +87,7 @@ def main() -> int:
     assert mode == "crystal", f"expected crystal mode, got {mode!r}"
     assert isinstance(getattr(panel, "_hajimi_shell_appearance", None), AppearanceSettings)
     assert panel.paintEvent.__func__.__name__ == "_shell_paint_event"
-    assert panel._title_art._accent == accent_for_theme("variant_b")
+    assert panel._title_art._accent == accent_for_theme("current")
 
     luxury_appearance = AppearanceSettings.from_user_settings(luxury_merged)
     mgr.apply("variant_luxury", luxury_appearance)
@@ -75,6 +105,27 @@ def main() -> int:
     panel.apply_appearance(AppearanceSettings(shell_style="qss"), ui_theme="current")
     assert panel._title_script.isHidden()
     assert not panel._title_art.isHidden()
+    assert panel._orange_cat_theme is False
+
+    orange_appearance = AppearanceSettings.from_user_settings(orange_merged)
+    mgr.apply("variant_orange_cat", orange_appearance)
+    panel.apply_appearance(orange_appearance, ui_theme="variant_orange_cat")
+    assert getattr(panel, "_hajimi_shell_mode", None) == "orange_cat"
+    assert panel._orange_cat_theme is True
+    assert panel._luxury_theme is False
+    assert panel._title_script.isHidden()
+    assert not panel._title_art.isHidden()
+    assert panel._title_art._mode == "gradient"
+    assert panel._title_art._gradient_start == PRIMARY_DARK
+    assert panel._title_art._gradient_end == "#FFD4A3"
+    assert panel._title_art._accent == PRIMARY
+    compact.apply_orange_cat_theme(True)
+    assert is_orange_cat_theme("variant_orange_cat")
+
+    mgr.apply("current", AppearanceSettings(shell_style="qss"))
+    panel.apply_appearance(AppearanceSettings(shell_style="qss"), ui_theme="current")
+    compact.apply_orange_cat_theme(False)
+    assert getattr(panel, "_hajimi_shell_mode", None) == "qss"
 
     print("verify_theme_apply: ok")
     return 0

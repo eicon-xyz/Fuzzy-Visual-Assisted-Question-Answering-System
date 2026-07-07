@@ -1,0 +1,22 @@
+# frp client — deploy inside GPU container (实验3)
+# Prerequisite: omniparser_api listening on 127.0.0.1:9800
+# Usage: ./frpc -c frpc.toml
+
+serverAddr = "FRP_PUBLIC_IP"
+serverPort = 7000
+auth.token = "CHANGE_ME_strong_random_token"
+
+[[proxies]]
+name = "omniparser"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 9800
+remotePort = 9800
+
+# Optional: expose A-end for B UI without campus VPN
+# [[proxies]]
+# name = "a_end"
+# type = "tcp"
+# localIP = "127.0.0.1"
+# localPort = 8010
+# remotePort = 8010

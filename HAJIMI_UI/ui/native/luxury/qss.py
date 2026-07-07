@@ -228,9 +228,13 @@ QLineEdit#CompactInput {{
     background: transparent;
     border: none;
     color: {TOKENS.secondary};
+    font-size: 13px;
+    padding: 0 4px;
 }}
 QLabel#CompactHint {{
     color: {TOKENS.secondary_muted};
+    font-size: 11px;
+    padding-right: 4px;
 }}
 QScrollBar:vertical {{
     background: transparent;

@@ -1,0 +1,150 @@
+body {
+	font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Verdana, Arial, sans-serif;
+	font-size: 12px;
+	color: #000000;
+	margin: 0;
+	padding: 0;
+	cursor: default;
+}
+
+a {
+	color: #4a6ca7;
+	text-decoration: none;
+}
+
+h1, h2, h3, h4 {
+	color: #000000;
+}
+
+strong {
+	font-weight: 500;
+}
+
+.clearBoth {
+	clear: both;
+}
+
+.hidden {
+	display: none;
+}
+
+/* Content */
+
+#rmi_main_container {
+	min-width: 370px;
+	max-width: 760px;
+	margin: 0 auto;
+	padding: 30px 20px 30px 20px;
+}
+
+#rmi_main_container .rm_screenshot {
+	display: block;
+	margin: 0 0 30px 30px;
+	border-radius: 6px;
+	box-shadow: 0 0 5px 2px rgba(0, 0, 0, .15);
+	overflow: hidden;
+	background-repeat: no-repeat;
+	background-size: cover;
+
+	float: right;
+}
+
+#rmi_screenshot_plugins {
+	width: 185px;
+	height: 120px;
+
+	background-image: url("screenshot_plugins_light.png");
+}
+
+#rmi_screenshot_documents {
+	width: 99px;
+	height: 230px;
+
+	background-image: url("screenshot_documents_light.png");
+}
+
+#rmi_screenshot_connections {
+	width: 71px;
+	height: 225px;
+
+	background-image: url("screenshot_connections_light.png");
+}
+
+#rmi_main_container p {
+	padding-left: 58px;
+}
+
+#rmi_main_container ul {
+	padding-left: 74px;
+}
+
+#rmi_main_container h1 {
+	font-size: 23px;
+	font-weight: normal;
+	margin-top: 0;
+	margin-bottom: 0;
+}
+
+#rmi_main_container h1 img {
+	vertical-align: middle;
+	padding-left: 10px;
+}
+
+#rmi_main_container h2 {
+	font-size: 19px;
+	font-weight: normal;
+	margin-top: 40px;
+	margin-bottom: 20px;
+	height: 32px;
+	line-height: 32px;
+
+	color: #000000;
+}
+
+#rmi_main_container h2 span {
+	padding-left: 58px;
+}
+
+#rmi_header_plugins {
+	background-image: url("sf-royalapps.plugin.svg");
+	background-size: 32px 32px;
+	background-repeat: no-repeat;
+}
+
+#rmi_header_documents {
+	background-image: url("sf-royalapps.royaldoc.fill.svg");
+	background-size: 32px 32px;
+	background-repeat: no-repeat;
+}
+
+#rmi_header_connections {
+	background-image: url("RoyalRDSConnectionOutline.svg");
+	background-size: 32px 32px;
+	background-repeat: no-repeat;
+}
+
+@media (prefers-color-scheme: dark) {
+	body, h1, h2, h3, h4 {
+		color: #ffffff;
+	}
+
+	a {
+		color: #849ab3;
+	}
+
+	#rmi_header_plugins, #rmi_header_documents, #rmi_header_connections {
+		filter: invert(1);
+	}
+
+	#rmi_screenshot_plugins {
+		background-image: url("screenshot_plugins_dark.png");
+	}
+
+	#rmi_screenshot_documents {
+		background-image: url("screenshot_documents_dark.png");
+	}
+
+	#rmi_screenshot_connections {
+		background-image: url("screenshot_connections_dark.png");
+	}
+}

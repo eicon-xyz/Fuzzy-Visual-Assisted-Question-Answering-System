@@ -193,6 +193,30 @@ def paint_luxury_shell(
     painter.restore()
 
 
+def paint_luxury_compact_shell(
+    painter: QPainter,
+    rect: QRectF,
+    radius: float,
+) -> None:
+    """Compact pill — aligned with default crystal compact (no stars / dividers)."""
+    path = _rounded_path(rect, radius)
+    sr, sg, sb, sa = TOKENS.shell_glass
+    painter.save()
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    painter.setClipPath(path)
+    painter.fillPath(path, QColor(sr, sg, sb, sa))
+    edge = QLinearGradient(rect.x(), rect.y(), rect.x(), rect.bottom())
+    edge.setColorAt(0.0, QColor(255, 255, 255, 18))
+    edge.setColorAt(0.35, QColor(255, 255, 255, 0))
+    painter.fillPath(path, QBrush(edge))
+    painter.restore()
+    pen = QPen(QColor(201, 168, 76, 64))
+    pen.setWidthF(1.0)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    painter.drawPath(path)
+
+
 def paint_luxury_frame(
     painter: QPainter,
     rect: QRectF,
@@ -204,6 +228,9 @@ def paint_luxury_frame(
     compact: bool = False,
 ) -> None:
     """Full luxury shell stack: background → stars → shell overlay."""
+    if compact:
+        paint_luxury_compact_shell(painter, rect, radius)
+        return
     paint_luxury_background(painter, rect, bg_mode)
     paint_luxury_starfield(painter, rect, star_intensity, bg_mode=bg_mode)
     paint_luxury_shell(painter, rect, shell_mode, radius, compact=compact)

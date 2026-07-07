@@ -14,23 +14,36 @@ set "OMNI_SERVER=%OMNI_ROOT%\omnitool\omniparserserver"
 set "OMNI_HOST=127.0.0.1"
 if not defined OMNI_PORT set "OMNI_PORT=8002"
 
-set "OMNI_PY="
 if defined OMNI_PY if exist "%OMNI_PY%" goto :have_omni_py
-if defined PYTHON if exist "%PYTHON%" set "OMNI_PY=%PYTHON%" & goto :have_omni_py
-for /f "delims=" %%P in ('where python 2^>nul') do (
-    if not defined OMNI_PY set "OMNI_PY=%%P"
-)
-if defined OMNI_PY goto :have_omni_py
+
 for /f "delims=" %%B in ('conda info --base 2^>nul') do (
     if exist "%%B\envs\omni\python.exe" set "OMNI_PY=%%B\envs\omni\python.exe"
+)
+if defined OMNI_PY goto :have_omni_py
+
+if /i "%CONDA_DEFAULT_ENV%"=="omni" if exist "%CONDA_PREFIX%\python.exe" (
+    set "OMNI_PY=%CONDA_PREFIX%\python.exe"
+    goto :have_omni_py
+)
+
+if defined PYTHON if exist "%PYTHON%" (
+    set "OMNI_PY=%PYTHON%"
+    goto :have_omni_py
+)
+
+for /f "delims=" %%P in ('where python 2^>nul') do (
+    if not defined OMNI_PY set "OMNI_PY=%%P"
 )
 :have_omni_py
 
 if not defined OMNI_PY (
     echo [ERROR] Python not found for OmniParser.
-    echo   Activate your venv/conda env, or: set OMNI_PY=C:\path\to\python.exe
+    echo   Run: conda activate omni
+    echo   Or:  set OMNI_PY=C:\path\to\omni\python.exe
     exit /b 1
 )
+
+echo [OmniParser] Using Python: %OMNI_PY%
 
 "%OMNI_PY%" -c "import urllib.request; urllib.request.urlopen('http://%OMNI_HOST%:%OMNI_PORT%/probe/', timeout=2)" >nul 2>&1
 if not errorlevel 1 (
@@ -62,7 +75,6 @@ if errorlevel 1 (
 )
 
 set "CUDA_VISIBLE_DEVICES="
-set "PYTHONNOUSERSITE=1"
 set "OMNIPARSER_MAX_SIDE=960"
 set "OMNIPARSER_BATCH_SIZE=8"
 
@@ -75,7 +87,7 @@ if not defined OMNI_DEVICE set "OMNI_DEVICE=cpu"
 cd /d "%OMNI_SERVER%"
 
 if /i "%OMNI_DEVICE%"=="cpu" (
-    echo [OmniParser] CPU mode — parse ~2-4 min per screenshot.
+    echo [OmniParser] CPU mode - parse ~2-4 min per screenshot.
 )
 echo [OmniParser] Starting http://%OMNI_HOST%:%OMNI_PORT% (%OMNI_DEVICE% mode) ...
 "%OMNI_PY%" -m omniparserserver --som_model_path ../../weights/icon_detect/model.pt --caption_model_name florence2 --caption_model_path ../../weights/icon_caption_florence --device %OMNI_DEVICE% --BOX_TRESHOLD 0.05 --host %OMNI_HOST% --port %OMNI_PORT%

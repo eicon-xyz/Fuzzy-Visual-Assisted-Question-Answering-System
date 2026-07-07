@@ -2,7 +2,15 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from config import PROCESS_TIMEOUT
 from core.api_client import ApiError, relocate_step as api_relocate
-from core.screen_utils import capture_screen, get_screen_metrics, pil_to_data_uri
+from core.assist_collect import gather_assist_bundle
+from core.screen_utils import (
+    capture_screen,
+    downscale_for_api,
+    get_locate_upload_max_side,
+    get_screen_metrics,
+    get_upload_jpeg_quality,
+    pil_to_data_uri,
+)
 
 
 class RelocateWorkerThread(QThread):
@@ -14,27 +22,21 @@ class RelocateWorkerThread(QThread):
         super().__init__(parent)
         self.task_id = ""
         self.step_index = 1
+        self._step_text = ""
 
-    def request_relocate(self, task_id: str, step_index: int) -> bool:
+    def request_relocate(
+        self, task_id: str, step_index: int, step_text: str = ""
+    ) -> bool:
         if self.isRunning():
             return False
         self.task_id = task_id
         self.step_index = step_index
+        self._step_text = step_text or ""
         self.start()
         return True
 
     def run(self):
         try:
-            # 自动启动 A 端（如果未运行）
-            from core.a_end_launcher import ensure_a_end_running
-
-            ok, auto_msg = ensure_a_end_running(
-                lambda m: self.sig_progress.emit(0, m)
-            )
-            if not ok:
-                self.sig_relocate_error.emit(auto_msg or "A 端未启动")
-                return
-
             self.sig_progress.emit(10, "捕获当前画面…")
             screenshot = capture_screen()
             if screenshot is None:
@@ -42,21 +44,35 @@ class RelocateWorkerThread(QThread):
                 return
 
             sw, sh = screenshot.size
+            max_side = get_locate_upload_max_side(self._step_text)
+            upload = downscale_for_api(screenshot, max_side)
+            metrics = get_screen_metrics()
+            assist_bundle = gather_assist_bundle()
             self.sig_progress.emit(
                 30,
-                "正在分析新画面并定位目标（CPU 约 2–4 分钟）…",
+                "正在 Vision 定位目标…",
             )
             print(
                 f"[relocate] POST /relocate step={self.step_index} "
+                f"upload={upload.size[0]}x{upload.size[1]} "
                 f"timeout={PROCESS_TIMEOUT}s"
             )
             data = api_relocate(
                 self.task_id,
                 self.step_index,
-                pil_to_data_uri(screenshot),
+                pil_to_data_uri(upload, quality=get_upload_jpeg_quality()),
                 screen_width=sw,
                 screen_height=sh,
+                capture_size=[sw, sh],
+                upload_size=[upload.size[0], upload.size[1]],
+                screen_metrics=metrics,
+                assist_bundle=assist_bundle,
             )
+            if data.get("success") is False:
+                self.sig_relocate_error.emit(
+                    "Vision 未找到目标，请确认目标已在当前画面可见"
+                )
+                return
             data["_screen_size"] = [sw, sh]
             data["_screen_metrics"] = get_screen_metrics()
             ref = data.get("reference_resolution")

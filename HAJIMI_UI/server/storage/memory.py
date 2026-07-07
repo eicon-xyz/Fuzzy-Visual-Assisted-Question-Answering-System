@@ -2,15 +2,13 @@
 HAJIMI Demo 内存存储层
 Demo 阶段用内存 dict 保存任务状态，服务重启后清空
 """
-
 import threading
 import uuid
-from datetime import datetime
 from typing import Dict, Optional
-
+from datetime import datetime
 from pydantic import BaseModel
 
-from server.models.schemas import Blueprint, Intent, ProcessResponse, Step
+from server.models.schemas import ProcessResponse, Intent, Blueprint, Step
 
 
 class TaskState(BaseModel):
@@ -26,6 +24,7 @@ class TaskState(BaseModel):
     updated_at: str
     fingerprint: Optional[str] = None
     constraints: Optional[dict] = None
+    route_mode: Optional[str] = None
 
 
 class TaskStore:
@@ -47,7 +46,8 @@ class TaskStore:
             ui_elements=[e.model_dump() for e in response.ui_elements],
             created_at=now,
             updated_at=now,
-            constraints=getattr(response, "constraints", None),
+            constraints=response.constraints,
+            route_mode=(response.detection_meta or {}).get("route"),
         )
         with self._lock:
             self._store[state.task_id] = state

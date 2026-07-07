@@ -13,6 +13,8 @@
 |------|------|
 | [`校园gpu使用.md`](../校园gpu使用.md) | 凭据、接口 URL、交接表 |
 | [`校园gpu使用.template.md`](校园gpu使用.template.md) | 无密码模板 |
+| [`校园GPU-远程启服与快速测试.md`](校园GPU-远程启服与快速测试.md) | Step 0 打开主机、远程启服、端口对照 |
+| [`GPU-API远程接入手册.md`](GPU-API远程接入手册.md) | OmniParser `:9800` 远程接入（A 端直调） |
 | **本文档** | B 端操作步骤 |
 | [`A端-GPU容器部署详细指南-group2_v2.md`](../server/docs/A端-GPU容器部署详细指南-group2_v2.md) | 发给 A 同学 |
 
@@ -179,12 +181,16 @@ python scripts/b_group2_e2e_verify.py
 # 查远程 A/Omni 是否在跑（不建隧道）
 python scripts/gpu_group2_remote.py services
 
+# 远程启服 OmniParser + A 端（日常「远程开机」）
+python scripts/gpu_group2_remote.py start-all
+
 # 远程重新部署 A（需 A 端配合）
 python scripts/gpu_group2_deploy.py --all
 ```
 
 | 文档 | 说明 |
 |------|------|
+| [**校园GPU-远程启服与快速测试.md**](校园GPU-远程启服与快速测试.md) | **远程启服 + 5 分钟测试** |
 | [`DAY3-工作内容_v2.md`](DAY3-工作内容_v2.md) | 系统设置 UI 说明 |
 | [`B端接口总结-对A与对C_v2.md`](B端接口总结-对A与对C_v2.md) | 完整 HTTP 契约 |
 

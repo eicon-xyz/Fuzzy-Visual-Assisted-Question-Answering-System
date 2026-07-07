@@ -189,8 +189,10 @@ scripts\start_all.bat
 
 ## 十、参考文档
 
+- DAY1 基线：[`DAY1-工作内容.md`](DAY1-工作内容.md)
 - 团队分工：[`设计文档V2.md`](../设计文档V2.md) §九
 - B 接口总结 v2：[`B端接口总结-对A与对C_v2.md`](B端接口总结-对A与对C_v2.md)
 - DAY3 工作总结 v2：[`DAY3-工作内容_v2.md`](DAY3-工作内容_v2.md)
+- DAY4–6：[`DAY4-工作内容_v2.md`](DAY4-工作内容_v2.md) · [`DAY5-工作内容_v2.md`](DAY5-工作内容_v2.md) · [`DAY6-工作内容_v2.md`](DAY6-工作内容_v2.md)
 - 校园 GPU / OmniParser 速查 v2：[`校园GPU与OmniParser环境速查_v2.md`](校园GPU与OmniParser环境速查_v2.md)
 - 开发路线：[`设计文档V2.md`](../设计文档V2.md) §十

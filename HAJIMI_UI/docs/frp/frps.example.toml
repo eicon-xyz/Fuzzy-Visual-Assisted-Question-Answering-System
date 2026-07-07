@@ -1,0 +1,11 @@
+# frp server — deploy on public VPS (实验3)
+# Usage: ./frps -c frps.toml
+
+bindPort = 7000
+
+webServer.addr = "0.0.0.0"
+webServer.port = 7500
+webServer.user = "admin"
+webServer.password = "CHANGE_ME_dashboard_password"
+
+auth.token = "CHANGE_ME_strong_random_token"

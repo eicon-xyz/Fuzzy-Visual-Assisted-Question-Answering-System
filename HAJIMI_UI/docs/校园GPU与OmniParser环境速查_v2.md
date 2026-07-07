@@ -277,7 +277,8 @@ Gradio（可选）：`python gradio_demo.py` → VS Code 端口转发访问 `htt
 
 | 场景 | 说明 |
 |------|------|
-| 本地 Windows 开发 | RTX 50 系：`start_omniparser.bat` 会 **实测 CUDA kernel**，不支持 sm_120 时强制 **CPU**（~2–4 分钟/帧）；校园 GPU 优先内网 API |
+| **日常开发（默认）** | **GPU API 模式**：`OMNIPARSER_URL=:9800` + SSH 隧道，inspect **2–30 秒**；用 `start_gpu_one_click.bat` 或 `start_all.bat`（gpu_api 时不启 :8002） |
+| 离线 local 备用 | RTX 50 本地 `:8002` CPU **~2–4 分钟/帧**；仅 `deployment_mode=local` 时使用 |
 | **OmniParser 路径** | 项目根 `OmniParser/` + 自动回退 `E:\Tools\OmniParser`；见 [`Resize指示条与OmniParser路径-技术说明.md`](Resize指示条与OmniParser路径-技术说明.md) §三 |
 | **学校 A800 容器** | 按 [A端-学校GPU部署与联调指南_v2.md](../server/docs/A端-学校GPU部署与联调指南_v2.md) 部署 GPU 版；B 端选「内网 API」 |
 | **B 端系统设置** | `%LOCALAPPDATA%/HAJIMI/user_settings.json`：部署模式（本地/内网）、A 端 URL、LLM/OmniParser 配置；保存后立即生效 |

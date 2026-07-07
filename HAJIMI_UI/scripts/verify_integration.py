@@ -1,3 +1,6 @@
+# [VERIFY] 验收脚本 — 见 docs/FILE-MAP.md
+# 用途: B↔A 联调 E2E（health / process / inspect / step）
+# 运行: python scripts/verify_integration.py  （需先 scripts/start_server.bat 或 start_all.bat）
 """
 B-end <-> A-end integration verify script.
 

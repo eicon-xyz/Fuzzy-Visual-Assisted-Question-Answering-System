@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
     QStackedWidget,
     QScrollArea,
     QTextEdit,
+    QPlainTextEdit,
     QFrame,
     QProgressBar,
     QCheckBox,
@@ -20,6 +21,7 @@ from config import (
     MEDIUM_WIDTH,
     MEDIUM_HEIGHT,
 )
+from core.defaults import DEFAULT_OMNI_GPU_API_URL, DEFAULT_OMNI_LOCAL_URL
 from core.user_settings import load_user_settings
 from ui.native.window_state import clamp_size, _screen_max
 from ui.chat_bubble import ChatBubble
@@ -34,11 +36,18 @@ from ui.native.layout_tokens import (
 )
 from ui.native.layout.topbar_layout import build_topbar, compute_topbar_min_width
 from ui.native.nav_icons import nav_icon, svg_icon, action_icon
-from ui.native.shell_appearance import AppearanceSettings, is_luxury_theme
+from ui.native.shell_appearance import (
+    AppearanceSettings,
+    is_luxury_theme,
+    is_orange_cat_theme,
+)
 from ui.native.luxury.icons import apply_luxury_menu_icon, luxury_icon, luxury_nav_icon
 from ui.native.luxury.title import ensure_luxury_fonts
+from ui.native.orange_cat.chat_row import OrangeCatChatRow
+from ui.native.orange_cat.icons import orange_cat_icon, orange_cat_nav_icon
+from ui.native.orange_cat.tokens import PRIMARY, PRIMARY_DARK
 from ui.native.status_badge_fx import BadgeBreathController
-from ui.native.visual_tokens import accent_for_theme
+from ui.native.visual_tokens import accent_for_theme, TEXT_TERTIARY
 from ui.native.widgets import (
     NavBackdrop,
     NotifRow,
@@ -48,10 +57,10 @@ from ui.native.widgets import (
     make_scroll_area_transparent,
 )
 from ui.native.settings_widgets import (
-    DeploymentModeGroup,
-    SettingsFieldRow,
+    ModelSettingsGroup,
     SettingsEnterFilter,
     UiAppearanceGroup,
+    VoiceSettingsGroup,
 )
 
 
@@ -64,6 +73,11 @@ PANEL_LABELS = {
 }
 
 NAV_KEYS = list(PANEL_LABELS.keys())
+
+_WELCOME_TEXT = (
+    "你好！我是 HAJIMI 智能桌面指引助手。你可以问我类似于「怎么安装微信？」"
+    "或「如何保存文档？」的操作问题。"
+)
 
 PANEL_MODE_LEVEL = {
     "guide": 3,
@@ -95,14 +109,21 @@ class MediumPanel(QWidget):
     send_clicked = pyqtSignal(str)
     next_clicked = pyqtSignal()
     prev_clicked = pyqtSignal()
+    stop_clicked = pyqtSignal()
     compact_requested = pyqtSignal()
     drag_requested = pyqtSignal()
     inspect_requested = pyqtSignal()
     inspect_exit_requested = pyqtSignal()
     start_services_requested = pyqtSignal()
+    gpu_one_click_requested = pyqtSignal()
     stop_services_requested = pyqtSignal()
-    settings_saved = pyqtSignal(dict)
+    chain_diagnostic_requested = pyqtSignal()
+    model_settings_saved = pyqtSignal(dict)
+    appearance_settings_saved = pyqtSignal(dict)
+    voice_settings_saved = pyqtSignal(dict)
     appearance_preview_requested = pyqtSignal(dict)
+    mic_pressed = pyqtSignal()
+    mic_released = pyqtSignal()
     panel_resize_requested = pyqtSignal(int, int)
     panel_restore_size = pyqtSignal()
     prepare_banner_clicked = pyqtSignal()
@@ -117,6 +138,7 @@ class MediumPanel(QWidget):
 
         self._drawer_visible = False
         self._luxury_theme = False
+        self._orange_cat_theme = False
         self._ui_theme = "current"
         self._current_panel = "guide"
         self._connection_error = False
@@ -393,11 +415,8 @@ class MediumPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
 
-        self._welcome_bubble = ChatBubble(
-            "你好！我是 HAJIMI 智能桌面指引助手。你可以问我类似于「怎么安装微信？」"
-            "或「如何保存文档？」的操作问题。",
-            "system",
-        )
+        self._welcome_bubble = ChatBubble(_WELCOME_TEXT, "system")
+        self._guide_layout = layout
         layout.addWidget(self._welcome_bubble)
 
         self._chat_container = QWidget()
@@ -425,13 +444,28 @@ class MediumPanel(QWidget):
         card.setObjectName("Card")
         cl = QVBoxLayout(card)
         cl.setContentsMargins(16, 16, 16, 16)
-        title = QLabel("Step Tracking")
-        title.setObjectName("CardTitle")
-        cl.addWidget(title)
+        header = QHBoxLayout()
+        self._steps_title = QLabel("Step Tracking")
+        self._steps_title.setObjectName("CardTitle")
+        self._steps_l5_badge = QLabel("")
+        self._steps_l5_badge.setObjectName("HintTextSmall")
+        self._steps_l5_badge.hide()
+        header.addWidget(self._steps_title)
+        header.addWidget(self._steps_l5_badge)
+        header.addStretch()
+        cl.addLayout(header)
         self._steps_list = StepListWidget()
         cl.addWidget(self._steps_list)
+        self._l5_log = QPlainTextEdit()
+        self._l5_log.setObjectName("L5LogOutput")
+        self._l5_log.setReadOnly(True)
+        self._l5_log.setMaximumBlockCount(500)
+        self._l5_log.setFixedHeight(120)
+        self._l5_log.hide()
+        cl.addWidget(self._l5_log)
         layout.addWidget(card)
         layout.addStretch()
+        self._l5_execution_mode = False
         return page
 
     def _build_blueprint_page(self) -> QWidget:
@@ -527,13 +561,26 @@ class MediumPanel(QWidget):
         ]:
             tl.addWidget(SetRow(label, on))
         il.addWidget(toggles)
+        toggles.setVisible(False)
 
-        self._deployment_mode = DeploymentModeGroup()
-        self._deployment_mode.mode_changed.connect(self._on_deployment_mode_changed)
-        il.addWidget(self._deployment_mode)
+        self._model_group = ModelSettingsGroup()
+        self._model_group.model_save_requested.connect(self._save_model_settings)
+        self._model_group.deployment.mode_changed.connect(self._on_deployment_mode_changed)
+        self._model_group.guidance.mode_changed.connect(self._apply_guidance_route_ui)
+        self._deployment_mode = self._model_group.deployment
+        self._guidance_route = self._model_group.guidance
+        self._l4_group = self._model_group.l4
+        self._field_a_url = self._model_group.field_a_url
+        self._field_demo_key = self._model_group.field_demo_key
+        self._field_llm_base = self._model_group.field_llm_base
+        self._field_llm_key = self._model_group.field_llm_key
+        self._field_llm_model = self._model_group.field_llm_model
+        self._field_omni_url = self._model_group.field_omni_url
+        self._field_omni_gpu = self._model_group.field_omni_gpu
+        il.addWidget(self._model_group)
 
         self._appearance_group = UiAppearanceGroup()
-        self._appearance_group.save_requested.connect(self._save_settings)
+        self._appearance_group.save_requested.connect(self._save_appearance_settings)
         self._appearance_group.appearance_preview_requested.connect(
             self._forward_appearance_preview
         )
@@ -542,62 +589,13 @@ class MediumPanel(QWidget):
         )
         il.addWidget(self._appearance_group)
 
-        api_card = QFrame()
-        api_card.setObjectName("Card")
-        al = QVBoxLayout(api_card)
-        al.setContentsMargins(16, 16, 16, 16)
-        al.setSpacing(4)
-        api_title = QLabel("模型 API")
-        api_title.setObjectName("SectionTitle")
-        al.addWidget(api_title)
+        self._voice_group = VoiceSettingsGroup()
+        self._voice_group.voice_save_requested.connect(self._save_voice_settings)
+        il.addWidget(self._voice_group)
 
-        self._field_a_url = SettingsFieldRow("A 端地址", "http://127.0.0.1:8010")
-        self._field_demo_key = SettingsFieldRow("Demo Key", "hajimi-demo-2026")
-        self._field_llm_base = SettingsFieldRow("问答 API Base", "https://api.deepseek.com")
-        self._field_llm_key = SettingsFieldRow("问答 API Key", "", password=True)
-        self._field_llm_model = SettingsFieldRow("问答模型名", "deepseek-chat")
-        self._field_omni_url = SettingsFieldRow("OmniParser 地址", "http://127.0.0.1:8002")
-        self._field_omni_gpu = SettingsFieldRow(
-            "OmniParser GPU", "可选，SSH 隧道端口如 http://127.0.0.1:8002"
-        )
-        for row in (
-            self._field_a_url,
-            self._field_demo_key,
-            self._field_llm_base,
-            self._field_llm_key,
-            self._field_llm_model,
-            self._field_omni_url,
-            self._field_omni_gpu,
-        ):
-            al.addWidget(row)
-
-        save_row = QHBoxLayout()
-        self._save_settings_btn = QPushButton("保存并应用")
-        self._save_settings_btn.setObjectName("StepBtnPrimary")
-        self._save_settings_btn.clicked.connect(self._save_settings)
-        save_row.addWidget(self._save_settings_btn)
-        save_row.addStretch()
-        al.addLayout(save_row)
-
-        self._settings_feedback = QLabel("")
-        self._settings_feedback.setObjectName("HintTextSmall")
-        self._settings_feedback.setWordWrap(True)
-        al.addWidget(self._settings_feedback)
-
-        self._settings_inputs = [
-            self._field_a_url.input,
-            self._field_demo_key.input,
-            self._field_llm_base.input,
-            self._field_llm_key.input,
-            self._field_llm_model.input,
-            self._field_omni_url.input,
-            self._field_omni_gpu.input,
-        ]
-        self._settings_enter_filter = SettingsEnterFilter(self._save_settings)
-        for inp in self._settings_inputs:
+        self._settings_enter_filter = SettingsEnterFilter(self._save_model_settings)
+        for inp in self._model_group.settings_inputs():
             inp.installEventFilter(self._settings_enter_filter)
-
-        il.addWidget(api_card)
 
         dev = QFrame()
         dev.setObjectName("Card")
@@ -625,7 +623,7 @@ class MediumPanel(QWidget):
         dl.addWidget(self._inspect_status)
 
         self._inspect_hint = QLabel(
-            "CPU 本地检测约需 2–4 分钟，检测期间请勿重复点击。"
+            "GPU API 模式约 2–5 秒；本地 CPU 约 2–4 分钟。检测期间请勿重复点击。"
         )
         self._inspect_hint.setObjectName("HintTextSmall")
         self._inspect_hint.setWordWrap(True)
@@ -642,30 +640,49 @@ class MediumPanel(QWidget):
         dl.addWidget(self._api_lbl)
 
         svc_row = QHBoxLayout()
-        self._start_services_btn = QPushButton("启动 OmniParser + A 端")
+        self._start_services_btn = QPushButton("启动 A 端")
         self._start_services_btn.setObjectName("StepBtnPrimary")
         self._start_services_btn.clicked.connect(self.start_services_requested.emit)
         svc_row.addWidget(self._start_services_btn)
+        self._gpu_one_click_btn = QPushButton("一键 GPU")
+        self._gpu_one_click_btn.setObjectName("StepBtn")
+        self._gpu_one_click_btn.clicked.connect(self.gpu_one_click_requested.emit)
+        svc_row.addWidget(self._gpu_one_click_btn)
         self._stop_services_btn = QPushButton("停止全部服务")
         self._stop_services_btn.setObjectName("StepBtn")
         self._stop_services_btn.clicked.connect(self.stop_services_requested.emit)
         svc_row.addWidget(self._stop_services_btn)
         dl.addLayout(svc_row)
 
+        diag_row = QHBoxLayout()
+        self._chain_diag_btn = QPushButton("链路诊断")
+        self._chain_diag_btn.setObjectName("StepBtn")
+        self._chain_diag_btn.clicked.connect(self.chain_diagnostic_requested.emit)
+        diag_row.addWidget(self._chain_diag_btn)
+        self._chain_diag_status = QLabel("")
+        self._chain_diag_status.setObjectName("HintTextSmall")
+        self._chain_diag_status.setWordWrap(True)
+        diag_row.addWidget(self._chain_diag_status, 1)
+        dl.addLayout(diag_row)
+
+        self._chain_diag_output = QTextEdit()
+        self._chain_diag_output.setObjectName("ChainDiagOutput")
+        self._chain_diag_output.setReadOnly(True)
+        self._chain_diag_output.setMinimumHeight(120)
+        self._chain_diag_output.setPlaceholderText("点击「链路诊断」查看 B→A→OmniParser 全链路状态…")
+        self._chain_diag_output.hide()
+        dl.addWidget(self._chain_diag_output)
+
         self._stop_on_exit_cb = QCheckBox("关闭窗口时停止 A 端与 OmniParser")
         self._stop_on_exit_cb.setChecked(STOP_SERVICES_ON_EXIT)
         dl.addWidget(self._stop_on_exit_cb)
 
-        self._auto_launch_cb = QCheckBox("需要时自动启动 A 端（本地部署模式）")
-        self._auto_launch_cb.setChecked(True)
-        dl.addWidget(self._auto_launch_cb)
-
         self._local_svc_widgets = (
             svc_title,
             self._start_services_btn,
+            self._gpu_one_click_btn,
             self._stop_services_btn,
             self._stop_on_exit_cb,
-            self._auto_launch_cb,
         )
 
         self._service_status = QLabel("")
@@ -683,65 +700,133 @@ class MediumPanel(QWidget):
         return page
 
     def load_settings_form(self) -> None:
+        from core.l4_settings import merge_l4_for_display
+
         data = load_user_settings()
-        self._deployment_mode.set_mode(data.get("deployment_mode", "local"))
+        self._deployment_mode.set_mode(data.get("deployment_mode", "gpu_api"))
         self._appearance_group.set_appearance(data)
-        self._appearance_group.sync_mode_sections()
+        self._appearance_group.sync_scheme_sections()
+        if hasattr(self, "_voice_group"):
+            self._voice_group.set_voice(data)
         self._field_a_url.set_text(data.get("a_end_url", ""))
         self._field_demo_key.set_text(data.get("demo_key", ""))
         llm = data.get("llm") or {}
         self._field_llm_base.set_text(llm.get("base_url", ""))
         self._field_llm_key.set_text(llm.get("api_key", ""))
         self._field_llm_model.set_text(llm.get("model", ""))
+        route = data.get("routing_mode") or data.get("llm_speed_mode", "fast")
+        self._guidance_route.set_mode(route)
+        self._l4_group.set_values(merge_l4_for_display(data.get("l4")))
         omni = data.get("omniparser") or {}
         self._field_omni_url.set_text(omni.get("url", ""))
         self._field_omni_gpu.set_text(omni.get("gpu_url", ""))
-        self._auto_launch_cb.setChecked(data.get("auto_launch_a_end", True))
-        self._apply_deployment_mode_ui(data.get("deployment_mode", "local"))
+        self._apply_deployment_mode_ui(data.get("deployment_mode", "gpu_api"))
+        self._apply_guidance_route_ui(route)
 
     def _forward_appearance_preview(self, data: dict) -> None:
         self.appearance_preview_requested.emit(data)
 
-    def _collect_settings_data(self) -> dict:
+    def _collect_model_settings(self) -> dict:
         mode = self._deployment_mode.current_mode()
         a_url = self._field_a_url.text()
         if mode == "intranet" and not a_url:
             raise ValueError("内网 API 模式下 A 端地址为必填项")
-        appearance = self._appearance_group.current_appearance()
+        default_omni = (
+            DEFAULT_OMNI_LOCAL_URL
+            if mode == "local"
+            else DEFAULT_OMNI_GPU_API_URL
+        )
+        route = self._guidance_route.current_mode()
+        speed_map = {
+            "auto": "fast",
+            "fast": "fast",
+            "balanced": "balanced",
+            "precision": "precision",
+        }
         return {
             "deployment_mode": mode,
-            **appearance,
             "a_end_url": a_url or "http://127.0.0.1:8010",
             "demo_key": self._field_demo_key.text() or "hajimi-demo-2026",
+            "routing_mode": route,
+            "llm_speed_mode": speed_map.get(route, "fast"),
+            "l4": self._l4_group.get_values(),
             "llm": {
                 "base_url": self._field_llm_base.text(),
                 "api_key": self._field_llm_key.text(),
                 "model": self._field_llm_model.text() or "deepseek-chat",
             },
             "omniparser": {
-                "url": self._field_omni_url.text() or "http://127.0.0.1:8002",
+                "url": self._field_omni_url.text() or default_omni,
                 "gpu_url": self._field_omni_gpu.text(),
             },
-            "auto_launch_a_end": self._auto_launch_cb.isChecked(),
         }
 
-    def _save_settings(self) -> None:
+    def _collect_appearance_settings(self) -> dict:
+        return self._appearance_group.current_appearance()
+
+    def _save_model_settings(self) -> None:
         try:
-            data = self._collect_settings_data()
+            data = self._collect_model_settings()
         except ValueError as exc:
-            msg = str(exc)
-            self._settings_feedback.setText(msg)
-            self._appearance_group.set_feedback(msg)
+            self._model_group.set_feedback(str(exc))
             return
-        self.settings_saved.emit(data)
+        self.model_settings_saved.emit(data)
+
+    def _save_appearance_settings(self) -> None:
+        self.appearance_settings_saved.emit(self._collect_appearance_settings())
+
+    def _save_voice_settings(self) -> None:
+        self.voice_settings_saved.emit({"voice": self._voice_group.current_voice()})
+
+    def on_voice_settings_applied(self, data: dict, success_msg: str = "") -> None:
+        feedback = success_msg or "已保存并应用"
+        if hasattr(self, "_voice_group"):
+            self._voice_group.set_feedback(feedback)
+            self._voice_group.set_voice(data)
+
+    def refresh_orange_cat_avatars(self) -> None:
+        candidates: list = []
+        if hasattr(self, "_welcome_bubble") and hasattr(
+            self._welcome_bubble, "refresh_avatar"
+        ):
+            candidates.append(self._welcome_bubble)
+        if hasattr(self, "_chat_layout"):
+            for i in range(self._chat_layout.count()):
+                item = self._chat_layout.itemAt(i)
+                w = item.widget() if item else None
+                if w is not None and hasattr(w, "refresh_avatar"):
+                    candidates.append(w)
+        for widget in candidates:
+            widget.refresh_avatar()
 
     def _on_deployment_mode_changed(self, mode: str) -> None:
         self._apply_deployment_mode_ui(mode)
 
+    def _apply_guidance_route_ui(self, mode: str) -> None:
+        """L4 / L3_DEFERRED 可编辑 L4 模型；精准模式禁用。"""
+        use_l4_settings = mode in ("auto", "fast", "balanced")
+        self._l4_group.setVisible(True)
+        self._l4_group.set_enabled(use_l4_settings)
+
     def _apply_deployment_mode_ui(self, mode: str) -> None:
         intranet = mode == "intranet"
+        gpu_api = mode == "gpu_api"
         for w in self._local_svc_widgets:
             w.setVisible(not intranet)
+        self._gpu_one_click_btn.setVisible(gpu_api)
+        if gpu_api:
+            self._start_services_btn.setText("启动 A 端")
+            self._inspect_hint.setText(
+                "GPU API 模式约 2–5 秒；请先运行「一键 GPU」或保持 :9800 隧道。"
+            )
+        elif mode == "local":
+            self._start_services_btn.setText("启动 OmniParser + A 端")
+            self._inspect_hint.setText(
+                "本地 CPU 检测约 2–4 分钟，检测期间请勿重复点击。"
+            )
+        else:
+            self._start_services_btn.setText("启动 A 端")
+            self._inspect_hint.setText("内网 API 模式由远程 A 端执行检测。")
         llm_fields = (
             self._field_llm_base,
             self._field_llm_key,
@@ -751,6 +836,9 @@ class MediumPanel(QWidget):
         )
         for row in llm_fields:
             row.set_enabled(not intranet)
+        self._apply_guidance_route_ui(self._guidance_route.current_mode())
+        if intranet:
+            self._l4_group.set_enabled(False)
         self._update_api_url_label()
 
     def _update_api_url_label(self) -> None:
@@ -758,12 +846,15 @@ class MediumPanel(QWidget):
 
         self._api_lbl.setText(f"A 端地址：{API_BASE_URL}")
 
-    def on_settings_applied(self, data: dict, success_msg: str = "") -> None:
+    def on_model_settings_applied(self, data: dict, success_msg: str = "") -> None:
         feedback = success_msg or "已保存并应用"
-        self._settings_feedback.setText(feedback)
-        self._appearance_group.set_feedback(feedback)
-        self._apply_deployment_mode_ui(data.get("deployment_mode", "local"))
+        self._model_group.set_feedback(feedback)
+        self._apply_deployment_mode_ui(data.get("deployment_mode", "gpu_api"))
         self._update_api_url_label()
+
+    def on_appearance_settings_applied(self, data: dict, success_msg: str = "") -> None:
+        feedback = success_msg or "已保存并应用"
+        self._appearance_group.set_feedback(feedback)
 
     def apply_appearance(
         self,
@@ -783,29 +874,53 @@ class MediumPanel(QWidget):
         theme_id = ui_theme or "current"
         self._ui_theme = theme_id
         luxury = is_luxury_theme(theme_id)
+        orange = is_orange_cat_theme(theme_id)
         self._luxury_theme = luxury
+        self._orange_cat_theme = orange
         if hasattr(self, "_title_art"):
-            self._title_art.setVisible(not luxury)
-            if not luxury:
-                self._title_art.set_mode(appearance.title_art_mode)
-                self._title_art.set_accent(accent_for_theme(theme_id))
+            if orange:
+                self._title_art.setVisible(True)
+                self._title_art.set_mode("gradient")
+                self._title_art.set_accent(PRIMARY)
+                self._title_art.set_gradient_stops(PRIMARY_DARK, "#FFD4A3")
                 self._title_art.repaint()
+            else:
+                self._title_art.setVisible(not luxury)
+                if not luxury:
+                    self._title_art.reset_gradient_stops()
+                    self._title_art.set_mode(appearance.title_art_mode)
+                    self._title_art.set_accent(accent_for_theme(theme_id))
+                    self._title_art.repaint()
         if hasattr(self, "_title_script"):
-            self._title_script.setVisible(luxury)
+            self._title_script.setVisible(luxury and not orange)
             if luxury:
                 ensure_luxury_fonts()
                 self._title_script.set_font_id(appearance.luxury_script_font_id)
                 self._title_script.set_gold_mode(appearance.luxury_gold_mode)
                 self._title_script.repaint()
         if hasattr(self, "_menu_btn"):
-            if luxury:
+            if orange:
+                self._menu_btn.setText("")
+                self._menu_btn.setIcon(orange_cat_icon("menu", 24))
+                self._menu_btn.update()
+            elif luxury:
                 apply_luxury_menu_icon(self._menu_btn)
             else:
                 self._menu_btn.setIcon(QIcon())
                 self._menu_btn.update()
+        if hasattr(self, "_mic_btn"):
+            if orange:
+                self._mic_btn.setIcon(orange_cat_icon("mic", 24))
+            else:
+                self._mic_btn.setIcon(action_icon("mic"))
+            self._mic_btn.update()
         if hasattr(self, "_send_btn"):
             style = self._send_btn.style()
-            if luxury:
+            if orange:
+                self._send_btn.setText("")
+                self._send_btn.setObjectName("SendBtnOrange")
+                self._send_btn.setIcon(orange_cat_icon("send", 24))
+            elif luxury:
                 self._send_btn.setObjectName("SendBtnLuxHover")
                 self._send_btn.setIcon(luxury_icon("send", 18))
             else:
@@ -814,21 +929,91 @@ class MediumPanel(QWidget):
             style.unpolish(self._send_btn)
             style.polish(self._send_btn)
             self._send_btn.update()
+        if hasattr(self, "_input_float"):
+            self._input_float.setAttribute(Qt.WA_StyledBackground, orange)
+            float_style = self._input_float.style()
+            float_style.unpolish(self._input_float)
+            float_style.polish(self._input_float)
+            self._input_float.update()
+        if hasattr(self, "_input_dock"):
+            if orange:
+                self._input_dock.setAttribute(Qt.WA_TranslucentBackground, False)
+                self._input_dock.setAttribute(Qt.WA_StyledBackground, True)
+            else:
+                make_widget_transparent(self._input_dock)
+            dock_style = self._input_dock.style()
+            dock_style.unpolish(self._input_dock)
+            dock_style.polish(self._input_dock)
+            self._input_dock.update()
+        self._sync_welcome_bubble()
+        if orange:
+            self._repolish_chat_bubbles()
         self._refresh_nav_icons()
         if hasattr(self, "_topbar"):
             self._topbar.repaint()
         self._recompute_topbar_widths()
         self._update_topbar_chrome()
         self._refresh_status_badge()
+        self.repaint()
+
+    def _sync_welcome_bubble(self) -> None:
+        if not hasattr(self, "_guide_layout") or not hasattr(self, "_welcome_bubble"):
+            return
+        want_orange = self._orange_cat_theme
+        is_orange_row = isinstance(self._welcome_bubble, OrangeCatChatRow)
+        if want_orange == is_orange_row:
+            if want_orange and hasattr(self._welcome_bubble, "refresh_avatar"):
+                self._welcome_bubble.refresh_avatar()
+            return
+        layout = self._guide_layout
+        idx = layout.indexOf(self._welcome_bubble)
+        layout.removeWidget(self._welcome_bubble)
+        self._welcome_bubble.deleteLater()
+        if want_orange:
+            self._welcome_bubble = OrangeCatChatRow(_WELCOME_TEXT, "system")
+        else:
+            self._welcome_bubble = ChatBubble(_WELCOME_TEXT, "system")
+        if idx >= 0:
+            layout.insertWidget(idx, self._welcome_bubble)
+        else:
+            layout.addWidget(self._welcome_bubble)
+
+    def _repolish_chat_bubbles(self) -> None:
+        style = self.style()
+        candidates: list[QWidget] = []
+        if hasattr(self, "_welcome_bubble") and self._welcome_bubble is not None:
+            candidates.append(self._welcome_bubble)
+        if hasattr(self, "_chat_layout"):
+            for i in range(self._chat_layout.count()):
+                item = self._chat_layout.itemAt(i)
+                w = item.widget() if item else None
+                if w is not None:
+                    candidates.append(w)
+        for widget in candidates:
+            style.unpolish(widget)
+            style.polish(widget)
+            widget.update()
+            bubble_host = getattr(widget, "bubble", widget)
+            inner = getattr(bubble_host, "_bubble", None)
+            if inner is not None:
+                style.unpolish(inner)
+                style.polish(inner)
+                inner.update()
 
     def _nav_icon(self, key: str, active: bool) -> QIcon:
+        if self._orange_cat_theme:
+            return orange_cat_nav_icon(key, active)
         if self._luxury_theme:
             return luxury_nav_icon(key, active)
         return nav_icon(key, active)
 
     def _refresh_nav_icons(self) -> None:
         if hasattr(self, "_drawer_logo"):
-            if self._luxury_theme:
+            if self._orange_cat_theme:
+                from ui.native.orange_cat.icons import orange_cat_pixmap
+
+                self._drawer_logo.setPixmap(orange_cat_pixmap("mark", 16))
+            elif self._luxury_theme:
                 self._drawer_logo.setPixmap(
                     luxury_icon("logo", 16).pixmap(26, 26)
                 )
@@ -873,8 +1058,15 @@ class MediumPanel(QWidget):
         next_btn = QPushButton("下一步")
         next_btn.setObjectName("StepBtnPrimary")
         next_btn.clicked.connect(self.next_clicked.emit)
+        stop_btn = QPushButton("停止")
+        stop_btn.setObjectName("StepBtn")
+        stop_btn.clicked.connect(self.stop_clicked.emit)
+        self._step_prev_btn = prev_btn
+        self._step_next_btn = next_btn
+        self._step_stop_btn = stop_btn
         layout.addWidget(prev_btn)
         layout.addWidget(next_btn)
+        layout.addWidget(stop_btn)
         return bar
 
     def _build_inspect_bar(self) -> QWidget:
@@ -900,6 +1092,7 @@ class MediumPanel(QWidget):
 
         float_card = QFrame()
         float_card.setObjectName("InputFloat")
+        self._input_float = float_card
         fl = QHBoxLayout(float_card)
         fl.setContentsMargins(12, 8, 10, 8)
         fl.setSpacing(8)
@@ -919,17 +1112,27 @@ class MediumPanel(QWidget):
 
         actions = QHBoxLayout()
         actions.setSpacing(2)
+        self._speaker_btn = QPushButton()
+        self._speaker_btn.setObjectName("IconBtnGhost")
+        self._speaker_btn.setIcon(action_icon("speaker"))
+        self._speaker_btn.setFixedSize(32, 32)
+        self._speaker_btn.setToolTip("语音播报状态")
+        self._speaker_btn.setEnabled(False)
         mic_btn = QPushButton()
         mic_btn.setObjectName("IconBtnGhost")
         mic_btn.setIcon(action_icon("mic"))
         mic_btn.setFixedSize(32, 32)
-        mic_btn.setToolTip("语音（即将推出）")
+        mic_btn.setToolTip("按住说话")
         mic_btn.setEnabled(False)
+        mic_btn.pressed.connect(self.mic_pressed.emit)
+        mic_btn.released.connect(self.mic_released.emit)
+        self._mic_btn = mic_btn
         self._send_btn = QPushButton()
         self._send_btn.setObjectName("SendBtnAccent")
         self._send_btn.setIcon(action_icon("send", "#5a9ec4"))
         self._send_btn.setFixedSize(32, 32)
         self._send_btn.clicked.connect(self._on_send)
+        actions.addWidget(self._speaker_btn)
         actions.addWidget(mic_btn)
         actions.addWidget(self._send_btn)
         fl.addLayout(actions, 0)
@@ -1127,7 +1330,11 @@ class MediumPanel(QWidget):
             bubble_type = "user"
         else:
             bubble_type = "system"
-        self._chat_layout.addWidget(ChatBubble(text, bubble_type))
+        self._chat_layout.addWidget(
+            OrangeCatChatRow(text, bubble_type)
+            if self._orange_cat_theme
+            else ChatBubble(text, bubble_type)
+        )
         QTimer.singleShot(0, self._reflow_chat_bubbles)
         sb = self._content_scroll.verticalScrollBar()
         sb.setValue(sb.maximum())
@@ -1153,8 +1360,63 @@ class MediumPanel(QWidget):
         self._input.setEnabled(enabled)
         self._send_btn.setEnabled(enabled)
 
-    def show_prepare_banner(self, text: str):
-        self._prepare_banner_btn.setText(f"⏳ 待重新定位：{text} — 点击继续")
+    def set_mic_enabled(self, enabled: bool) -> None:
+        if hasattr(self, "_mic_btn"):
+            self._mic_btn.setEnabled(enabled)
+            self._mic_btn.setVisible(enabled)
+
+    def set_speaker_playing(self, playing: bool) -> None:
+        if not hasattr(self, "_speaker_btn"):
+            return
+        self._speaker_btn.setEnabled(True)
+        self._speaker_btn.setVisible(True)
+        accent = accent_for_theme(getattr(self, "_ui_theme", "current"))
+        icon_key = "speaker"
+        self._speaker_btn.setIcon(
+            action_icon(icon_key, accent if playing else TEXT_TERTIARY)
+            if playing
+            else action_icon(icon_key)
+        )
+        self._speaker_btn.setToolTip("正在播报…" if playing else "语音播报")
+
+    def set_input_from_asr(self, text: str, *, low_confidence: bool = False) -> None:
+        self._input.setPlainText(text)
+        if low_confidence:
+            self._input.setObjectName("ChatInputLowConfidence")
+        else:
+            self._input.setObjectName("ChatInput")
+        self._input.style().unpolish(self._input)
+        self._input.style().polish(self._input)
+
+    def set_voice_audit_hint(self, text: str) -> None:
+        if text:
+            self.set_stage_hint(text)
+        elif not self._stage_hint.text():
+            self.set_stage_hint("")
+
+    def set_step_controls_enabled(self, enabled: bool):
+        if hasattr(self, "_step_prev_btn"):
+            self._step_prev_btn.setEnabled(enabled)
+        if hasattr(self, "_step_next_btn"):
+            self._step_next_btn.setEnabled(enabled)
+
+    def show_prepare_banner(
+        self,
+        text: str,
+        reason: str = "locate_failed",
+        *,
+        scene_id: str = "",
+        banner_prefix: str = "",
+    ):
+        if banner_prefix:
+            prefix = banner_prefix
+        elif scene_id == "locate_failed_retry" or scene_id == "multi_step_stuck":
+            prefix = "⏳ 可尝试继续下一步"
+        elif scene_id == "deferred_manual" or reason == "deferred":
+            prefix = "⏳ 请先手动完成"
+        else:
+            prefix = "⏳ 未定位到目标"
+        self._prepare_banner_btn.setText(f"{prefix}：{text} — 点击继续")
         self._prepare_banner.show()
 
     def hide_prepare_banner(self):
@@ -1162,10 +1424,11 @@ class MediumPanel(QWidget):
 
     def update_steps(self, steps: list, active_index: int = 0):
         descriptions = [
-            s.get("desc") or s.get("description") or s.get("action", "")
+            s.get("desc") or s.get("description") or s.get("instruction") or s.get("action", "")
             for s in steps
         ]
-        self._guide_steps.set_steps(descriptions, active_index)
+        if not self._l5_execution_mode:
+            self._guide_steps.set_steps(descriptions, active_index)
         self._steps_list.set_steps(descriptions, active_index)
         total = len(descriptions)
         if total > 0 and active_index < total:
@@ -1173,6 +1436,60 @@ class MediumPanel(QWidget):
             self._step_progress_label.setText(f"步骤 {active_index + 1} / {total}")
         else:
             self._step_controls.hide()
+
+    def set_l5_execution_mode(self, enabled: bool) -> None:
+        self._l5_execution_mode = bool(enabled)
+        if enabled:
+            self._steps_title.setText("自动执行")
+            self._steps_l5_badge.setText("L5")
+            self._steps_l5_badge.show()
+            self._l5_log.clear()
+            self._l5_log.show()
+            self._step_next_btn.setText("批准 (H)")
+            self._step_stop_btn.show()
+            self._switch_panel("steps")
+        else:
+            self._steps_title.setText("Step Tracking")
+            self._steps_l5_badge.hide()
+            self._l5_log.hide()
+            self._step_next_btn.setText("下一步")
+            self._step_stop_btn.hide()
+
+    def append_l5_log(self, text: str) -> None:
+        if not text:
+            return
+        self._l5_log.appendPlainText(text)
+
+    def set_l5_step_status(self, index: int, status: str) -> None:
+        self._steps_list.set_step_status(index, status)
+
+    def notify_l5_audit_compat(self, message: str) -> None:
+        self.set_stage_hint("L5 自动执行中 · 审计按 L3 上报")
+
+    def ensure_l5_consent(self, parent=None) -> bool:
+        from PyQt5.QtWidgets import QCheckBox, QMessageBox
+
+        data = load_user_settings()
+        if data.get("l5_consent_accepted"):
+            return True
+        box = QMessageBox(parent or self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("L5 自动执行 — 知情确认")
+        box.setText(
+            "您已选择 L5 自动执行模式。\n\n"
+            "HAJIMI 将通过 A 端在本机自动操作鼠标与键盘完成步骤。"
+            "请确保屏幕无敏感内容，且可随时按 J 或「停止」终止任务。"
+        )
+        dont_show = QCheckBox("不再提示")
+        box.setCheckBox(dont_show)
+        box.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+        if box.exec_() != QMessageBox.Ok:
+            return False
+        if dont_show.isChecked():
+            from core.user_settings import save_settings_fragment
+
+            save_settings_fragment({"l5_consent_accepted": True})
+        return True
 
     def render_blueprint(self, steps: list, active_index: int = 0):
         descriptions = [
@@ -1208,6 +1525,18 @@ class MediumPanel(QWidget):
 
     def set_inspect_bar_visible(self, visible: bool):
         self._inspect_bar.show() if visible else self._inspect_bar.hide()
+
+    def set_chain_diag_busy(self, busy: bool):
+        self._chain_diag_btn.setEnabled(not busy)
+        self._chain_diag_btn.setText("诊断中…" if busy else "链路诊断")
+
+    def set_chain_diag_status(self, text: str):
+        self._chain_diag_status.setText(text)
+
+    def set_chain_diag_report(self, text: str):
+        self._chain_diag_output.show()
+        self._chain_diag_output.setPlainText(text)
+        self._schedule_settings_size()
 
     def should_stop_services_on_exit(self) -> bool:
         return self._stop_on_exit_cb.isChecked()

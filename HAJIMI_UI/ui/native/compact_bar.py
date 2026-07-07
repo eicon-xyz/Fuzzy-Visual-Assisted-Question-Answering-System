@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import (
     QSizePolicy,
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QSize
+from PyQt5.QtGui import QPixmap
 
 from config import COMPACT_WIDTH
 from ui.native.layout_tokens import COMPACT_HEIGHT
@@ -33,6 +34,7 @@ class CompactBar(QWidget):
         mark.setObjectName("CompactMark")
         mark.setAlignment(Qt.AlignCenter)
         mark.setFixedSize(32, 32)
+        self._mark = mark
         layout.addWidget(mark)
 
         self.input = QLineEdit()
@@ -68,3 +70,14 @@ class CompactBar(QWidget):
 
     def focus_input(self):
         self.input.setFocus()
+
+    def apply_orange_cat_theme(self, enabled: bool) -> None:
+        if enabled:
+            from ui.native.orange_cat.circular_avatar import render_ai_avatar_pixmap
+
+            self._mark.setPixmap(render_ai_avatar_pixmap(30))
+            self._mark.setText("")
+        else:
+            self._mark.setPixmap(QPixmap())
+            self._mark.setText("✦")
+        self._mark.update()

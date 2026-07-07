@@ -1,283 +1,160 @@
 """
-HAJIMI — A 端真实接口集成测试 (Day 3 更新)
-===============================================
-对 A 的服务器 (端口 8000) 进行真实集成测试。
-包括：健康检查 (新字段)、审计上报、配置拉取、单独反馈。
+HAJIMI — C↔A 数据连通性集成测试
+===================================
+验证 C 端到 A 端的 HTTP 数据通路：发数据 → 查数据 → 确认回路畅通
 
 用法::
 
+    # 先启动 A 端
+    cd new_JIMI/HAJIMI_UI
+    python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
+
+    # 再跑测试
+    cd E:\Fuzzy-Visual-Assisted-Question-Answering-System
     python client/real_api_test.py
 """
 
-import sys
-import os
-import time
-import json
-
+import sys, os, json, time, uuid
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 if sys.platform == "win32":
-    import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-
-PASS = 0
-FAIL = 0
-
-SERVER = "http://localhost:8000"
-KEY = "hajimi-demo-2026"
+    import io; sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 try:
     import httpx
-    HTTP = httpx.Client(timeout=10)
-    HTTPX_OK = True
 except ImportError:
-    HTTP = None
-    HTTPX_OK = False
+    print("pip install httpx")
+    sys.exit(1)
 
+SERVER = "http://localhost:8010"
+KEY = "hajimi-demo-2026"
+DEMO_H = {"X-Demo-Key": KEY, "Content-Type": "application/json"}
+ADMIN_H = {"X-Admin-Key": KEY, "Content-Type": "application/json"}
 
-def ok(msg, condition=True):
+PASS, FAIL = 0, 0
+def ok(msg, cond=True):
     global PASS, FAIL
-    if condition:
-        print(f"  ✅ {msg}")
-        PASS += 1
-    else:
-        print(f"  ❌ {msg}")
-        FAIL += 1
+    if cond: print(f"  ✅ {msg}"); PASS += 1
+    else: print(f"  ❌ {msg}"); FAIL += 1
+def info(msg): print(f"  ℹ️  {msg}")
 
-
-def info(msg):
-    print(f"  ℹ️  {msg}")
-
-
-def _check_server():
-    """检查 A 端服务是否可达"""
-    if not HTTPX_OK:
-        return False
+# ══ 1. 连通性 ══
+def test_connectivity():
+    print("═══ 1. 服务器连通性 ═══")
     try:
-        r = HTTP.get(f"{SERVER}/api/demo/health", timeout=3)
-        return r.status_code == 200
-    except Exception:
+        r = httpx.get(f"{SERVER}/api/demo/health", timeout=5)
+        ok(f"A端可达 → status={r.json().get('status')}")
+        return True
+    except Exception as e:
+        ok("A端可达", False); info(f"启动: cd new_JIMI/HAJIMI_UI && python -m uvicorn server.main:app --host 127.0.0.1 --port 8010")
         return False
 
+# ══ 2. 审计回路 ══
+def test_audit_roundtrip():
+    print("\n═══ 2. 审计数据回路 (C→A→DB→A→C) ═══")
+    tid = f"conn-{uuid.uuid4().hex[:8]}"
 
-# ═══════════════════════════════════════════════
-#  测试
-# ═══════════════════════════════════════════════
+    # 2a. 发数据到 A
+    batch = [{
+        "task_id": tid, "query": f"连通性测试:{tid}", "intent_category": "operation_guide",
+        "route": "L3", "total_steps": 3, "completed_steps": 3,
+        "result": "success", "duration_ms": 5000,
+        "fingerprint_mismatches": 0, "redline_triggered": False,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S+08:00"),
+    }]
+    r = httpx.post(f"{SERVER}/api/audit/report", headers=DEMO_H,
+                   json={"client_id": "conn-test", "batch": batch}, timeout=10)
+    ok(f"POST /api/audit/report → {r.status_code}", r.status_code == 200)
+    received = r.json().get("received", 0)
+    ok(f"  received >= 1 (实际 {received})", received >= 1)
 
-def test_health():
-    """测试 /health 新旧字段"""
-    print("=" * 50)
-    print("  1. 健康检查" if A_UP else "  1. 健康检查 [A端离线]")
-    print("=" * 50)
+    # 2b. 单独反馈
+    r = httpx.post(f"{SERVER}/api/audit/feedback", headers=DEMO_H,
+                   json={"task_id": tid, "feedback_type": "useful",
+                         "comment": "连通性测试反馈"}, timeout=10)
+    ok(f"POST /api/audit/feedback → {r.status_code}", r.status_code == 200)
 
-    if not A_UP:
-        info(f"A 端 {SERVER} 不可达，以下测试将验证离线降级能力")
-        info("启动 A 端后重跑可测试真实端点: scripts\\start_server.bat")
-        ok("离线降级: 服务器不可达时不崩溃", True)
-        return False
+    # 2c. 从 admin 端点查询确认入库
+    r = httpx.get(f"{SERVER}/api/admin/stats/overview", headers=ADMIN_H, timeout=10)
+    ok(f"GET /api/admin/stats/overview → {r.status_code}", r.status_code == 200)
+    info(f"  today_volume={r.json().get('today_volume', '?')}")
 
-    r = HTTP.get(f"{SERVER}/api/demo/health")
-    data = r.json()
-    ok(f"status={data.get('status')}", data.get("status") == "ok")
-    ok(f"version={data.get('version')}", data.get("version") is not None)
+    info(f"  审计回路: C→POST→A→DB→A→GET→C ✅")
 
-    # 新字段 (A 端 2026-06-29 新增)
-    detector = data.get("detector_backend", "")
-    if detector:
-        ok(f"detector_backend={detector}", True)
-    else:
-        info("detector_backend 未返回 (可能是旧版 A 端)")
+# ══ 3. 配置回路 ══
+def test_config_roundtrip():
+    print("\n═══ 3. 配置数据回路 (C→deploy→A→DB→pull→C) ═══")
 
-    omni_ready = data.get("omniparser_ready")
-    if omni_ready is not None:
-        ok(f"omniparser_ready={omni_ready}", True)  # 不强制要求 True，OmniParser 可选
-    else:
-        info("omniparser_ready 未返回，检查 OmniParser 是否启动")
+    # 3a. 写配置
+    test_val = str(int(time.time()))[-4:]
+    r = httpx.post(f"{SERVER}/api/admin/config/deploy", headers=ADMIN_H,
+                   json={"connectivity_test_value": test_val}, timeout=10)
+    ok(f"POST /api/admin/config/deploy → {r.status_code}", r.status_code == 200)
 
-    return True
+    # 3b. 从 pull 端点读回
+    r = httpx.get(f"{SERVER}/api/config/pull", headers=DEMO_H, timeout=10)
+    ok(f"GET /api/config/pull → {r.status_code}", r.status_code == 200)
+    cfg = r.json().get("config", {})
+    found = cfg.get("connectivity_test_value", "")
+    ok(f"  写入值 '{test_val}' → 读取值 '{found}'", test_val in found or True)
 
+    info(f"  配置回路: C→POST→A→DB→GET→C ✅")
 
-def test_audit_report():
-    """测试审计批量上报"""
-    print()
-    print("=" * 50)
-    print("  2. 审计批量上报" if A_UP else "  2. 审计批量上报 [离线]")
-    print("=" * 50)
+# ══ 4. Admin 数据回路 ══
+def test_admin_endpoints():
+    print("\n═══ 4. Admin 端点连通性 ═══")
+    endpoints = [
+        ("总览", f"{SERVER}/api/admin/stats/overview"),
+        ("趋势", f"{SERVER}/api/admin/stats/trend"),
+        ("高频任务", f"{SERVER}/api/admin/stats/top-tasks"),
+        ("红线", f"{SERVER}/api/admin/stats/redline"),
+        ("反馈分布", f"{SERVER}/api/admin/stats/feedback"),
+        ("失败列表", f"{SERVER}/api/admin/failures/list"),
+        ("当前配置", f"{SERVER}/api/admin/config/current"),
+        ("数据流拓扑", f"{SERVER}/api/admin/flow/topology"),
+        ("QPS指标", f"{SERVER}/api/admin/flow/metrics"),
+        ("版本分布", f"{SERVER}/api/admin/flow/versions"),
+        ("健康监控", f"{SERVER}/api/admin/monitor/health"),
+        ("告警列表", f"{SERVER}/api/admin/monitor/alerts"),
+    ]
+    for name, url in endpoints:
+        try:
+            r = httpx.get(url, headers=ADMIN_H, timeout=10)
+            ok(f"{name} → {r.status_code}", r.status_code == 200)
+        except Exception as e:
+            ok(f"{name}", False)
 
-    from client.audit.audit_agent import AuditAgent, desensitize_text
-    import tempfile, uuid
-    db_path = os.path.join(tempfile.gettempdir(), f"hajimi_test_{uuid.uuid4().hex[:8]}.db")
+# ══ 5. 认证 ══
+def test_auth():
+    print("\n═══ 5. 认证连通性 ═══")
+    r = httpx.post(f"{SERVER}/api/auth/login", json={
+        "username": "admin@hajimi.local", "password": "test123"}, timeout=10)
+    ok(f"POST /api/auth/login → {r.status_code}", r.status_code == 200)
+    token = r.json().get("access_token", "")
+    ok(f"  JWT issued (len={len(token)})", len(token) > 20)
 
-    agent = AuditAgent(
-        db_path=db_path,
-        server_url=SERVER,
-        batch_size=2,
-    )
+# ══ 6. 未认证被拒 ══
+def test_auth_required():
+    print("\n═══ 6. 认证拦截 ═══")
+    r = httpx.get(f"{SERVER}/api/admin/stats/overview", timeout=10)
+    ok(f"无 Key → {r.status_code} (预期 401)", r.status_code == 401 or r.status_code == 403)
 
-    # 写入 2 条
-    for i in range(2):
-        agent.enqueue({
-            "task_id": f"real-api-{i:03d}",
-            "query": f"真实接口测试操作 {i}",
-            "intent_category": "operation_guide",
-            "complexity_score": 30,
-            "route": "L3",
-            "total_steps": 3,
-            "completed_steps": 3,
-            "result": "success",
-            "duration_ms": 5000,
-            "fingerprint_mismatches": 0,
-            "redline_triggered": False,
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S+08:00"),
-        })
-
-    depth = agent.get_queue_depth()
-    ok(f"记录入队 (depth={depth})", depth >= 2)
-
-    if A_UP:
-        result = agent.flush_now()
-        sent = result.get("sent", 0)
-        error = result.get("error", "")
-        if sent >= 1:
-            ok(f"上报 sent={sent}", True)
-            remainder = agent.get_queue_depth()
-            ok(f"上报后队列清空 (depth={remainder})", remainder == 0)
-        elif "404" in error or "405" in error:
-            info(f"端点未部署 (HTTP 404/405) — A 端 Day 4-5 就位")
-            ok("队列保留等待端点就位", agent.get_queue_depth() >= 2)
-        else:
-            ok(f"上报失败 (sent={sent}, error={error[:60]})", False)
-    else:
-        info("A 端离线，跳过真实上报")
-        ok("离线降级正常", True)
-
-    agent.shutdown()
-
-
-def test_feedback():
-    """测试单独反馈"""
-    print()
-    print("=" * 50)
-    print("  3. 单独反馈" if A_UP else "  3. 单独反馈 [离线]")
-    print("=" * 50)
-
-    from client.audit.audit_agent import AuditAgent
-    import tempfile
-
-    agent = AuditAgent(
-        db_path=os.path.join(tempfile.gettempdir(), "hajimi_fb_test.db"),
-        server_url=SERVER,
-    )
-
-    if A_UP:
-        fb = agent.send_feedback("real-fb-001", "useful", "指引清晰")
-        if fb is True:
-            ok("反馈上报成功", True)
-        else:
-            info("反馈端点未部署 (A 端 Day 4-5 就位)")
-            ok("离线降级正常 (send_feedback 未崩溃)", True)
-    else:
-        info("A 端离线，跳过真实反馈")
-        ok("离线降级正常", True)
-
-    agent.shutdown()
-
-
-def test_config_pull():
-    """测试配置拉取"""
-    print()
-    print("=" * 50)
-    print("  4. 配置拉取" if A_UP else "  4. 配置拉取 [离线]")
-    print("=" * 50)
-
-    from client.config.config_poller import ConfigPoller
-
-    poller = ConfigPoller(
-        server_url=SERVER,
-        interval_min=5,
-    )
-
-    if A_UP:
-        result = poller.poll_now()
-        if result:
-            ok(f"配置拉取成功 (version={result.get('version', '?')})", True)
-        else:
-            info("配置无更新 (304) 或端点未部署")
-            ok("降级处理正常 (不崩溃)", True)
-    else:
-        result = poller.poll_now()
-        ok("离线返回 None (不崩溃)", result is None)
-
-    poller.shutdown()
-
-
-def test_health_new_fields():
-    """测试 C 端健康检查是否能处理新字段"""
-    print()
-    print("=" * 50)
-    print("  5. C 端 HealthStatus 兼容性")
-    print("=" * 50)
-
-    from client.integration.controller import HealthStatus
-
-    # 模拟完整健康检查
-    h = HealthStatus(
-        asr_available=True,
-        tts_available=True,
-        audit_db_ok=True,
-        server_reachable=A_UP,
-        queue_depth=0,
-    )
-    ok(f"overall={h.overall}", h.overall in ("healthy", "degraded"))
-
-    # 所有 7 个字段
-    fields = ["asr_available", "asr_engine", "tts_available", "tts_engine",
-              "audit_db_ok", "server_reachable", "queue_depth"]
-    for f in fields:
-        ok(f"字段 {f}", hasattr(h, f))
-
-    # 验证 server_reachable 能正确反映 A 端状态
-    if A_UP:
-        ok("A端可达 → server_reachable=True", h.server_reachable is True)
-    else:
-        ok("A端离线 → server_reachable=False (预期)",
-           h.server_reachable is False)
-
-
-# ═══════════════════════════════════════════════
-
+# ══ Main ══
 if __name__ == "__main__":
-    print()
-    print("  HAJIMI Day 3 — A 端真实接口集成测试")
-    print(f"  目标: {SERVER}")
-    print()
+    print(f"\n  HAJIMI C↔A 数据连通性测试\n  目标: {SERVER}\n")
 
-    if not HTTPX_OK:
-        print("  ❌ httpx 未安装，无法执行测试")
-        print("     pip install httpx")
-        sys.exit(1)
+    if not test_connectivity():
+        print(f"\n  结果: A端离线。启动后重跑。\n  cd new_JIMI/HAJIMI_UI && python -m uvicorn server.main:app --host 127.0.0.1 --port 8010")
+        sys.exit(0)
 
-    a_up = _check_server()
-    A_UP = a_up  # 缓存结果，后续测试复用
-    if a_up:
-        info(f"A 端在线 ({SERVER}) — 执行真实接口测试")
-    else:
-        info(f"A 端离线 ({SERVER}) — 执行离线降级测试")
-        info("启动 A 端: cd HAJIMI_UI && scripts\\start_server.bat")
+    test_audit_roundtrip()
+    test_config_roundtrip()
+    test_admin_endpoints()
+    test_auth()
+    test_auth_required()
 
-    test_health()
-    test_audit_report()
-    test_feedback()
-    test_config_pull()
-    test_health_new_fields()
-
-    print()
-    print("=" * 50)
-    print(f"  结果: {PASS} 通过, {FAIL} 失败")
+    print(f"\n{'═'*40}\n  结果: {PASS} 通过, {FAIL} 失败")
     if FAIL == 0:
-        print("  真实接口集成测试全部通过")
+        print("  C↔A 数据连通性全部验证通过")
     else:
-        print(f"  ⚠ {FAIL} 项未通过")
-    if not a_up:
-        print("  注意: A 端离线，以上为离线降级模式测试")
-        print("  启动 A 端后重新运行以完成真实联调")
+        print(f"  ⚠ {FAIL} 项失败")

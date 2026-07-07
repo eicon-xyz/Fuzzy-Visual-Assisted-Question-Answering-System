@@ -2,12 +2,19 @@
 HAJIMI Server 测试共享 fixtures
 供多 Agent 并行开发期间回归测试使用
 """
-
-from typing import List
-
 import pytest
+from typing import List, Tuple
 
-from server.models.schemas import UIElement
+from server.config import settings
+from server.models.schemas import UIElement, Step, Annotation, Blueprint, Intent, ProcessResponse
+
+
+@pytest.fixture(autouse=True)
+def _isolate_settings(monkeypatch):
+    """避免 reload_settings() 从 .env 覆盖 monkeypatch 的 USE_REAL_LLM。"""
+    monkeypatch.setattr(settings, "USE_REAL_LLM", False)
+    monkeypatch.setattr("server.config.reload_settings", lambda: None)
+    monkeypatch.setattr("server.services.llm.client.reload_settings", lambda: None)
 
 
 @pytest.fixture

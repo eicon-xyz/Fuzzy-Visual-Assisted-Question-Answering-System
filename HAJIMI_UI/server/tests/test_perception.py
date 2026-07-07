@@ -4,7 +4,6 @@ P0「LLM 元素感知」单元测试（6 条核心用例）
 运行方式：
     python -m pytest server/tests/test_perception.py -v
 """
-
 from typing import List, Optional
 
 import pytest
@@ -18,6 +17,7 @@ from server.services.planning import generate_steps, process_query
 def _disable_real_llm(monkeypatch):
     """关闭真实 LLM，确保使用 mock fallback"""
     monkeypatch.setattr(settings, "USE_REAL_LLM", False)
+    monkeypatch.setattr("server.services.llm.client.reload_settings", lambda: None)
 
 
 def _make_elements() -> List[UIElement]:
@@ -59,19 +59,13 @@ def test_semantic_match_download_button(monkeypatch):
     )
     captured: List[Optional[List[UIElement]]] = []
 
-    def _mock_call(
-        query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30
-    ):
+    def _mock_call(query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30, **kwargs):
         captured.append(elements)
         return {
             "steps": [
-                {
-                    "action": "点击下载",
-                    "description": "点击下载按钮",
-                    "target_element_id": "~1",
-                },
+                {"action": "点击下载", "description": "点击下载按钮", "target_element_id": "~1"},
             ]
-        }
+        }, None, 10, "primary", False
 
     monkeypatch.setattr("server.services.planning.router.call_deepseek", _mock_call)
 
@@ -94,18 +88,12 @@ def test_type_text_match_password_input(monkeypatch):
         {"wechat": [], "screenshot": [], "default": elements},
     )
 
-    def _mock_call(
-        query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30
-    ):
+    def _mock_call(query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30, **kwargs):
         return {
             "steps": [
-                {
-                    "action": "输入密码",
-                    "description": "在密码框输入密码",
-                    "target_element_id": "~3",
-                },
+                {"action": "输入密码", "description": "在密码框输入密码", "target_element_id": "~3"},
             ]
-        }
+        }, None, 10, "primary", False
 
     monkeypatch.setattr("server.services.planning.router.call_deepseek", _mock_call)
 
@@ -120,18 +108,12 @@ def test_conceptual_step_has_no_binding(monkeypatch):
     """3. 概念性步骤：target_element_id 为空 → 无 overlay"""
     monkeypatch.setattr(settings, "USE_REAL_LLM", True)
 
-    def _mock_call(
-        query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30
-    ):
+    def _mock_call(query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30, **kwargs):
         return {
             "steps": [
-                {
-                    "action": "等待下载完成",
-                    "description": "请等待下载进度完成",
-                    "target_element_id": "",
-                },
+                {"action": "等待下载完成", "description": "请等待下载进度完成", "target_element_id": ""},
             ]
-        }
+        }, None, 10, "primary", False
 
     monkeypatch.setattr("server.services.planning.router.call_deepseek", _mock_call)
 
@@ -145,18 +127,12 @@ def test_hallucinated_element_id_falls_back(monkeypatch):
     """4. LLM 幻觉 ID：返回不存在的 ~99 → 安全降级为空"""
     monkeypatch.setattr(settings, "USE_REAL_LLM", True)
 
-    def _mock_call(
-        query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30
-    ):
+    def _mock_call(query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30, **kwargs):
         return {
             "steps": [
-                {
-                    "action": "点击下载",
-                    "description": "点击下载按钮",
-                    "target_element_id": "~99",
-                },
+                {"action": "点击下载", "description": "点击下载按钮", "target_element_id": "~99"},
             ]
-        }
+        }, None, 10, "primary", False
 
     monkeypatch.setattr("server.services.planning.router.call_deepseek", _mock_call)
 
@@ -174,36 +150,132 @@ def test_empty_elements_generate_text_only_steps(monkeypatch):
         {"wechat": [], "screenshot": [], "default": []},
     )
 
-    def _mock_call(
-        query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30
-    ):
+    def _mock_call(query: str, elements: Optional[List[UIElement]] = None, timeout: int = 30, **kwargs):
         return {
             "steps": [
-                {
-                    "action": "观察界面",
-                    "description": "查看当前屏幕",
-                    "target_element_id": "",
-                },
-                {
-                    "action": "等待加载",
-                    "description": "等待内容加载",
-                    "target_element_id": "",
-                },
+                {"action": "观察界面", "description": "查看当前屏幕", "target_element_id": ""},
+                {"action": "等待加载", "description": "等待内容加载", "target_element_id": ""},
             ]
-        }
+        }, None, 10, "primary", False
 
     monkeypatch.setattr("server.services.planning.router.call_deepseek", _mock_call)
 
-    response = process_query("安装微信")
+    response = process_query("点击下载按钮")
     assert response.ui_elements == []
     for step in response.steps:
         assert step.target_element_id is None
         assert step.annotation is None
 
 
+def test_l2_template_skips_gpu_parse(monkeypatch):
+    """L2 模板命中时不调用 OmniParser，detection_meta.parse_skipped=true"""
+    monkeypatch.setattr(settings, "USE_REAL_LLM", False)
+
+    parse_called = {"n": 0}
+
+    def _fake_parse(_img):
+        parse_called["n"] += 1
+        from server.services.omniparser_client import ParseResult
+        return ParseResult()
+
+    monkeypatch.setattr(
+        "server.services.planning.router.parse_screenshot_full", _fake_parse
+    )
+
+    response = process_query("怎么截屏", "data:image/png;base64,abc")
+    assert parse_called["n"] == 0
+    assert response.detection_meta.get("parse_skipped") is True
+    assert response.detection_meta.get("route") == "L2"
+    assert len(response.steps) >= 2
+    assert response.steps[0].interaction == "keyboard"
+
+
+def test_l2_settings_with_image_runs_parse(monkeypatch):
+    """带截图时，非 keyboard 的 L2 模板（如打开设置）应降级 L3 并 parse"""
+    monkeypatch.setattr(settings, "USE_REAL_LLM", False)
+    parse_called = {"n": 0}
+
+    def _fake_parse(_img):
+        parse_called["n"] += 1
+        from server.services.omniparser_client import ParseResult
+        return ParseResult(elements=_make_elements())
+
+    monkeypatch.setattr(
+        "server.services.planning.router.parse_screenshot_full", _fake_parse
+    )
+
+    response = process_query("打开系统设置", "data:image/png;base64,abc")
+    assert parse_called["n"] == 1
+    assert response.detection_meta.get("parse_skipped") is not True
+    assert response.detection_meta.get("route") == "L3"
+
+
+def test_l2_broad_option_no_match_wps():
+    """WPS 合并单元格不应命中「打开设置」类 L2 模板"""
+    from server.services.planning.complexity_router import generate_l2_steps
+
+    assert generate_l2_steps("WPS 怎么合并单元格") is None
+    assert generate_l2_steps("Excel 合并单元格") is None
+
+
+def test_l2_keyboard_interaction_flag():
+    from server.services.planning.complexity_router import generate_l2_steps
+
+    steps = generate_l2_steps("怎么截屏")
+    assert steps is not None
+    assert all(s.get("interaction") == "keyboard" for s in steps)
+    assert steps[0].get("_l2_keyboard_only") is True
+
+
+def test_parse_failed_uses_text_llm_not_mock_scenario(monkeypatch):
+    """parse 无元素时走纯文本 LLM，不注入 SCENARIO_ELEMENTS mock"""
+    monkeypatch.setattr(settings, "USE_REAL_LLM", True)
+    monkeypatch.setattr(settings, "ROUTING_MODE", "precision")
+    monkeypatch.setattr(
+        "server.services.planning.router.generate_l2_steps",
+        lambda query, elements=None: None,
+    )
+    monkeypatch.setattr(
+        "server.services.planning.router.parse_screenshot_full",
+        lambda _img: __import__(
+            "server.services.omniparser_client", fromlist=["ParseResult"]
+        ).ParseResult(),
+    )
+    captured: list = []
+
+    def _mock_llm(query, elements=None, **kwargs):
+        captured.append(elements)
+        return (
+            {
+                "steps": [
+                    {
+                        "action": "文字指引",
+                        "description": "无元素纯文本",
+                        "target_element_id": "",
+                    }
+                ]
+            },
+            None,
+            5,
+            "deepseek",
+            False,
+        )
+
+    monkeypatch.setattr("server.services.planning.router.call_deepseek", _mock_llm)
+
+    response = process_query("完成复杂跨应用迁移任务", "data:image/png;base64,abc")
+    assert response.detection_meta.get("parse_degraded") is True
+    assert captured and captured[0] == []
+    assert response.steps[0].target_element_id is None
+
+
 def test_mock_fallback_uses_predefined_bindings(monkeypatch):
     """6. Mock 降级：USE_REAL_LLM=false → 使用预定义绑定"""
     monkeypatch.setattr(settings, "USE_REAL_LLM", False)
+    monkeypatch.setattr(
+        "server.services.planning.router.generate_l2_steps",
+        lambda query, elements=None: None,
+    )
 
     response = process_query("安装微信")
     steps = response.steps
@@ -219,7 +291,7 @@ def test_mock_fallback_uses_predefined_bindings(monkeypatch):
     assert steps[2].annotation is not None
 
     # generate_steps 同样返回 mock 数据与约束
-    raw_steps, constraints = generate_steps("截图")
+    raw_steps, constraints, _ = generate_steps("截图")
     assert len(raw_steps) == 3
     assert raw_steps[0]["action"] == "打开截图工具"
     assert raw_steps[0]["target_element_id"] == "~1"

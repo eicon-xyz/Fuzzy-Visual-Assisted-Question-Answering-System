@@ -3,20 +3,14 @@ HAJIMI 数据仓库层
 
 提供高层 CRUD 操作，供路由和服务层调用。
 """
-
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List
 
 from sqlalchemy.orm import Session
 
 from server.database import SessionLocal
 from server.database.models import (
-    Failure,
-    Feedback,
-    RedlineLog,
-    StepLog,
-    SystemConfig,
-    Transaction,
+    Transaction, StepLog, Feedback, Failure, SystemConfig, RedlineLog,
 )
 from server.models.schemas import ProcessResponse
 
@@ -43,34 +37,18 @@ class TaskRepository:
                 user_query=query,
                 intent_summary=response.intent.summary,
                 reference_type=response.intent.reference_type,
-                plan_type=(
-                    response.detection_meta.get("route", "L3")
-                    if response.detection_meta
-                    else "L3"
-                ),
-                complexity_score=(
-                    response.detection_meta.get("complexity", 0)
-                    if response.detection_meta
-                    else 0
-                ),
+                plan_type=response.detection_meta.get("route", "L3") if response.detection_meta else "L3",
+                complexity_score=response.detection_meta.get("complexity", 0) if response.detection_meta else 0,
                 blueprint_json={
                     "name": response.blueprint.name,
                     "total_steps": response.blueprint.total_steps,
                     "state": response.blueprint.state,
                 },
-                element_count=(
-                    response.detection_meta.get("element_count")
-                    if response.detection_meta
-                    else None
-                ),
-                detection_latency_ms=(
-                    response.detection_meta.get("latency_ms")
-                    if response.detection_meta
-                    else None
-                ),
-                redline_triggered=False,
-                redline_category=None,
-                result=None,
+                element_count=response.detection_meta.get("element_count") if response.detection_meta else None,
+                detection_latency_ms=response.detection_meta.get("latency_ms") if response.detection_meta else None,
+                redline_triggered=response.redline is not None and response.redline.triggered,
+                redline_category=response.redline.category if response.redline else None,
+                result="rejected" if (response.redline and response.redline.triggered) else None,
                 clarification_count=1 if response.intent.needs_clarification else 0,
             )
 
@@ -81,7 +59,7 @@ class TaskRepository:
                     step_index=step.step_index,
                     action=step.action,
                     target_element_id=step.target_element_id,
-                    target_bbox=None,  # ExecutedStep has no .annotation field
+                    target_bbox=step.annotation.highlight_bbox if step.annotation else None,
                     status=step.status,
                 )
                 db.add(step_log)
@@ -128,21 +106,11 @@ class TaskRepository:
 
         try:
             total = db.query(Transaction).count()
-            success_count = (
-                db.query(Transaction).filter(Transaction.result == "success").count()
-            )
-            fail_count = (
-                db.query(Transaction).filter(Transaction.result == "fail").count()
-            )
-            rejected_count = (
-                db.query(Transaction).filter(Transaction.result == "rejected").count()
-            )
-            l2_count = (
-                db.query(Transaction).filter(Transaction.plan_type == "L2").count()
-            )
-            l3_count = (
-                db.query(Transaction).filter(Transaction.plan_type == "L3").count()
-            )
+            success_count = db.query(Transaction).filter(Transaction.result == "success").count()
+            fail_count = db.query(Transaction).filter(Transaction.result == "fail").count()
+            rejected_count = db.query(Transaction).filter(Transaction.result == "rejected").count()
+            l2_count = db.query(Transaction).filter(Transaction.plan_type == "L2").count()
+            l3_count = db.query(Transaction).filter(Transaction.plan_type == "L3").count()
 
             return {
                 "total_transactions": total,
@@ -163,13 +131,7 @@ class RedlineRepository:
     """红线拦截日志仓库"""
 
     @staticmethod
-    def log(
-        query: str,
-        category: str,
-        action: str,
-        message: str,
-        db: Optional[Session] = None,
-    ) -> RedlineLog:
+    def log(query: str, category: str, action: str, message: str, db: Optional[Session] = None) -> RedlineLog:
         close_db = False
         if db is None:
             db = SessionLocal()
@@ -200,7 +162,6 @@ class RedlineRepository:
 
         try:
             from sqlalchemy import func
-
             total = db.query(RedlineLog).count()
             by_category = (
                 db.query(RedlineLog.category, func.count(RedlineLog.log_id))
@@ -220,12 +181,7 @@ class FeedbackRepository:
     """用户反馈仓库"""
 
     @staticmethod
-    def create(
-        task_id: str,
-        feedback_type: str,
-        comment: Optional[str] = None,
-        db: Optional[Session] = None,
-    ) -> Feedback:
+    def create(task_id: str, feedback_type: str, comment: Optional[str] = None, db: Optional[Session] = None) -> Feedback:
         close_db = False
         if db is None:
             db = SessionLocal()
@@ -309,21 +265,14 @@ class ConfigRepository:
             close_db = True
 
         try:
-            config = (
-                db.query(SystemConfig).filter(SystemConfig.config_key == key).first()
-            )
+            config = db.query(SystemConfig).filter(SystemConfig.config_key == key).first()
             return config.config_value if config else None
         finally:
             if close_db:
                 db.close()
 
     @staticmethod
-    def set(
-        key: str,
-        value: dict,
-        description: Optional[str] = None,
-        db: Optional[Session] = None,
-    ) -> SystemConfig:
+    def set(key: str, value: dict, description: Optional[str] = None, db: Optional[Session] = None) -> SystemConfig:
         """设置或更新配置"""
         close_db = False
         if db is None:
@@ -331,9 +280,7 @@ class ConfigRepository:
             close_db = True
 
         try:
-            config = (
-                db.query(SystemConfig).filter(SystemConfig.config_key == key).first()
-            )
+            config = db.query(SystemConfig).filter(SystemConfig.config_key == key).first()
             if config:
                 config.config_value = value
                 config.updated_at = datetime.now(timezone.utc)

@@ -14,22 +14,23 @@ from ui.native.shell_appearance import (
     apply_crystal_drop_shadow,
     is_crystal_shell,
     is_luxury_theme,
+    is_orange_cat_theme,
 )
 from ui.native.shell_renderer import apply_shell_renderer
 from ui.native.luxury.qss import compose_luxury_stylesheet
+from ui.native.orange_cat.qss import compose_orange_cat_stylesheet
 
-ShellMode = Literal["qss", "crystal", "luxury"]
+ShellMode = Literal["qss", "crystal", "luxury", "orange_cat"]
 
 _THEMES_DIR = os.path.join(os.path.dirname(__file__), "themes")
 _SHELL_CRYSTAL_FALLBACK = os.path.join(_THEMES_DIR, "current", "shell_crystal.qss")
 
-THEME_IDS = ("current", "variant_b", "variant_c", "variant_luxury")
+THEME_IDS = ("current", "variant_luxury", "variant_orange_cat")
 
 THEME_LABELS = {
-    "current": "默认（工程基线）",
-    "variant_b": "变体 B（Stitch 占位）",
-    "variant_c": "变体 C（Stitch 占位）",
+    "current": "默认蓝",
     "variant_luxury": "黑金轻奢",
+    "variant_orange_cat": "橘猫耄耋",
 }
 
 
@@ -41,9 +42,8 @@ class ThemeProfile:
 
 THEME_PROFILES: dict[str, ThemeProfile] = {
     "current": ThemeProfile("current", "qss"),
-    "variant_b": ThemeProfile("variant_b", "qss"),
-    "variant_c": ThemeProfile("variant_c", "qss"),
     "variant_luxury": ThemeProfile("variant_luxury", "luxury"),  # type: ignore[arg-type]
+    "variant_orange_cat": ThemeProfile("variant_orange_cat", "orange_cat"),  # type: ignore[arg-type]
 }
 
 
@@ -76,6 +76,12 @@ def compose_stylesheet(
                 appearance.font_size,
                 send_btn_style=appearance.luxury_btn_mode,
             ),
+            appearance_override_qss(appearance),
+        ]
+        return "\n\n".join(p for p in parts if p.strip())
+    if theme_id == "variant_orange_cat":
+        parts = [
+            compose_orange_cat_stylesheet(appearance.font_size),
             appearance_override_qss(appearance),
         ]
         return "\n\n".join(p for p in parts if p.strip())
@@ -143,6 +149,14 @@ class ThemeManager:
                 apply_shell_renderer(
                     widget,
                     "luxury",
+                    compact=compact,
+                    appearance=self._appearance,
+                )
+                widget.setGraphicsEffect(None)
+            elif is_orange_cat_theme(tid):
+                apply_shell_renderer(
+                    widget,
+                    "orange_cat",
                     compact=compact,
                     appearance=self._appearance,
                 )

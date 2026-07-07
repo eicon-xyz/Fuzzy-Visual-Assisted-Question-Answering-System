@@ -10,9 +10,9 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 
-from typing import Literal
+from typing import Callable, Literal
 
-from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup, QRect, QRectF, QPointF, QSize
+from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup, QRect, QRectF, QPointF, QSize, QTimer
 from PyQt5.QtGui import (
     QBrush,
     QColor,
@@ -28,6 +28,7 @@ from PyQt5.QtGui import (
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -42,10 +43,40 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QTextEdit,
+    QFileDialog,
 )
 
-from ui.chat_bubble import ChatBubble
-from ui.demo.luxury_icons import luxury_icon
+from ui.demo.luxury_icons import luxury_icon, luxury_nav_icon
+from ui.demo.maodiao import avatar_settings
+from ui.demo.maodiao.demo_bubble import MaodiaoChatBubble
+from ui.demo.maodiao.icons import maodiao_icon, maodiao_nav_icon, maodiao_pixmap
+from ui.demo.maodiao.image_pool import (
+    pick_image,
+    set_default_image,
+    set_user_folder,
+    user_folder,
+)
+from ui.demo.maodiao.palettes import DEFAULT_MOOD, get_palette
+from ui.demo.maodiao.paint import paint_maodiao_frame, paint_maodiao_topbar
+from ui.demo.maodiao.qss import compose_maodiao_qss
+from ui.demo.maodiao.splash_audio import (
+    bundled_sounds_dir,
+    clear_splash_audio,
+    resolve_splash_audio_path,
+    set_splash_audio,
+)
+from ui.demo.maodiao.splash_audio_player import SplashAudioPlayer
+from ui.demo.maodiao.splash_overlay import MaodiaoSplashOverlay
+from ui.demo.maodiao.tokens import (
+    DEFAULT_FADE_OUT_MS,
+    DEFAULT_HOLD_MS,
+    DEFAULT_IDLE_MINUTES,
+    DEFAULT_SCALE_IN_MS,
+    PRIMARY,
+    PRIMARY_DARK,
+    PRIMARY_RGB,
+    THEME_LABEL,
+)
 from ui.demo.luxury_title import (
     DEFAULT_SCRIPT_FONT_ID,
     LuxuryScriptTitleWidget,
@@ -60,7 +91,9 @@ from ui.demo.luxury_paint import (
 from ui.native.fonts import apply_app_font
 from ui.native import crystal_glass as cg
 from ui.native.crystal_glass import GLASS_FILL_ALPHA
-from ui.native.nav_icons import action_icon, svg_icon
+from ui.native.layout_tokens import DRAWER_WIDTH
+from ui.native.nav_icons import action_icon, nav_icon, svg_icon
+from ui.native.widgets import NavBackdrop, animate_drawer
 from ui.native.widgets import (
     apply_shell_shadow,
     make_scroll_area_transparent,
@@ -104,6 +137,14 @@ SHELL_RADIUS = 20
 COMPACT_RADIUS = 24
 DEMO_TOPBAR_H = 52
 DEMO_PANEL_SUB = "操作指引"
+DEMO_NAV_LABELS = {
+    "guide": "操作指引",
+    "steps": "步骤列表",
+    "blueprint": "任务蓝图",
+    "notifications": "提醒通知",
+    "settings": "系统设置",
+}
+DEMO_NAV_KEYS = list(DEMO_NAV_LABELS.keys())
 ERROR_CHIP_TEXT = "● A端连接失败"
 
 BODY_FONT_PRESETS: dict[str, str] = {
@@ -177,6 +218,26 @@ LUXURY_V2_BTN_MODES: dict[str, str] = {
     "hover": "hover 金边",
 }
 DEFAULT_LUXURY_V2_BTN = "edge"
+
+ORANGE_CAT_SHELL_MODES: dict[str, str] = {
+    "qss": "QSS 奶橘实底",
+    "crystal_orange": "Crystal 奶橘 tint",
+    "maodiao_painter": "Maodiao 独立绘制",
+}
+DEFAULT_ORANGE_CAT_SHELL = "qss"
+
+ORANGE_CAT_TOPBAR_STYLES: dict[str, str] = {
+    "glass_orange": "橘色玻璃顶栏",
+    "hero_gradient": "浓橘渐隐（上¼）",
+}
+DEFAULT_ORANGE_CAT_TOPBAR_STYLE = "glass_orange"
+
+ORANGE_CAT_MOODS: dict[str, str] = {
+    "warm": "暖奶油（原版）",
+    "fresh": "清新近白",
+    "vivid": "高饱和活力",
+}
+DEFAULT_ORANGE_CAT_MOOD = DEFAULT_MOOD
 
 ERROR_BANNER_SHORT = "A 端连接失败 · 请检查校园网/VPN"
 ERROR_DETAIL = (
@@ -360,6 +421,7 @@ def _build_demo_topbar(parent: QWidget | None = None) -> DemoTopBarResult:
     bar.setObjectName("TopBar")
     bar.setMinimumHeight(DEMO_TOPBAR_H)
     bar.setMaximumHeight(DEMO_TOPBAR_H)
+    bar.setAttribute(Qt.WA_StyledBackground, True)
 
     layout = QHBoxLayout(bar)
     layout.setContentsMargins(16, 8, 16, 8)
@@ -914,12 +976,45 @@ class DemoShellWidget(QWidget):
         self._demo_qss_body_mode: QssBodyMode = DEFAULT_QSS_BODY
         self._demo_qss_highlight_mode: QssHighlightMode = DEFAULT_QSS_HIGHLIGHT
         self._demo_qss_highlight_peak: int = DEFAULT_QSS_HIGHLIGHT_PEAK
+        self._orange_cat_enabled = False
+        self._orange_cat_shell_mode = DEFAULT_ORANGE_CAT_SHELL
+        self._orange_cat_topbar_style = DEFAULT_ORANGE_CAT_TOPBAR_STYLE
+        self._orange_cat_mood = DEFAULT_ORANGE_CAT_MOOD
 
     def _luxury_v2_active(self) -> bool:
+        if self._orange_cat_enabled or self.property("_orange_cat_enabled"):
+            return False
         return bool(
             getattr(self, "_luxury_v2_enabled", False)
             or self.property("_luxury_v2_enabled")
         )
+
+    def _orange_cat_active(self) -> bool:
+        return bool(
+            getattr(self, "_orange_cat_enabled", False)
+            or self.property("_orange_cat_enabled")
+        )
+
+    def _get_orange_cat_shell_mode(self) -> str:
+        raw = getattr(self, "_orange_cat_shell_mode", None)
+        if raw is None:
+            raw = self.property("_orange_cat_shell_mode")
+        return str(raw or DEFAULT_ORANGE_CAT_SHELL)
+
+    def _get_orange_cat_topbar_style(self) -> str:
+        raw = getattr(self, "_orange_cat_topbar_style", None)
+        if raw is None:
+            raw = self.property("_orange_cat_topbar_style")
+        return str(raw or DEFAULT_ORANGE_CAT_TOPBAR_STYLE)
+
+    def _get_orange_cat_mood(self) -> str:
+        raw = getattr(self, "_orange_cat_mood", None)
+        if raw is None:
+            raw = self.property("_orange_cat_mood")
+        return str(raw or DEFAULT_ORANGE_CAT_MOOD)
+
+    def _orange_cat_palette(self):
+        return get_palette(self._get_orange_cat_mood())
 
     def _shell_radius(self) -> float:
         if self._luxury_v2_active():
@@ -970,7 +1065,33 @@ class DemoShellWidget(QWidget):
             compact=self._demo_shell_compact,
         )
 
+    def _maybe_paint_orange_topbar(self, painter: QPainter) -> None:
+        if self._orange_cat_active() and not self._demo_shell_compact:
+            paint_maodiao_topbar(
+                painter,
+                QRectF(self.rect()),
+                style=self._get_orange_cat_topbar_style(),
+                topbar_h=float(DEMO_TOPBAR_H),
+                radius=self._shell_radius(),
+                palette=self._orange_cat_palette(),
+            )
+
     def paintEvent(self, event):
+        if self._orange_cat_active():
+            mode = self._get_orange_cat_shell_mode()
+            if mode == "maodiao_painter":
+                painter = QPainter(self)
+                painter.setRenderHint(QPainter.Antialiasing, True)
+                paint_maodiao_frame(
+                    painter,
+                    QRectF(self.rect()),
+                    compact=self._demo_shell_compact,
+                    radius=self._shell_radius(),
+                    palette=self._orange_cat_palette(),
+                )
+                self._maybe_paint_orange_topbar(painter)
+                painter.end()
+                return
         if self._luxury_v2_active():
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing, True)
@@ -993,12 +1114,14 @@ class DemoShellWidget(QWidget):
                 shell_luminance=_coerce_int_prop(self, "_demo_shell_luminance", DEFAULT_SHELL_LUMINANCE),
                 gradient_tint=self._demo_gradient_tint,
             )
+            self._maybe_paint_orange_topbar(painter)
             painter.end()
             return
         if self._demo_qss_rgba:
             painter = QPainter(self)
             painter.setRenderHint(QPainter.Antialiasing, True)
             self._paint_qss_shell(painter)
+            self._maybe_paint_orange_topbar(painter)
             painter.end()
             return
         super().paintEvent(event)
@@ -1018,15 +1141,17 @@ class MediumMock(DemoShellWidget):
         col.setSpacing(0)
 
         top = _build_demo_topbar(self)
-        make_widget_transparent(top.bar)
+        self.top_bar = top.bar
+        make_widget_transparent(self.top_bar)
         self.title_art = top.title_art
         self.title_restrained = top.title_restrained
         self.title_script = top.title_script
         self.title_sep = top.title_sep
         self.menu_btn = top.menu_btn
+        self.panel_sub = top.panel_sub
         self.status_badge = top.status_badge
         self.error_chip = top.error_chip
-        col.addWidget(top.bar)
+        col.addWidget(self.top_bar)
 
         scroll = QScrollArea()
         scroll.setObjectName("PreviewContent")
@@ -1042,8 +1167,14 @@ class MediumMock(DemoShellWidget):
         wl.setContentsMargins(14, 10, 14, 10)
         wl.setSpacing(10)
 
-        wl.addWidget(ChatBubble(DEMO_SYSTEM_REPLY, "system"))
-        wl.addWidget(ChatBubble("怎么安装微信？", "user"))
+        self.demo_chat_bubbles: list[MaodiaoChatBubble] = []
+        for text, msg_type in (
+            (DEMO_SYSTEM_REPLY, "system"),
+            ("怎么安装微信？", "user"),
+        ):
+            bubble = MaodiaoChatBubble(text, msg_type)
+            self.demo_chat_bubbles.append(bubble)
+            wl.addWidget(bubble)
         wl.addStretch()
         scroll.setWidget(wrap)
         col.addWidget(scroll, 1)
@@ -1090,6 +1221,128 @@ class MediumMock(DemoShellWidget):
         dl.addWidget(float_frame)
         col.addWidget(dock)
 
+        self._drawer_visible = False
+        self._active_nav = "guide"
+        self._nav_icon_resolver: Callable[[str, bool], QIcon] = nav_icon
+        self._backdrop = NavBackdrop(self)
+        self._backdrop.clicked.connect(self._close_drawer)
+        self._drawer = self._build_demo_drawer()
+        self._drawer.hide()
+        self.menu_btn.clicked.connect(self._toggle_drawer)
+        self.refresh_nav_icons()
+
+    def _build_demo_drawer(self) -> QWidget:
+        drawer = QWidget(self)
+        drawer.setObjectName("NavDrawer")
+        drawer.setAttribute(Qt.WA_StyledBackground, True)
+        layout = QVBoxLayout(drawer)
+        layout.setContentsMargins(10, 14, 10, 14)
+        layout.setSpacing(4)
+
+        head = QHBoxLayout()
+        logo = QLabel()
+        logo.setPixmap(svg_icon("logo", 16).pixmap(26, 26))
+        logo.setObjectName("DrawerLogo")
+        logo.setFixedSize(26, 26)
+        logo.setAlignment(Qt.AlignCenter)
+        head.addWidget(logo)
+        title = QLabel("HAJIMI")
+        title.setObjectName("DrawerHead")
+        head.addWidget(title)
+        head.addStretch()
+        layout.addLayout(head)
+
+        sep = QFrame()
+        sep.setFixedHeight(1)
+        sep.setObjectName("DrawerSep")
+        layout.addWidget(sep)
+
+        self._nav_buttons: dict[str, QPushButton] = {}
+        for key in DEMO_NAV_KEYS:
+            btn = QPushButton(DEMO_NAV_LABELS[key])
+            btn.setObjectName("NavItem")
+            btn.setProperty("active", "true" if key == "guide" else "false")
+            btn.setIconSize(QSize(22, 22))
+            btn.clicked.connect(lambda _checked, k=key: self._on_nav(k))
+            layout.addWidget(btn)
+            self._nav_buttons[key] = btn
+            if key == "guide":
+                self._compact_nav_btn = QPushButton("小窗模式")
+                self._compact_nav_btn.setObjectName("NavItem")
+                self._compact_nav_btn.setProperty("active", "false")
+                self._compact_nav_btn.setToolTip("折叠为小窗口")
+                self._compact_nav_btn.setIconSize(QSize(22, 22))
+                self._compact_nav_btn.clicked.connect(self._close_drawer)
+                layout.addWidget(self._compact_nav_btn)
+
+        layout.addStretch()
+
+        quit_sep = QFrame()
+        quit_sep.setFixedHeight(1)
+        quit_sep.setObjectName("DrawerSep")
+        layout.addWidget(quit_sep)
+
+        self._quit_nav_btn = QPushButton("退出")
+        self._quit_nav_btn.setObjectName("NavItemQuit")
+        self._quit_nav_btn.setIconSize(QSize(22, 22))
+        self._quit_nav_btn.clicked.connect(self._close_drawer)
+        layout.addWidget(self._quit_nav_btn)
+        return drawer
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        h = self.height()
+        self._backdrop.setGeometry(0, 0, self.width(), h)
+        x = 0 if self._drawer_visible else -DRAWER_WIDTH
+        self._drawer.setGeometry(x, 0, DRAWER_WIDTH, h)
+
+    def _refresh_nav_button(self, key: str) -> None:
+        if key not in self._nav_buttons:
+            return
+        btn = self._nav_buttons[key]
+        active = btn.property("active") == "true"
+        btn.setIcon(self._nav_icon_resolver(key, active))
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+
+    def refresh_nav_icons(self, resolver: Callable[[str, bool], QIcon] | None = None) -> None:
+        if resolver is not None:
+            self._nav_icon_resolver = resolver
+        for key in self._nav_buttons:
+            self._refresh_nav_button(key)
+        if hasattr(self, "_compact_nav_btn"):
+            self._compact_nav_btn.setIcon(self._nav_icon_resolver("compact", False))
+        if hasattr(self, "_quit_nav_btn"):
+            self._quit_nav_btn.setIcon(self._nav_icon_resolver("logout", False))
+
+    def _on_nav(self, panel: str) -> None:
+        prev = self._active_nav
+        self._active_nav = panel
+        self.panel_sub.setText(DEMO_NAV_LABELS.get(panel, panel))
+        for key, btn in self._nav_buttons.items():
+            btn.setProperty("active", "true" if key == panel else "false")
+        if prev in self._nav_buttons:
+            self._refresh_nav_button(prev)
+        if panel in self._nav_buttons:
+            self._refresh_nav_button(panel)
+        self._close_drawer()
+
+    def _toggle_drawer(self) -> None:
+        if self._drawer_visible:
+            self._close_drawer()
+        else:
+            self._open_drawer()
+
+    def _open_drawer(self) -> None:
+        self._drawer_visible = True
+        animate_drawer(self._drawer, self._backdrop, True, self)
+
+    def _close_drawer(self) -> None:
+        if not self._drawer_visible:
+            return
+        self._drawer_visible = False
+        animate_drawer(self._drawer, self._backdrop, False, self)
+
 
 class CompactMock(DemoShellWidget):
     """280×48 compact pill preview."""
@@ -1107,7 +1360,8 @@ class CompactMock(DemoShellWidget):
         mark = QLabel("✦")
         mark.setObjectName("CompactMark")
         mark.setAlignment(Qt.AlignCenter)
-        mark.setFixedSize(26, 26)
+        mark.setFixedSize(30, 30)
+        self.compact_mark = mark
         layout.addWidget(mark)
 
         inp = QLineEdit()
@@ -1152,6 +1406,23 @@ class StylePreviewWindow(QWidget):
         self._luxury_script_font_id = DEFAULT_LUXURY_SCRIPT_FONT
         self._luxury_v2_gold_mode = DEFAULT_LUXURY_V2_GOLD
         self._luxury_v2_btn_mode = DEFAULT_LUXURY_V2_BTN
+
+        self._orange_cat_enabled = False
+        self._orange_cat_shell_mode = DEFAULT_ORANGE_CAT_SHELL
+        self._orange_cat_topbar_style = DEFAULT_ORANGE_CAT_TOPBAR_STYLE
+        self._orange_cat_mood = DEFAULT_ORANGE_CAT_MOOD
+        self._orange_cat_scale_in = DEFAULT_SCALE_IN_MS
+        self._orange_cat_hold = DEFAULT_HOLD_MS
+        self._orange_cat_fade_out = DEFAULT_FADE_OUT_MS
+        self._orange_cat_idle_minutes = DEFAULT_IDLE_MINUTES
+        self._orange_cat_splash_pending = False
+        self._orange_cat_first_show = True
+        self._splash = MaodiaoSplashOverlay()
+        self._splash.fade_out_started.connect(self._fade_splash_audio)
+        self._splash.finished.connect(self._stop_splash_audio)
+        self._splash_audio = SplashAudioPlayer(self)
+        self._idle_timer = QTimer(self)
+        self._idle_timer.timeout.connect(self._play_orange_cat_splash)
 
         self.setWindowTitle("HAJIMI · 水晶玻璃风观感 Demo")
         self.setFixedSize(WINDOW_W, WINDOW_H)
@@ -1205,6 +1476,10 @@ class StylePreviewWindow(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self._medium_host.setGeometry(0, 0, MEDIUM_W, WINDOW_H)
+        if self._orange_cat_first_show:
+            self._orange_cat_first_show = False
+            if self._orange_cat_enabled:
+                QTimer.singleShot(250, self._play_orange_cat_splash)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1265,6 +1540,27 @@ class StylePreviewWindow(QWidget):
         self._qss_highlight_label.setText(str(self._qss_highlight_peak))
         self._luminance_label.setText(f"{self._shell_luminance}%")
         self._scale_badge.setText(f"{MEDIUM_W}×{MEDIUM_H} px · 逻辑像素")
+        if self._orange_cat_enabled:
+            shell_label = ORANGE_CAT_SHELL_MODES.get(
+                self._orange_cat_shell_mode, self._orange_cat_shell_mode
+            )
+            topbar_label = ORANGE_CAT_TOPBAR_STYLES.get(
+                self._orange_cat_topbar_style, self._orange_cat_topbar_style
+            )
+            mood_label = ORANGE_CAT_MOODS.get(self._orange_cat_mood, self._orange_cat_mood)
+            idle_note = (
+                f"空闲 {self._orange_cat_idle_minutes} 分钟轮播"
+                if self._orange_cat_idle_minutes > 0
+                else "空闲轮播关"
+            )
+            self._hint.setText(
+                f"{THEME_LABEL} · Demo only · 壳层 {shell_label} · 顶栏 {topbar_label} · "
+                f"气质 {mood_label} · "
+                f"动画 {self._orange_cat_scale_in}/{self._orange_cat_hold}/"
+                f"{self._orange_cat_fade_out} ms · {idle_note} · 奶橘 {PRIMARY}"
+            )
+            self.setWindowTitle(f"HAJIMI Demo · {THEME_LABEL}")
+            return
         if self._luxury_v2_enabled:
             bg_label = "磨砂黑" if self._luxury_bg_mode == "frosted" else "牛皮纸黑"
             shell_labels = {"SA": "S-A 半透明", "SB": "S-B 实色卡", "SC": "S-C 铺满"}
@@ -1491,6 +1787,8 @@ class StylePreviewWindow(QWidget):
             self._breath_group.stop()
             self._badge_fx.setOpacity(1.0)
             self._refresh_status_ui()
+        if self._orange_cat_enabled:
+            self._sync_orange_cat_icons()
 
     def _set_system_error(self, on: bool):
         if on and self._processing:
@@ -1517,6 +1815,178 @@ class StylePreviewWindow(QWidget):
         title = QLabel("样式实现控制台")
         title.setObjectName("ControlTitle")
         layout.addWidget(title)
+
+        layout.addWidget(self._section(f"{THEME_LABEL}（Demo only · 不进生产）"))
+        self._orange_cat_cb = QCheckBox("启用橘猫耄耋主题")
+        self._orange_cat_cb.setObjectName("DemoHint")
+        self._orange_cat_cb.toggled.connect(self._on_orange_cat_toggled)
+        layout.addWidget(self._orange_cat_cb)
+
+        self._orange_cat_shell_combo = QComboBox()
+        for mode_id, label in ORANGE_CAT_SHELL_MODES.items():
+            self._orange_cat_shell_combo.addItem(label, mode_id)
+        self._orange_cat_shell_combo.setCurrentIndex(
+            list(ORANGE_CAT_SHELL_MODES.keys()).index(DEFAULT_ORANGE_CAT_SHELL)
+        )
+        self._orange_cat_shell_combo.currentIndexChanged.connect(
+            self._on_orange_cat_shell_changed
+        )
+        layout.addWidget(QLabel("壳层模式"))
+        layout.addWidget(self._orange_cat_shell_combo)
+
+        self._orange_cat_topbar_combo = QComboBox()
+        for style_id, label in ORANGE_CAT_TOPBAR_STYLES.items():
+            self._orange_cat_topbar_combo.addItem(label, style_id)
+        self._orange_cat_topbar_combo.setCurrentIndex(
+            list(ORANGE_CAT_TOPBAR_STYLES.keys()).index(DEFAULT_ORANGE_CAT_TOPBAR_STYLE)
+        )
+        self._orange_cat_topbar_combo.currentIndexChanged.connect(
+            self._on_orange_cat_topbar_style_changed
+        )
+        layout.addWidget(QLabel("顶栏样式"))
+        layout.addWidget(self._orange_cat_topbar_combo)
+
+        self._orange_cat_mood_combo = QComboBox()
+        for mood_id, label in ORANGE_CAT_MOODS.items():
+            self._orange_cat_mood_combo.addItem(label, mood_id)
+        self._orange_cat_mood_combo.setCurrentIndex(
+            list(ORANGE_CAT_MOODS.keys()).index(DEFAULT_ORANGE_CAT_MOOD)
+        )
+        self._orange_cat_mood_combo.currentIndexChanged.connect(
+            self._on_orange_cat_mood_changed
+        )
+        layout.addWidget(QLabel("气质预设"))
+        layout.addWidget(self._orange_cat_mood_combo)
+
+        folder_row = QHBoxLayout()
+        self._orange_cat_folder_edit = QLineEdit()
+        self._orange_cat_folder_edit.setPlaceholderText("本地图片文件夹（可选）")
+        self._orange_cat_folder_edit.setReadOnly(True)
+        pick_folder = QPushButton("选文件夹")
+        pick_folder.setObjectName("DemoActionBtn")
+        pick_folder.clicked.connect(self._pick_orange_cat_folder)
+        folder_row.addWidget(self._orange_cat_folder_edit, 1)
+        folder_row.addWidget(pick_folder)
+        layout.addLayout(folder_row)
+
+        default_row = QHBoxLayout()
+        self._orange_cat_default_edit = QLineEdit()
+        self._orange_cat_default_edit.setPlaceholderText("默认 splash 图（优先）")
+        self._orange_cat_default_edit.setReadOnly(True)
+        pick_default = QPushButton("选默认图")
+        pick_default.setObjectName("DemoActionBtn")
+        pick_default.clicked.connect(self._pick_orange_cat_default)
+        default_row.addWidget(self._orange_cat_default_edit, 1)
+        default_row.addWidget(pick_default)
+        layout.addLayout(default_row)
+
+        sound_row = QHBoxLayout()
+        self._orange_cat_sound_edit = QLineEdit()
+        self._orange_cat_sound_edit.setPlaceholderText("splash 音效（默认 start.mp3）")
+        self._orange_cat_sound_edit.setReadOnly(True)
+        pick_sound = QPushButton("选音效")
+        pick_sound.setObjectName("DemoActionBtn")
+        pick_sound.clicked.connect(self._pick_orange_cat_sound)
+        clear_sound = QPushButton("清除")
+        clear_sound.setObjectName("DemoActionBtn")
+        clear_sound.clicked.connect(self._clear_orange_cat_sound)
+        sound_row.addWidget(self._orange_cat_sound_edit, 1)
+        sound_row.addWidget(pick_sound)
+        sound_row.addWidget(clear_sound)
+        layout.addLayout(sound_row)
+
+        ai_avatar_row = QHBoxLayout()
+        self._orange_cat_ai_avatar_edit = QLineEdit()
+        self._orange_cat_ai_avatar_edit.setPlaceholderText("AI 对话头像（可选）")
+        self._orange_cat_ai_avatar_edit.setReadOnly(True)
+        pick_ai_avatar = QPushButton("选 AI 头像")
+        pick_ai_avatar.setObjectName("DemoActionBtn")
+        pick_ai_avatar.clicked.connect(self._pick_orange_cat_ai_avatar)
+        clear_ai_avatar = QPushButton("清除")
+        clear_ai_avatar.setObjectName("DemoActionBtn")
+        clear_ai_avatar.clicked.connect(self._clear_orange_cat_ai_avatar)
+        ai_avatar_row.addWidget(self._orange_cat_ai_avatar_edit, 1)
+        ai_avatar_row.addWidget(pick_ai_avatar)
+        ai_avatar_row.addWidget(clear_ai_avatar)
+        layout.addLayout(ai_avatar_row)
+
+        user_avatar_row = QHBoxLayout()
+        self._orange_cat_user_avatar_edit = QLineEdit()
+        self._orange_cat_user_avatar_edit.setPlaceholderText("用户对话头像（可选）")
+        self._orange_cat_user_avatar_edit.setReadOnly(True)
+        pick_user_avatar = QPushButton("选用户头像")
+        pick_user_avatar.setObjectName("DemoActionBtn")
+        pick_user_avatar.clicked.connect(self._pick_orange_cat_user_avatar)
+        clear_user_avatar = QPushButton("清除")
+        clear_user_avatar.setObjectName("DemoActionBtn")
+        clear_user_avatar.clicked.connect(self._clear_orange_cat_user_avatar)
+        user_avatar_row.addWidget(self._orange_cat_user_avatar_edit, 1)
+        user_avatar_row.addWidget(pick_user_avatar)
+        user_avatar_row.addWidget(clear_user_avatar)
+        layout.addLayout(user_avatar_row)
+
+        test_splash = QPushButton("测试 splash")
+        test_splash.setObjectName("DemoActionBtn")
+        test_splash.clicked.connect(self._play_orange_cat_splash)
+        layout.addWidget(test_splash)
+
+        self._orange_cat_scale_label = QLabel()
+        self._orange_cat_scale_label.setObjectName("SliderValue")
+        self._orange_cat_scale_slider = QSlider(Qt.Horizontal)
+        self._orange_cat_scale_slider.setRange(200, 1200)
+        self._orange_cat_scale_slider.setValue(DEFAULT_SCALE_IN_MS)
+        self._orange_cat_scale_slider.valueChanged.connect(self._on_orange_cat_anim_changed)
+        row_si = QHBoxLayout()
+        row_si.addWidget(QLabel("放大 ms"))
+        row_si.addWidget(self._orange_cat_scale_slider, 1)
+        row_si.addWidget(self._orange_cat_scale_label)
+        layout.addLayout(row_si)
+
+        self._orange_cat_hold_label = QLabel()
+        self._orange_cat_hold_label.setObjectName("SliderValue")
+        self._orange_cat_hold_slider = QSlider(Qt.Horizontal)
+        self._orange_cat_hold_slider.setRange(0, 3000)
+        self._orange_cat_hold_slider.setValue(DEFAULT_HOLD_MS)
+        self._orange_cat_hold_slider.valueChanged.connect(self._on_orange_cat_anim_changed)
+        row_h = QHBoxLayout()
+        row_h.addWidget(QLabel("停留 ms"))
+        row_h.addWidget(self._orange_cat_hold_slider, 1)
+        row_h.addWidget(self._orange_cat_hold_label)
+        layout.addLayout(row_h)
+
+        self._orange_cat_fade_label = QLabel()
+        self._orange_cat_fade_label.setObjectName("SliderValue")
+        self._orange_cat_fade_slider = QSlider(Qt.Horizontal)
+        self._orange_cat_fade_slider.setRange(200, 2000)
+        self._orange_cat_fade_slider.setValue(DEFAULT_FADE_OUT_MS)
+        self._orange_cat_fade_slider.valueChanged.connect(self._on_orange_cat_anim_changed)
+        row_fo = QHBoxLayout()
+        row_fo.addWidget(QLabel("渐隐 ms"))
+        row_fo.addWidget(self._orange_cat_fade_slider, 1)
+        row_fo.addWidget(self._orange_cat_fade_label)
+        layout.addLayout(row_fo)
+
+        self._orange_cat_idle_label = QLabel()
+        self._orange_cat_idle_label.setObjectName("SliderValue")
+        self._orange_cat_idle_slider = QSlider(Qt.Horizontal)
+        self._orange_cat_idle_slider.setRange(0, 30)
+        self._orange_cat_idle_slider.setValue(DEFAULT_IDLE_MINUTES)
+        self._orange_cat_idle_slider.valueChanged.connect(self._on_orange_cat_idle_changed)
+        row_idle = QHBoxLayout()
+        row_idle.addWidget(QLabel("空闲轮播(分)"))
+        row_idle.addWidget(self._orange_cat_idle_slider, 1)
+        row_idle.addWidget(self._orange_cat_idle_label)
+        layout.addLayout(row_idle)
+
+        self._orange_cat_task_done_btn = QPushButton("模拟任务完成（播 splash）")
+        self._orange_cat_task_done_btn.setObjectName("DemoActionBtn")
+        self._orange_cat_task_done_btn.clicked.connect(self._play_orange_cat_splash)
+        layout.addWidget(self._orange_cat_task_done_btn)
+
+        self._orange_cat_hint = QLabel("启用后 Crystal/轻奢控件暂不可用；生产 main.py 无此主题")
+        self._orange_cat_hint.setObjectName("DemoHint")
+        self._orange_cat_hint.setWordWrap(True)
+        layout.addWidget(self._orange_cat_hint)
 
         layout.addWidget(self._section("强调色"))
         self._accent_group = QButtonGroup(self)
@@ -1864,6 +2334,7 @@ class StylePreviewWindow(QWidget):
         self._sync_qss_highlight_controls()
         self._sync_shadow_controls()
         self._sync_luxury_v2_controls()
+        self._sync_orange_cat_controls()
         return panel
 
     @staticmethod
@@ -1874,7 +2345,8 @@ class StylePreviewWindow(QWidget):
 
     def _sync_luxury_v2_controls(self) -> None:
         v2_on = self._luxury_v2_enabled
-        crystal_shell_disabled = v2_on
+        orange_on = self._orange_cat_enabled
+        crystal_shell_disabled = v2_on or orange_on
         for btn in self._shell_group.buttons():
             btn.setEnabled(not crystal_shell_disabled)
         for btn in self._light_group.buttons():
@@ -1950,7 +2422,310 @@ class StylePreviewWindow(QWidget):
             widget._luxury_v2_enabled = False
             widget.setProperty("_luxury_v2_enabled", False)
 
+    def _clear_luxury_shell_props(self) -> None:
+        for widget in (self._medium, self._compact):
+            widget._luxury_v2_enabled = False
+            widget.setProperty("_luxury_v2_enabled", False)
+
+    def _sync_orange_cat_controls(self) -> None:
+        on = self._orange_cat_enabled
+        for w in (
+            self._orange_cat_shell_combo,
+            self._orange_cat_topbar_combo,
+            self._orange_cat_mood_combo,
+            self._orange_cat_scale_slider,
+            self._orange_cat_hold_slider,
+            self._orange_cat_fade_slider,
+            self._orange_cat_idle_slider,
+            self._orange_cat_task_done_btn,
+        ):
+            w.setEnabled(on)
+        crystal_disabled = on or self._luxury_v2_enabled
+        for btn in self._shell_group.buttons():
+            btn.setEnabled(not crystal_disabled)
+        for btn in self._luxury_group.buttons():
+            btn.setEnabled(not on)
+        self._luxury_v2_cb.setEnabled(not on)
+        if on:
+            self._luxury_v2_cb.blockSignals(True)
+            self._luxury_v2_cb.setChecked(False)
+            self._luxury_v2_cb.blockSignals(False)
+            self._luxury_v2_enabled = False
+        self._orange_cat_scale_label.setText(str(self._orange_cat_scale_in))
+        self._orange_cat_hold_label.setText(str(self._orange_cat_hold))
+        self._orange_cat_fade_label.setText(str(self._orange_cat_fade_out))
+        self._orange_cat_idle_label.setText(str(self._orange_cat_idle_minutes))
+
+    def _orange_cat_qss_alpha(self, compact: bool) -> int:
+        pct = self._compact_alpha if compact else self._medium_alpha
+        eff = _effective_alpha(pct, self._shell_luminance)
+        return max(0, min(255, int(eff / 100.0 * 255)))
+
+    def _apply_orange_cat_shell_props(self) -> None:
+        mode = self._orange_cat_shell_mode
+        pal = get_palette(self._orange_cat_mood)
+        cream = pal.shell_glass[:3]
+        for widget in (self._medium, self._compact):
+            compact = widget is self._compact
+            widget._orange_cat_enabled = True
+            widget._orange_cat_shell_mode = mode
+            widget._orange_cat_topbar_style = self._orange_cat_topbar_style
+            widget._orange_cat_mood = self._orange_cat_mood
+            widget.setProperty("_orange_cat_enabled", True)
+            widget.setProperty("_orange_cat_shell_mode", mode)
+            widget.setProperty("_orange_cat_topbar_style", self._orange_cat_topbar_style)
+            widget.setProperty("_orange_cat_mood", self._orange_cat_mood)
+            widget._luxury_v2_enabled = False
+            widget.setProperty("_luxury_v2_enabled", False)
+            alpha = self._orange_cat_qss_alpha(compact)
+            if mode == "maodiao_painter":
+                widget._demo_crystal_active = False
+                widget._demo_qss_rgba = None
+            elif mode == "crystal_orange":
+                widget._demo_crystal_active = True
+                widget._demo_crystal_fill_rgb = pal.shell_glass[:3]
+                widget._demo_crystal_fill_alpha = alpha
+                widget._demo_gradient_tint = pal.shell_glass[:3]
+                widget._demo_qss_rgba = None
+            else:
+                widget._demo_crystal_active = False
+                widget._demo_qss_rgba = (*cream, alpha)
+            widget.setGraphicsEffect(None)
+            widget.setAutoFillBackground(False)
+            widget.setAttribute(Qt.WA_StyledBackground, True)
+            widget.setAttribute(Qt.WA_TranslucentBackground, True)
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+            widget.update()
+            widget.repaint()
+
+    def _clear_orange_cat_shell_props(self) -> None:
+        for widget in (self._medium, self._compact):
+            widget._orange_cat_enabled = False
+            widget.setProperty("_orange_cat_enabled", False)
+
+    def _sync_orange_cat_title(self) -> None:
+        if not self._orange_cat_enabled:
+            return
+        self._medium.title_restrained.hide()
+        self._medium.title_script.hide()
+        self._medium.title_art.show()
+        self._medium.title_art.set_mode("gradient")
+        self._medium.title_art.set_accent(PRIMARY)
+        self._medium.title_art.set_gradient_stops(PRIMARY_DARK, "#FFD4A3")
+        self._medium.title_art.repaint()
+
+    def _demo_nav_icon(self, key: str, active: bool) -> QIcon:
+        if self._orange_cat_enabled:
+            return maodiao_nav_icon(key, active, 22)
+        if self._luxury_v2_enabled:
+            return luxury_nav_icon(key, active, size=22)
+        return nav_icon(key, active)
+
+    def _sync_demo_nav_icons(self) -> None:
+        if hasattr(self._medium, "refresh_nav_icons"):
+            self._medium.refresh_nav_icons(self._demo_nav_icon)
+
+    def _sync_orange_cat_icons(self) -> None:
+        if not self._orange_cat_enabled:
+            return
+        self._medium.menu_btn.setText("")
+        self._medium.menu_btn.setIcon(maodiao_icon("menu", 24))
+        self._medium.mic_btn.setIcon(maodiao_icon("mic", 24))
+        self._medium.send_btn.setText("")
+        self._medium.send_btn.setIcon(maodiao_icon("send", 24))
+        self._medium.send_btn.setObjectName("SendBtnOrange")
+        self._compact.compact_mark.setPixmap(maodiao_pixmap("mark", 30))
+        self._compact.compact_mark.setText("")
+        if self._processing:
+            self._medium.status_badge.setIcon(maodiao_icon("badge", 14))
+        else:
+            self._medium.status_badge.setIcon(QIcon())
+        for btn in (self._medium.menu_btn, self._medium.mic_btn, self._medium.send_btn):
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+        self._sync_demo_nav_icons()
+
+    def _sync_orange_cat_topbar(self) -> None:
+        """TopBar stays transparent; orange tint is painted on the shell."""
+        make_widget_transparent(self._medium.top_bar)
+        self._medium.top_bar.update()
+
+    def _sync_orange_cat_ui(self) -> None:
+        self._sync_orange_cat_title()
+        self._sync_orange_cat_icons()
+        self._sync_orange_cat_topbar()
+        self._refresh_demo_avatars()
+
+    def _reset_orange_cat_idle_timer(self) -> None:
+        self._idle_timer.stop()
+        if not self._orange_cat_enabled or self._orange_cat_idle_minutes <= 0:
+            return
+        self._idle_timer.start(self._orange_cat_idle_minutes * 60 * 1000)
+
+    def _play_orange_cat_splash(self) -> None:
+        if not self._orange_cat_enabled:
+            return
+        path = pick_image()
+        if not path:
+            return
+        ok = self._splash.play(
+            path,
+            scale_in_ms=self._orange_cat_scale_in,
+            hold_ms=self._orange_cat_hold,
+            fade_out_ms=self._orange_cat_fade_out,
+        )
+        if ok:
+            self._play_splash_audio()
+            self._reset_orange_cat_idle_timer()
+
+    def _preload_splash_audio(self) -> None:
+        audio = resolve_splash_audio_path()
+        if audio:
+            self._splash_audio.preload(audio)
+
+    def _play_splash_audio(self) -> None:
+        audio = resolve_splash_audio_path()
+        if audio:
+            self._splash_audio.play(audio)
+
+    def _fade_splash_audio(self, fade_ms: int) -> None:
+        self._splash_audio.begin_fade_out(fade_ms)
+
+    def _stop_splash_audio(self) -> None:
+        self._splash_audio.stop()
+
+    _ORANGE_CAT_SOUND_FILTER = "Audio (*.mp3 *.wav *.ogg *.m4a *.aac *.flac)"
+
+    def _pick_orange_cat_sound(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择 splash 音效",
+            str(bundled_sounds_dir()) if bundled_sounds_dir().is_dir() else "",
+            self._ORANGE_CAT_SOUND_FILTER,
+        )
+        if path:
+            set_splash_audio(path)
+            self._orange_cat_sound_edit.setText(path)
+            self._splash_audio.preload(path)
+
+    def _clear_orange_cat_sound(self) -> None:
+        clear_splash_audio()
+        self._orange_cat_sound_edit.clear()
+        self._preload_splash_audio()
+
+    def _pick_orange_cat_folder(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "选择橘猫图片文件夹")
+        if path:
+            set_user_folder(path)
+            self._orange_cat_folder_edit.setText(path)
+
+    def _pick_orange_cat_default(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择默认 splash 图",
+            user_folder() or "",
+            "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)",
+        )
+        if path:
+            set_default_image(path)
+            self._orange_cat_default_edit.setText(path)
+
+    _ORANGE_CAT_AVATAR_FILTER = "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)"
+
+    def _refresh_demo_avatars(self) -> None:
+        for bubble in getattr(self._medium, "demo_chat_bubbles", ()):
+            bubble.refresh_avatar()
+
+    def _pick_orange_cat_ai_avatar(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择 AI 对话头像",
+            user_folder() or "",
+            self._ORANGE_CAT_AVATAR_FILTER,
+        )
+        if path:
+            avatar_settings.set_ai_avatar(path)
+            self._orange_cat_ai_avatar_edit.setText(path)
+            self._refresh_demo_avatars()
+
+    def _pick_orange_cat_user_avatar(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择用户对话头像",
+            user_folder() or "",
+            self._ORANGE_CAT_AVATAR_FILTER,
+        )
+        if path:
+            avatar_settings.set_user_avatar(path)
+            self._orange_cat_user_avatar_edit.setText(path)
+            self._refresh_demo_avatars()
+
+    def _clear_orange_cat_ai_avatar(self) -> None:
+        avatar_settings.clear_ai_avatar()
+        self._orange_cat_ai_avatar_edit.clear()
+        self._refresh_demo_avatars()
+
+    def _clear_orange_cat_user_avatar(self) -> None:
+        avatar_settings.clear_user_avatar()
+        self._orange_cat_user_avatar_edit.clear()
+        self._refresh_demo_avatars()
+
+    def _on_orange_cat_toggled(self, on: bool) -> None:
+        self._orange_cat_enabled = on
+        if on:
+            self._luxury_v2_enabled = False
+            self._clear_luxury_selection()
+            self._orange_cat_splash_pending = True
+            self._preload_splash_audio()
+        else:
+            self._idle_timer.stop()
+            self._stop_splash_audio()
+            self._clear_orange_cat_shell_props()
+        self._apply_preview()
+
+    def _on_orange_cat_shell_changed(self, _index: int) -> None:
+        if not self._orange_cat_enabled:
+            return
+        self._orange_cat_shell_mode = (
+            self._orange_cat_shell_combo.currentData() or DEFAULT_ORANGE_CAT_SHELL
+        )
+        self._apply_preview()
+
+    def _on_orange_cat_topbar_style_changed(self, _index: int) -> None:
+        if not self._orange_cat_enabled:
+            return
+        self._orange_cat_topbar_style = (
+            self._orange_cat_topbar_combo.currentData() or DEFAULT_ORANGE_CAT_TOPBAR_STYLE
+        )
+        self._apply_preview()
+
+    def _on_orange_cat_mood_changed(self, _index: int) -> None:
+        if not self._orange_cat_enabled:
+            return
+        self._orange_cat_mood = (
+            self._orange_cat_mood_combo.currentData() or DEFAULT_ORANGE_CAT_MOOD
+        )
+        self._apply_preview()
+
+    def _on_orange_cat_anim_changed(self, _value: int) -> None:
+        self._orange_cat_scale_in = self._orange_cat_scale_slider.value()
+        self._orange_cat_hold = self._orange_cat_hold_slider.value()
+        self._orange_cat_fade_out = self._orange_cat_fade_slider.value()
+        self._sync_orange_cat_controls()
+        self._update_hint_labels()
+
+    def _on_orange_cat_idle_changed(self, value: int) -> None:
+        self._orange_cat_idle_minutes = value
+        self._reset_orange_cat_idle_timer()
+        self._sync_orange_cat_controls()
+        self._update_hint_labels()
+
     def _sync_luxury_title(self) -> None:
+        if self._orange_cat_enabled:
+            self._sync_orange_cat_title()
+            return
+        self._medium.title_art.reset_gradient_stops()
         script = self._medium.title_script
         if not self._luxury_v2_enabled:
             self._medium.title_restrained.hide()
@@ -1979,6 +2754,9 @@ class StylePreviewWindow(QWidget):
         script.update()
 
     def _sync_luxury_icons(self) -> None:
+        if self._orange_cat_enabled:
+            self._sync_orange_cat_icons()
+            return
         if not self._luxury_v2_enabled:
             self._medium.menu_btn.setText("☰")
             self._medium.menu_btn.setIcon(QIcon())
@@ -1989,6 +2767,7 @@ class StylePreviewWindow(QWidget):
             for btn in (self._medium.menu_btn, self._medium.mic_btn, self._medium.send_btn):
                 btn.style().unpolish(btn)
                 btn.style().polish(btn)
+            self._sync_demo_nav_icons()
             return
         self._medium.menu_btn.setText("")
         self._medium.menu_btn.setIcon(luxury_icon("menu", 20))
@@ -2001,6 +2780,7 @@ class StylePreviewWindow(QWidget):
         for btn in (self._medium.menu_btn, self._medium.mic_btn, self._medium.send_btn):
             btn.style().unpolish(btn)
             btn.style().polish(btn)
+        self._sync_demo_nav_icons()
 
     def _on_luxury_v2_toggled(self, on: bool) -> None:
         self._luxury_v2_enabled = on
@@ -2174,7 +2954,23 @@ class StylePreviewWindow(QWidget):
 
     def _apply_preview(self):
         app = QApplication.instance()
-        if self._luxury_v2_enabled:
+        if self._orange_cat_enabled:
+            self._clear_luxury_shell_props()
+            self._apply_orange_cat_shell_props()
+            qss = compose_maodiao_qss(
+                self._font_size,
+                body_font=BODY_FONT_PRESETS.get(
+                    self._body_font_id, BODY_FONT_PRESETS[DEFAULT_BODY_FONT]
+                ),
+                mood=self._orange_cat_mood,
+            )
+            app.setStyleSheet(qss)
+            self._sync_orange_cat_ui()
+            if self._orange_cat_splash_pending:
+                self._orange_cat_splash_pending = False
+                QTimer.singleShot(100, self._play_orange_cat_splash)
+            self._reset_orange_cat_idle_timer()
+        elif self._luxury_v2_enabled:
             self._apply_luxury_shell_props()
             qss = compose_luxury_v2_qss(
                 self._font_size,
@@ -2187,6 +2983,7 @@ class StylePreviewWindow(QWidget):
             self._sync_luxury_icons()
         else:
             self._clear_luxury_shell_props()
+            self._clear_orange_cat_shell_props()
             preset = self._shell_preset
             qss = compose_demo_qss(
                 self._accent_id,
@@ -2211,6 +3008,8 @@ class StylePreviewWindow(QWidget):
         self._sync_qss_highlight_controls()
         self._sync_shadow_controls()
         self._sync_luxury_v2_controls()
+        self._sync_orange_cat_controls()
+        self._sync_orange_cat_topbar()
         self._refresh_left_preview()
 
         if self._processing:

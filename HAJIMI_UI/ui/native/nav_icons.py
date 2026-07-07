@@ -57,6 +57,12 @@ _NAV_SVGS = {
         '<line x1="8" y1="23" x2="16" y2="23" stroke="{color}" stroke-width="1.5"/>'
         "</svg>"
     ),
+    "speaker": (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+        '<path d="M11 5L6 9H3v6h3l5 4V5z" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round"/>'
+        '<path d="M15 9a4 4 0 0 1 0 6" fill="none" stroke="{color}" stroke-width="1.5" stroke-linecap="round"/>'
+        "</svg>"
+    ),
     "send": (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
         '<path d="M5 12h14" stroke="{color}" stroke-width="1.5" stroke-linecap="round"/>'

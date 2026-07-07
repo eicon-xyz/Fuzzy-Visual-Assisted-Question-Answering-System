@@ -34,9 +34,13 @@ class StepCard(QWidget):
 
     def set_status(self, status):
         self.status = status
-        prop = {"active": "active", "done": "completed", "pending": "pending"}.get(
-            status, status
-        )
+        prop = {
+            "active": "active",
+            "done": "completed",
+            "pending": "pending",
+            "failed": "failed",
+            "blocked": "blocked",
+        }.get(status, status)
         self.setProperty("stepStatus", prop)
         self.num_label.setProperty("stepStatus", prop)
         self.desc_label.setProperty("stepStatus", prop)

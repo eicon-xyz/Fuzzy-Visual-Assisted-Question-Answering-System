@@ -101,7 +101,7 @@ class OverlayAnnoWindow(QWidget):
     def _clear_click_regions(self):
         for region in self._click_regions:
             region.hide()
-            region.deleteLater()
+            region.close()
         self._click_regions = []
 
     def _sync_click_regions(self):
@@ -114,6 +114,8 @@ class OverlayAnnoWindow(QWidget):
             if len(rect) != 4:
                 continue
             x1, y1, x2, y2 = _physical_to_logical_rect(rect, scale)
+            if x2 <= x1 or y2 <= y1:
+                continue
             region = HighlightClickRegion(x1, y1, x2, y2)
             region.clicked.connect(self._on_region_clicked)
             region.show()
@@ -129,6 +131,9 @@ class OverlayAnnoWindow(QWidget):
         self.update()
         for region in self._click_regions:
             region.raise_()
+        if self.annotations:
+            self.show()
+            self.raise_()
 
     def clear_annotations(self):
         self.annotations = []

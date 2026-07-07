@@ -69,7 +69,7 @@
 | TTS 播报 | 文字指引完成后 emit（含文本） | 入队 TTS |
 | 语音开关/语速 | Toggle/Slider + 状态变量 | 读取后控制行为 |
 
-> **当前实现状态**：契约已文档化（`b-c-api-contract.md`），代码中 C 模块尚未接入，B 端 UI 预留位待 C 联调（Day 10–11 里程碑）。
+> **当前实现状态**：B 端已实现 `core/bc_signals.py` 九信号、`main_widget` C 控制器生命周期、设置页语音第三块 save；根项目 `client/` 存在时同进程加载 `VoiceIntegrationController`。`HAJIMI_C_ENABLED=0` 可回退纯文字模式。
 
 ---
 

@@ -112,6 +112,7 @@ python scripts/gpu_group2_deploy.py --all      # B 端远程部署 A
 python scripts/b_group2_intranet_setup.py       # B 端隧道 + 设置
 python scripts/b_group2_e2e_verify.py           # B 端联调验收
 python scripts/gpu_group2_remote.py services      # 查远程服务
+python scripts/gpu_group2_remote.py start-all     # 远程启服 Omni + A
 ```
 
 其他小组可将脚本中的 `10.246.2.7` / `12202` 改为本组 IP/端口，或通过环境变量 `HAJIMI_GPU_HOST`、`HAJIMI_GPU_SSH_PORT` 覆盖。

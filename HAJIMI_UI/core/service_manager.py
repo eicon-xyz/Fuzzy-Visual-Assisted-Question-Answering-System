@@ -1,9 +1,12 @@
 """Windows 后端服务进程管理：按端口停止 / 新窗口启动 OmniParser 与 A 端。"""
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
+import time
+import urllib.request
 from pathlib import Path
 from typing import Dict, List
 
@@ -125,8 +128,14 @@ def _local_omni_device() -> str:
 def _start_in_new_console(title: str, bat_path: Path, env_prefix: str = "") -> None:
     if not bat_path.is_file():
         raise FileNotFoundError(str(bat_path))
-    cmd = f'{env_prefix}start "{title}" cmd /k "cd /d \"%~dp0..\" && \"{bat_path}\""'
+    cmd = f'{env_prefix}start "{title}" cmd /k "{bat_path}"'
     subprocess.Popen(cmd, shell=True, cwd=str(ROOT))
+
+
+def is_remote_omni_url(url: str) -> bool:
+    """True when OmniParser is remote GPU API (e.g. SSH tunnel :9800)."""
+    text = (url or "").strip().rstrip("/")
+    return text.endswith(":9800") or ":9800/" in text
 
 
 def start_omniparser_window() -> None:
@@ -146,10 +155,86 @@ def start_a_end_window() -> None:
     _start_in_new_console("HAJIMI-A-end", SCRIPTS / "start_server.bat")
 
 
-def start_backend_services() -> None:
-    """先停旧进程，再在新窗口启动 A 端。"""
-    stop_backend_services()
+def wait_a_end_live(timeout_sec: float = 30.0, poll_sec: float = 1.5) -> bool:
+    """轮询 /api/demo/health/live，确认 A 端 FastAPI 已就绪。"""
+    try:
+        from config import SERVER_DEFAULT_PORT
+    except Exception:
+        SERVER_DEFAULT_PORT = _DEFAULT_A_PORT  # type: ignore[misc, assignment]
+
+    url = f"http://127.0.0.1:{SERVER_DEFAULT_PORT}/api/demo/health/live"
+    deadline = time.monotonic() + timeout_sec
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=3) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    if data.get("status") == "ok":
+                        return True
+        except Exception:
+            pass
+        time.sleep(poll_sec)
+    return False
+
+
+def ensure_a_end_running(wait_timeout: float = 30.0) -> bool:
+    """L4 等轻量模式：端口无监听则启动 A 端并等待 /health/live。"""
+    if not _is_windows():
+        return False
+    try:
+        from core.user_settings import is_intranet_mode
+
+        if is_intranet_mode():
+            return False
+    except Exception:
+        pass
+
+    if find_port_pids(_DEFAULT_A_PORT):
+        return wait_a_end_live(wait_timeout)
+
     start_a_end_window()
+    return wait_a_end_live(wait_timeout)
+
+
+def restart_local_a_end() -> None:
+    """Stop and restart local A-end only (picks up new server/.env)."""
+    stop_port(_DEFAULT_A_PORT)
+    start_a_end_window()
+
+
+def start_gpu_api_services() -> None:
+    """GPU API mode: local A-end only; OmniParser runs on GPU via :9800 tunnel."""
+    stop_port(_DEFAULT_A_PORT)
+    start_a_end_window()
+
+
+def start_backend_services() -> None:
+    """先停旧进程，再在新窗口启动 OmniParser 与 A 端（或仅 A 端）。"""
+    try:
+        from core.user_settings import load_user_settings
+
+        settings = load_user_settings()
+        mode = settings.get("deployment_mode", "gpu_api")
+        omni_url = (settings.get("omniparser") or {}).get("url", "")
+    except Exception:
+        mode = "local"
+        omni_url = ""
+
+    if mode == "gpu_api" or is_remote_omni_url(omni_url):
+        start_gpu_api_services()
+        return
+
+    stop_backend_services()
+    start_omniparser_window()
+    start_a_end_window()
+
+
+def run_gpu_one_click_bat() -> None:
+    """Launch scripts/start_gpu_one_click.bat in a new console."""
+    bat = SCRIPTS / "start_gpu_one_click.bat"
+    if not bat.is_file():
+        raise FileNotFoundError(str(bat))
+    subprocess.Popen(f'start "HAJIMI-GPU-OneClick" cmd /k "{bat}"', shell=True, cwd=str(ROOT))
 
 
 def format_stop_summary(

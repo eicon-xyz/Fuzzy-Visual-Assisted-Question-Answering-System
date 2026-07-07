@@ -78,7 +78,7 @@ class VoiceIntegrationController:
 
     def __init__(
         self,
-        server_url: str = "http://localhost:8000",
+        server_url: str = "http://localhost:8010",
         demo_key: str = "hajimi-demo-2026",
         client_version: str = "v2.1.0",
     ):

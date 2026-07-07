@@ -1,67 +1,76 @@
 """
-Local OmniParser V2 HTTP client.
+OmniParser HTTP client — GPU API v2 (:9800) and legacy omniparserserver (:8002).
 
-The OmniParser API server is deployed separately (D:\\ominprester) and exposes
-POST /parse, which returns structured UI elements for a base64-encoded image.
-This module converts those elements into the HAJIMI UIElement schema.
+GPU API contract (B端 omniparser_api):
+  POST /parse/  {"base64_image": "..."}
+  → parsed_content_list, som_image_base64, latency_ms, device
 """
-
 import base64
 import io
 import re
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import httpx
-from PIL import Image
 
-from server.config import settings
+from server.config import reload_settings, settings
 from server.models.schemas import UIElement
 
-_OMNIPARSER_URL = settings.OMNIPARSER_URL.rstrip("/")
-_OMNIPARSER_TIMEOUT = settings.OMNIPARSER_TIMEOUT
-_OMNIPARSER_RETRY = getattr(settings, "OMNIPARSER_RETRY", 1)
-_OMNIPARSER_RETRY_DELAY = getattr(settings, "OMNIPARSER_RETRY_DELAY", 3.0)
-
-# Regex to strip data URI prefix, e.g. "data:image/png;base64,"
 _DATA_URI_RE = re.compile(r"^data:image/\w+;base64,")
 
 
-def _compress_som_image(image_b64: str, max_side: int = 1024, quality: int = 85) -> str:
-    """Compress SoM image → JPEG ≤max_side px. Falls back to original on error."""
-    try:
-        raw = image_b64
-        if "," in raw and raw.startswith("data:"):
-            raw = raw.split(",", 1)[1]
-        img_bytes = base64.b64decode(raw)
-        img = Image.open(io.BytesIO(img_bytes))
-        if img.mode in ("RGBA", "P"):
-            img = img.convert("RGB")
-        w, h = img.size
-        if max(w, h) > max_side:
-            ratio = max_side / max(w, h)
-            new_size = (int(w * ratio), int(h * ratio))
-            img = img.resize(new_size, Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=quality)
-        compressed = base64.b64encode(buf.getvalue()).decode()
-        return f"data:image/jpeg;base64,{compressed}"
-    except Exception as e:
-        print(f"[compress] fallback to original: {e}")
-        return image_b64
+def _omni_config() -> tuple[str, int, int, float, int]:
+    """Read OmniParser URL/timeouts at call time (reload server/.env)."""
+    reload_settings()
+    url = settings.OMNIPARSER_URL.rstrip("/")
+    timeout = settings.OMNIPARSER_TIMEOUT
+    retry = settings.OMNIPARSER_RETRY
+    retry_delay = settings.OMNIPARSER_RETRY_DELAY
+    max_side = settings.OMNIPARSER_LOCAL_MAX_SIDE
+    if getattr(settings, "LLM_SPEED_MODE", "fast") == "fast":
+        fast_side = getattr(settings, "OMNIPARSER_FAST_MAX_SIDE", 720)
+        max_side = min(max_side, fast_side)
+        fast_timeout = getattr(settings, "OMNIPARSER_FAST_TIMEOUT", 30)
+        timeout = min(timeout, fast_timeout)
+    return url, timeout, retry, retry_delay, max_side
 
 
 def _clean_base64(image_base64: Optional[str]) -> Optional[str]:
     if not image_base64:
         return None
     cleaned = _DATA_URI_RE.sub("", image_base64)
-    # Remove any whitespace/newlines that may have been inserted by transport
     return cleaned.strip().replace("\n", "").replace("\r", "")
 
 
+def _maybe_downscale_b64(
+    payload_base64: str, max_side: int
+) -> Tuple[str, Optional[List[int]], Optional[List[int]]]:
+    """Return (base64, original_size, sent_size) or unchanged on failure."""
+    try:
+        from PIL import Image
+
+        raw = base64.b64decode(payload_base64)
+        with Image.open(io.BytesIO(raw)) as img:
+            original = [img.width, img.height]
+            w, h = img.width, img.height
+            longest = max(w, h)
+            if longest <= max_side:
+                return payload_base64, original, original
+            ratio = max_side / longest
+            new_w, new_h = int(w * ratio), int(h * ratio)
+            work = img.convert("RGB") if img.mode != "RGB" else img.copy()
+            work = work.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            work.save(buf, format="PNG")
+            sent = [new_w, new_h]
+            return base64.b64encode(buf.getvalue()).decode("ascii"), original, sent
+    except Exception as exc:
+        print(f"[OmniParser Client] downscale skipped: {exc}")
+        return payload_base64, None, None
+
+
 def _decode_image_resolution(payload_base64: str) -> Optional[List[int]]:
-    """Try to decode image dimensions from base64 using PIL as fallback."""
     try:
         from PIL import Image
 
@@ -72,280 +81,110 @@ def _decode_image_resolution(payload_base64: str) -> Optional[List[int]]:
         return None
 
 
-@dataclass
-class ParseResult:
-    """Full result from OmniParser parse call."""
-
-    elements: List[UIElement] = field(default_factory=list)
-    annotated_image: Optional[str] = None
-    reference_resolution: Optional[List[int]] = None
-    detection_meta: Optional[dict] = None
+def _parse_endpoints(base_url: str) -> List[str]:
+    base = base_url.rstrip("/")
+    return [f"{base}/parse/", f"{base}/parse"]
 
 
-def _compute_spatial_relations(elements: List[UIElement]) -> None:
-    """Compute left/right/top/bottom neighbor relations for all elements.
-
-    Mutates elements in-place, populating their *_elem_ids fields.
-
-    Same row: y-axis IoU >= 0.3
-    Top/bottom: x-axis overlap >= 0.1 (share horizontal space — elements in the same column)
-    """
-    n = len(elements)
-    if n == 0:
-        return
-
-    # Reset all relation fields first
-    for el in elements:
-        el.left_elem_ids = []
-        el.right_elem_ids = []
-        el.top_elem_ids = []
-        el.bottom_elem_ids = []
-
-    for i in range(n):
-        a = elements[i]
-        ay1, ay2 = a.bbox[1], a.bbox[3]
-        ax1, ax2 = a.bbox[0], a.bbox[2]
-        ah = ay2 - ay1
-        ax2 - ax1
-        if ah <= 0:
-            continue
-
-        left_candidates = []
-        right_candidates = []
-        top_candidates = []
-        bottom_candidates = []
-
-        for j in range(n):
-            if i == j:
-                continue
-            b = elements[j]
-            by1, by2 = b.bbox[1], b.bbox[3]
-            bx1, bx2 = b.bbox[0], b.bbox[2]
-            bh = by2 - by1
-            bx2 - bx1
-            if bh <= 0:
-                continue
-
-            # y-axis intersection over union (for same-row detection)
-            y_overlap = max(0, min(ay2, by2) - max(ay1, by1))
-            y_union = max(ay2, by2) - min(ay1, by1)
-            y_iou = y_overlap / y_union if y_union > 0 else 0
-
-            # Same row for left/right: y-axis IoU >= 0.3
-            if y_iou >= 0.3:
-                if b.bbox[2] <= a.bbox[0]:  # b is to the left of a
-                    left_candidates.append((j, a.bbox[0] - b.bbox[2]))
-                elif b.bbox[0] >= a.bbox[2]:  # b is to the right of a
-                    right_candidates.append((j, b.bbox[0] - a.bbox[2]))
-
-            # Top/bottom: share horizontal space (x-overlap) AND one is above/below
-            # Use x-axis overlap ratio >= 0.1 (elements in same column)
-            x_overlap = max(0, min(ax2, bx2) - max(ax1, bx1))
-            x_union = max(ax2, bx2) - min(ax1, bx1)
-            x_iou = x_overlap / x_union if x_union > 0 else 0
-
-            if x_iou >= 0.1:
-                if by2 <= ay1:  # b is above a
-                    top_candidates.append((j, ay1 - by2))
-                elif by1 >= ay2:  # b is below a
-                    bottom_candidates.append((j, by1 - ay2))
-
-        # Sort by distance (ascending) and cap
-        left_candidates.sort(key=lambda x: x[1])
-        right_candidates.sort(key=lambda x: x[1])
-        top_candidates.sort(key=lambda x: x[1])
-        bottom_candidates.sort(key=lambda x: x[1])
-
-        a.left_elem_ids = [elements[k].element_id for k, _ in left_candidates[:5]]
-        a.right_elem_ids = [elements[k].element_id for k, _ in right_candidates[:5]]
-        a.top_elem_ids = [elements[k].element_id for k, _ in top_candidates[:3]]
-        a.bottom_elem_ids = [elements[k].element_id for k, _ in bottom_candidates[:3]]
+def _parse_payloads(b64: str) -> List[dict]:
+    """GPU API v2 first; legacy omniparserserver fallback."""
+    return [
+        {"base64_image": b64},
+        {"image": b64},
+    ]
 
 
-def _filter_elements_for_llm(elements: List[UIElement]) -> List[dict]:
-    """Return LLM-visible element data — no coordinates, no scores, no types.
-
-    Each element dict contains only:
-      - id: str (mapped from element_id)
-      - content: str (mapped from text, empty string if None)
-      - left_ids: List[str] (mapped from left_elem_ids)
-      - right_ids: List[str] (mapped from right_elem_ids)
-      - top_ids: List[str] (mapped from top_elem_ids)
-      - bottom_ids: List[str] (mapped from bottom_elem_ids)
-    """
-    result = []
-    for el in elements:
-        result.append(
-            {
-                "id": el.element_id,
-                "content": el.text or "",
-                "left_ids": el.left_elem_ids,
-                "right_ids": el.right_elem_ids,
-                "top_ids": el.top_elem_ids,
-                "bottom_ids": el.bottom_elem_ids,
-            }
-        )
-    return result
+def _raw_elements_from_response(data: dict) -> list:
+    raw = data.get("parsed_content_list") or data.get("elements") or []
+    return raw if isinstance(raw, list) else []
 
 
-def parse_screenshot(image_base64: Optional[str]) -> List[UIElement]:
-    """
-    Call the local OmniParser V2 API and return HAJIMI-style UIElement list.
+def _normalize_element_id(raw_id) -> str:
+    if raw_id is None:
+        return "~?"
+    text = str(raw_id).strip()
+    if text.startswith("~"):
+        return text
+    return f"~{text}"
 
-    Delegates to parse_screenshot_full() to avoid code duplication.
-    """
-    return parse_screenshot_full(image_base64).elements
 
+def _item_to_ui_element(
+    item: dict,
+    *,
+    img_w: int = 0,
+    img_h: int = 0,
+    index: int = 0,
+) -> Optional[UIElement]:
+    if not isinstance(item, dict):
+        return None
+    bbox = item.get("bbox")
+    if not bbox or len(bbox) != 4:
+        return None
 
-def parse_screenshot_full(
-    image_base64: Optional[str], compute_spatial: bool = True
-) -> ParseResult:
-    """
-    Call the local OmniParser V2 API and return a full ParseResult with metadata.
+    raw_id = item.get("element_id", item.get("id"))
+    element_id = f"~{index + 1}" if raw_id is None else _normalize_element_id(raw_id)
 
-    Args:
-        image_base64: Base64 image, with or without a data URI prefix.
-        compute_spatial: If True, compute spatial relations (left/right/top/bottom).
-                         Set to False for performance-sensitive callers that don't
-                         need spatial relations (e.g., repeated calls in agent loop).
-
-    Returns:
-        ParseResult with elements, annotated_image, reference_resolution, detection_meta.
-        Returns an empty ParseResult if no image is provided or parsing fails.
-    """
-    payload_base64 = _clean_base64(image_base64)
-    if not payload_base64:
-        return ParseResult()
-
-    url = f"{_OMNIPARSER_URL}/parse/"
-    payload = {"base64_image": payload_base64}
-
-    latency_ms = 0
-    last_exc = None
-    for attempt in range(_OMNIPARSER_RETRY + 1):
-        if attempt > 0:
-            time.sleep(_OMNIPARSER_RETRY_DELAY)
-        try:
-            t_start = time.time()
-            with httpx.Client(timeout=_OMNIPARSER_TIMEOUT) as client:
-                response = client.post(url, json=payload)
-                response.raise_for_status()
-                data = response.json()
-                latency_ms = int((time.time() - t_start) * 1000)
-                break  # success, exit retry loop
-        except Exception as exc:
-            last_exc = exc
-            print(
-                f"[OmniParser Client] attempt {attempt+1}/{_OMNIPARSER_RETRY+1} failed: {exc}"
-            )
+    vals = [float(v) for v in bbox]
+    if img_w > 0 and img_h > 0 and max(vals) <= 1.0 and min(vals) >= 0:
+        x1 = int(vals[0] * img_w)
+        y1 = int(vals[1] * img_h)
+        x2 = int(vals[2] * img_w)
+        y2 = int(vals[3] * img_h)
     else:
-        # All retries exhausted
-        print(f"[OmniParser Client] all retries exhausted: {last_exc}")
-        return ParseResult()
+        x1, y1, x2, y2 = (int(v) for v in vals)
 
-    if data.get("error"):
-        print(f"[OmniParser Client] parser returned error: {data['error']}")
-        return ParseResult()
+    center_raw = item.get("center")
+    if (
+        center_raw
+        and len(center_raw) >= 2
+        and not (center_raw[0] == 0 and center_raw[1] == 0)
+    ):
+        cx, cy = float(center_raw[0]), float(center_raw[1])
+        if img_w > 0 and img_h > 0 and max(abs(cx), abs(cy)) <= 1.0:
+            center = [int(cx * img_w), int(cy * img_h)]
+        else:
+            center = [int(cx), int(cy)]
+    else:
+        center = [(x1 + x2) // 2, (y1 + y2) // 2]
 
-    raw_elements = data.get("parsed_content_list") or data.get("elements") or []
+    raw_type = item.get("element_type") or item.get("type") or "other"
+    allowed_types = {
+        "button", "input", "icon", "menu", "checkbox", "dropdown", "text", "other",
+    }
+    element_type = raw_type if raw_type in allowed_types else "other"
 
-    # If OmniParser returned all None IDs, assign sequential ones
-    all_none = all(
-        isinstance(e, dict) and e.get("id") is None
-        for e in raw_elements
-        if isinstance(e, dict)
+    return UIElement(
+        element_id=element_id,
+        bbox=[x1, y1, x2, y2],
+        element_type=element_type,
+        text=item.get("text", "") or item.get("content", "") or "",
+        confidence=float(item.get("confidence", 1.0)),
+        center=center,
     )
 
-    reference_resolution = None
-    # Try PIL decode first to get image dimensions for bbox normalization
-    try:
-        raw = base64.b64decode(payload_base64)
-        with Image.open(io.BytesIO(raw)) as img:
-            reference_resolution = [img.width, img.height]
-    except Exception:
-        reference_resolution = [1920, 1080]
 
-    elements: List[UIElement] = []
-    seq = 1
-    for item in raw_elements:
-        if not isinstance(item, dict):
-            continue
-        bbox_raw = item.get("bbox")
-        if not bbox_raw or len(bbox_raw) != 4:
-            continue
-
-        # OmniParser returns normalized 0-1 bbox. Convert to pixel bbox.
-        x1, y1, x2, y2 = [float(v) for v in bbox_raw]
-        if max(abs(x1), abs(y1), abs(x2), abs(y2)) <= 1.0:
-            ref_w = reference_resolution[0]
-            ref_h = reference_resolution[1]
-            x1, x2 = int(x1 * ref_w), int(x2 * ref_w)
-            y1, y2 = int(y1 * ref_h), int(y2 * ref_h)
-
-        # Skip degenerate [0,0,0,0] bboxes
-        if x1 == 0 and y1 == 0 and x2 == 0 and y2 == 0:
-            continue
-
-        raw_id = item.get("id")
-        if raw_id is not None:
-            element_id = str(raw_id)  # strip ~ prefix — was: f"~{raw_id}"
-        elif all_none:
-            element_id = str(seq)  # strip ~ prefix — was: f"~{seq}"
-            seq += 1
-        else:
-            element_id = "?"
-
-        center = item.get("center") or [(x1 + x2) / 2.0, (y1 + y2) / 2.0]
-        center_int = [int(center[0]), int(center[1])]
-
-        raw_type = item.get("element_type", item.get("type", "other"))
-        allowed_types = {
-            "button",
-            "input",
-            "icon",
-            "menu",
-            "checkbox",
-            "dropdown",
-            "text",
-            "other",
-        }
-        element_type = raw_type if raw_type in allowed_types else "other"
-
-        # Use OmniParser center if available, else bbox midpoint
-        center_int = [int((x1 + x2) / 2), int((y1 + y2) / 2)]
-
-        elements.append(
-            UIElement(
-                element_id=element_id,
-                bbox=[x1, y1, x2, y2],
-                element_type=element_type,
-                text=item.get("text", "") or "",
-                confidence=float(item.get("confidence", 1.0)),
-                center=center_int,
-            )
-        )
-
-    # ── Compute spatial relations (left/right/top/bottom neighbors) ──
-    if compute_spatial:
-        _compute_spatial_relations(elements)
-
-    # ── 提取 SoM 标注图 ──
-    annotated_image = None
+def _annotated_image_from_response(data: dict) -> Optional[str]:
     for key in (
         "som_image_base64",
-        "som_image",
-        "som_base64",
         "annotated_image",
         "labeled_image",
+        "som_image",
+        "som_base64",
     ):
         val = data.get(key)
         if isinstance(val, str) and val:
-            annotated_image = _compress_som_image(val)
-            break
+            return val
+    return None
 
-    # ── 提取 / 推导 reference_resolution ──
-    reference_resolution = None
-    # 优先从 OmniParser 响应取
+
+def _resolution_from_response(data: dict, payload_base64: str) -> Optional[List[int]]:
+    image_size = data.get("image_size")
+    if isinstance(image_size, dict):
+        w = image_size.get("width")
+        h = image_size.get("height")
+        if isinstance(w, (int, float)) and isinstance(h, (int, float)):
+            return [int(w), int(h)]
+
     for w_key, h_key in (
         ("width", "height"),
         ("image_width", "image_height"),
@@ -354,23 +193,110 @@ def parse_screenshot_full(
         w = data.get(w_key)
         h = data.get(h_key)
         if isinstance(w, (int, float)) and isinstance(h, (int, float)):
-            reference_resolution = [int(w), int(h)]
-            break
+            return [int(w), int(h)]
 
-    # 回退到 PIL 解码
-    if reference_resolution is None:
-        reference_resolution = _decode_image_resolution(payload_base64)
+    return _decode_image_resolution(payload_base64)
 
-    # ── 检测元信息 ──
+
+@dataclass
+class ParseResult:
+    """Full result from OmniParser parse call."""
+    elements: List[UIElement] = field(default_factory=list)
+    annotated_image: Optional[str] = None
+    reference_resolution: Optional[List[int]] = None
+    detection_meta: Optional[dict] = None
+
+
+def parse_screenshot(image_base64: Optional[str]) -> List[UIElement]:
+    return parse_screenshot_full(image_base64).elements
+
+
+def parse_screenshot_full(image_base64: Optional[str]) -> ParseResult:
+    payload_base64 = _clean_base64(image_base64)
+    if not payload_base64:
+        return ParseResult()
+
+    omni_url, omni_timeout, omni_retry, omni_retry_delay, max_side = _omni_config()
+    payload_base64, original_size, sent_size = _maybe_downscale_b64(
+        payload_base64, max_side
+    )
+    if original_size and sent_size and original_size != sent_size:
+        print(
+            f"[OmniParser Client] downscale {original_size[0]}x{original_size[1]}"
+            f" -> {sent_size[0]}x{sent_size[1]} max_side={max_side}"
+        )
+
+    last_exc = None
+    data = None
+    latency_ms = 0
+    t_start = time.time()
+    print(
+        f"[OmniParser Client] POST {omni_url}/parse/ timeout={omni_timeout}s "
+        f"retry={omni_retry}"
+    )
+
+    for attempt in range(omni_retry + 1):
+        if attempt > 0:
+            time.sleep(omni_retry_delay)
+        try:
+            with httpx.Client(timeout=omni_timeout) as client:
+                for url in _parse_endpoints(omni_url):
+                    for payload in _parse_payloads(payload_base64):
+                        response = client.post(url, json=payload)
+                        if response.status_code in (404, 405, 422):
+                            continue
+                        response.raise_for_status()
+                        data = response.json()
+                        break
+                    if data is not None:
+                        break
+            if data is not None:
+                break
+            raise httpx.HTTPError("no compatible /parse endpoint accepted request")
+        except Exception as exc:
+            last_exc = exc
+            print(
+                f"[OmniParser Client] attempt {attempt + 1}/{omni_retry + 1} failed: {exc}"
+            )
+    else:
+        print(f"[OmniParser Client] all retries exhausted: {last_exc}")
+        return ParseResult()
+
+    latency_ms = int((time.time() - t_start) * 1000)
+    print(
+        f"[OmniParser Client] parse done in {latency_ms}ms url={omni_url}"
+    )
+
+    if not isinstance(data, dict):
+        return ParseResult()
+
+    if data.get("error"):
+        print(f"[OmniParser Client] parser returned error: {data['error']}")
+        return ParseResult()
+
+    elements: List[UIElement] = []
+    resolution = _resolution_from_response(data, payload_base64) or sent_size or [960, 540]
+    img_w = int(resolution[0]) if resolution else 0
+    img_h = int(resolution[1]) if len(resolution or []) > 1 else 0
+    for i, item in enumerate(_raw_elements_from_response(data)):
+        elem = _item_to_ui_element(item, img_w=img_w, img_h=img_h, index=i)
+        if elem is not None:
+            elements.append(elem)
+
     detection_meta = {
-        "latency_ms": latency_ms,
+        "latency_ms": data.get("latency_ms", latency_ms),
+        "parse_latency_ms": latency_ms,
         "element_count": len(elements),
-        "backend": "local_omniparser",
+        "backend": data.get("backend", "local_omniparser"),
+        "device": data.get("device"),
+        "omniparser_url": omni_url,
+        "original_size": original_size,
+        "sent_size": sent_size,
     }
 
     return ParseResult(
         elements=elements,
-        annotated_image=annotated_image,
-        reference_resolution=reference_resolution,
+        annotated_image=_annotated_image_from_response(data),
+        reference_resolution=_resolution_from_response(data, payload_base64),
         detection_meta=detection_meta,
     )

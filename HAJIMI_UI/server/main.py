@@ -1,7 +1,6 @@
 """
 HAJIMI Demo Server 入口
 """
-
 import sys
 from pathlib import Path
 
@@ -9,15 +8,21 @@ from pathlib import Path
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 
 from server.config import settings
-from server.database import init_db
-from server.routes.admin import router as admin_router
 from server.routes.demo import router as demo_router
+from server.routes.admin import router as admin_router
+from server.routes.audit import router as audit_router
+from server.routes.config_client import router as config_router
+from server.routes.auth import router as auth_router
+from server.routes.flow import router as flow_router
+from server.routes.monitor import router as monitor_router
+from server.database import init_db
+
 
 app = FastAPI(
     title="HAJIMI Demo Server",
@@ -27,12 +32,10 @@ app = FastAPI(
 
 # ────────────────────────── 启动事件 ──────────────────────────
 
-
 @app.on_event("startup")
 def on_startup():
     """初始化数据库表"""
     init_db()
-
 
 # ────────────────────────── 中间件 ──────────────────────────
 
@@ -65,6 +68,11 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 app.include_router(demo_router)
 app.include_router(admin_router)
+app.include_router(audit_router)
+app.include_router(config_router)
+app.include_router(auth_router)
+app.include_router(flow_router)
+app.include_router(monitor_router)
 
 
 @app.get("/")

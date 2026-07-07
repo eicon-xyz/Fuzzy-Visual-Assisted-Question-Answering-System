@@ -1,0 +1,1372 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>files</key>
+	<dict>
+		<key>Resources/Assets.car</key>
+		<data>
+		bdn0HS8BxG5IFe3AuFf3hoAmC8k=
+		</data>
+		<key>Resources/Base.lproj/MGSContextMenu.nib</key>
+		<data>
+		3S45tzWh1zmyvVnLyxyoBdjE9IQ=
+		</data>
+		<key>Resources/Base.lproj/SMLDetab.nib</key>
+		<data>
+		B0wboxA3j1J9E7l0ipBBdxz3QnI=
+		</data>
+		<key>Resources/Base.lproj/SMLEntab.nib</key>
+		<data>
+		lD93Q856P5ULO4HXndJtrFQbvzE=
+		</data>
+		<key>Resources/Base.lproj/SMLGoToLine.nib</key>
+		<data>
+		8KuYHnFeZdk8Ic+vUVm1wssMgAc=
+		</data>
+		<key>Resources/Colour Schemes/Classic Fragaria.plist</key>
+		<data>
+		G88Q8NczJ8e883H39Z+LwqUeLjM=
+		</data>
+		<key>Resources/Colour Schemes/Midnight.plist</key>
+		<data>
+		UKfaMie7yu5zu5yTEdQHoQrbVGs=
+		</data>
+		<key>Resources/Colour Schemes/Solarized Dark.plist</key>
+		<data>
+		VT3O6fzb5i/lXu2gq/Ixx8UzVAU=
+		</data>
+		<key>Resources/Colour Schemes/Solarized Light.plist</key>
+		<data>
+		++J0IvhA64gCdxKx1jnFWJcccxw=
+		</data>
+		<key>Resources/Info.plist</key>
+		<data>
+		/J0rH4zIbOupBpQSyB8krb85rsE=
+		</data>
+		<key>Resources/LICENSE-2.0.txt</key>
+		<data>
+		K4uBUimqimHkg/tLoFiLi2xJGJA=
+		</data>
+		<key>Resources/README.md</key>
+		<data>
+		WtvEt/bMrxIScRvltWwOE4ojyIQ=
+		</data>
+		<key>Resources/Syntax Definitions/actionscript.plist</key>
+		<data>
+		lawdQCn60ov3L1MgiZ3xsRTA8Uc=
+		</data>
+		<key>Resources/Syntax Definitions/actionscript3.plist</key>
+		<data>
+		q4WGG6iYHZJGErk9OH+skNVSRYo=
+		</data>
+		<key>Resources/Syntax Definitions/active4d.plist</key>
+		<data>
+		fb2GI9Ek5AbjtEFU9nq1U1P12fI=
+		</data>
+		<key>Resources/Syntax Definitions/ada.plist</key>
+		<data>
+		xi6yy65UllrxZX57ucMO48jMfoE=
+		</data>
+		<key>Resources/Syntax Definitions/ampl.plist</key>
+		<data>
+		rYucREbjT8l1CfCN9ypM8zw/Fus=
+		</data>
+		<key>Resources/Syntax Definitions/apache.plist</key>
+		<data>
+		2y4m+QCIiq6ZbAtj4BNWWuyCs5k=
+		</data>
+		<key>Resources/Syntax Definitions/apex.plist</key>
+		<data>
+		ouJgzDGhQwd+I667y45qv6i6GwA=
+		</data>
+		<key>Resources/Syntax Definitions/applescript.plist</key>
+		<data>
+		vxWO5UXKwcZTWCAE3igFSm/h6Hk=
+		</data>
+		<key>Resources/Syntax Definitions/asm-m68k.plist</key>
+		<data>
+		emDPDZzaj+AieSwqU/0Mu10UJGs=
+		</data>
+		<key>Resources/Syntax Definitions/asm-mips.plist</key>
+		<data>
+		JItqN9Esv46KXJ+0O9ZKXKjdvm8=
+		</data>
+		<key>Resources/Syntax Definitions/asm-x86.plist</key>
+		<data>
+		BmE+w8oM5E7/Ket0vWo6UcInngY=
+		</data>
+		<key>Resources/Syntax Definitions/asp-js.plist</key>
+		<data>
+		G8RBIEG8IJJkQJ4yFH4yUL1oEUE=
+		</data>
+		<key>Resources/Syntax Definitions/asp-vb.plist</key>
+		<data>
+		j4iWUUFRKQdB4ushDI585Ro8veE=
+		</data>
+		<key>Resources/Syntax Definitions/aspdotnet-cs.plist</key>
+		<data>
+		SQhA2eSlkQyuzhOytzIGNom4GVg=
+		</data>
+		<key>Resources/Syntax Definitions/aspdotnet-vb.plist</key>
+		<data>
+		kNWBzYw9j4jD2nAcOMp9SoknEL4=
+		</data>
+		<key>Resources/Syntax Definitions/awk.plist</key>
+		<data>
+		Yd6Cnq3Pa3kcJmQE1iTD5VirWSk=
+		</data>
+		<key>Resources/Syntax Definitions/batch.plist</key>
+		<data>
+		NiufhX1Sp+CT9y+FM6W985B2Jw8=
+		</data>
+		<key>Resources/Syntax Definitions/c.plist</key>
+		<data>
+		TGe0ixSINxlht+UqzTPX8iNVIAk=
+		</data>
+		<key>Resources/Syntax Definitions/cobol.plist</key>
+		<data>
+		5UvWupO9Ik5c7FhoNJPjzeSh8EQ=
+		</data>
+		<key>Resources/Syntax Definitions/coffeescript.plist</key>
+		<data>
+		hDtgPf/XjD29WNbkU9znJFL5cVw=
+		</data>
+		<key>Resources/Syntax Definitions/coldfusion.plist</key>
+		<data>
+		XUbZThFBbEjaqzDSscEFg0PN6cw=
+		</data>
+		<key>Resources/Syntax Definitions/cpp.plist</key>
+		<data>
+		P1oH5NKa9UxCq39e2V6eNm+gEsI=
+		</data>
+		<key>Resources/Syntax Definitions/csharp.plist</key>
+		<data>
+		mavIbLOLLOidZEXtW0LrB/ii/Kg=
+		</data>
+		<key>Resources/Syntax Definitions/csound.plist</key>
+		<data>
+		1m7FqjcQz31+wEEQ05dnTjZD6w0=
+		</data>
+		<key>Resources/Syntax Definitions/css.plist</key>
+		<data>
+		2M1Hx1VLzG1T/iox2KZZoMxM5Q8=
+		</data>
+		<key>Resources/Syntax Definitions/d.plist</key>
+		<data>
+		H+2uMnEJJSgrXjn4LOtgnQSeoQw=
+		</data>
+		<key>Resources/Syntax Definitions/dylan.plist</key>
+		<data>
+		7Vr0gQk6Gorz7sqR2E0dqymY9yA=
+		</data>
+		<key>Resources/Syntax Definitions/eiffel.plist</key>
+		<data>
+		Eub3b38julZ9c0kPD+Uf8b31vlQ=
+		</data>
+		<key>Resources/Syntax Definitions/erl.plist</key>
+		<data>
+		Ug0vNqD94wA0irDNiCDwbuv+I6g=
+		</data>
+		<key>Resources/Syntax Definitions/eztpl.plist</key>
+		<data>
+		beA1fGNmxk6HOeb7V6KIlkQdSVc=
+		</data>
+		<key>Resources/Syntax Definitions/f-script.plist</key>
+		<data>
+		13aOTDnyC7L1Au0DBNMjYEfyiX0=
+		</data>
+		<key>Resources/Syntax Definitions/fortran.plist</key>
+		<data>
+		BAMjF0xs7dQ9cVY02XHwcc+y7Z8=
+		</data>
+		<key>Resources/Syntax Definitions/freefem.plist</key>
+		<data>
+		Fs4UPPvcrN2pYWembp2kfDEPo5w=
+		</data>
+		<key>Resources/Syntax Definitions/gedcom.plist</key>
+		<data>
+		WlIaZuNNtASkm2XcDks1CNxqjmE=
+		</data>
+		<key>Resources/Syntax Definitions/gnuassembler.plist</key>
+		<data>
+		YgqqD+lPP0kGvR7Fw8HaMJaBBZ4=
+		</data>
+		<key>Resources/Syntax Definitions/graphviz.plist</key>
+		<data>
+		8i9QNrz09VGRwUxULgFfSOA4rhw=
+		</data>
+		<key>Resources/Syntax Definitions/haskell.plist</key>
+		<data>
+		0Jn8eeVteKMOFgxUqr3frRV2h8Q=
+		</data>
+		<key>Resources/Syntax Definitions/header.plist</key>
+		<data>
+		o5DVDJgMMdCZYe4vCfdJ6zmZdbc=
+		</data>
+		<key>Resources/Syntax Definitions/html.plist</key>
+		<data>
+		NtKDQ35WlJorKjpRSahochvw0p8=
+		</data>
+		<key>Resources/Syntax Definitions/idl.plist</key>
+		<data>
+		FKwVhNGRRmdwdlTEB+JJKly3S3I=
+		</data>
+		<key>Resources/Syntax Definitions/java.plist</key>
+		<data>
+		mvoPniexqqGJ+yZ+caMmOwmJBVk=
+		</data>
+		<key>Resources/Syntax Definitions/javafx.plist</key>
+		<data>
+		D62PxjolacNKz/S33AeemJD5akI=
+		</data>
+		<key>Resources/Syntax Definitions/javascript.plist</key>
+		<data>
+		K/EsO/ab4Jc18XX7YZbx4Ai0Nnk=
+		</data>
+		<key>Resources/Syntax Definitions/jsp.plist</key>
+		<data>
+		A3P7nXM2c/DyMLnUbT9cVYX4w7Y=
+		</data>
+		<key>Resources/Syntax Definitions/latex.plist</key>
+		<data>
+		ba5CzWds2TW4JOgbOYJ2eRpktXo=
+		</data>
+		<key>Resources/Syntax Definitions/lilypond.plist</key>
+		<data>
+		rGpVWMszHrTzB/QqPpu6Ih/oPfQ=
+		</data>
+		<key>Resources/Syntax Definitions/lisp.plist</key>
+		<data>
+		DqWqYmzvSjMe1p9MqRRq6oLurdw=
+		</data>
+		<key>Resources/Syntax Definitions/logtalk.plist</key>
+		<data>
+		Quou7N7Jy2PL/fvcZfFW/F8irb8=
+		</data>
+		<key>Resources/Syntax Definitions/lsl.plist</key>
+		<data>
+		9nYZnF4HUgRN85C7BichfH+djTE=
+		</data>
+		<key>Resources/Syntax Definitions/lua.plist</key>
+		<data>
+		Cey4HOQ9e2t0RBUHRsw/IqNijks=
+		</data>
+		<key>Resources/Syntax Definitions/markdown.plist</key>
+		<data>
+		vDB/YZTA5H9JJLmJqC2e/pqbHc0=
+		</data>
+		<key>Resources/Syntax Definitions/matlab.plist</key>
+		<data>
+		/7JXCjdgsciQlI9JQ2UeftFeW/Y=
+		</data>
+		<key>Resources/Syntax Definitions/mel.plist</key>
+		<data>
+		4Am+WlvbihLnf9FJgL2dS4U6yKE=
+		</data>
+		<key>Resources/Syntax Definitions/metapost.plist</key>
+		<data>
+		bsPawXszrB9qougAY4WDHdbwGZA=
+		</data>
+		<key>Resources/Syntax Definitions/metaslang.plist</key>
+		<data>
+		Lfctgr7ZDXW7DJBfUgqJVhVR0ZQ=
+		</data>
+		<key>Resources/Syntax Definitions/mysql.plist</key>
+		<data>
+		OUpcTdlwWSp8JizEpXKvaaz4izo=
+		</data>
+		<key>Resources/Syntax Definitions/nemerle.plist</key>
+		<data>
+		/QQfnM3mjtO2ZF4j4xKUMUB4PLQ=
+		</data>
+		<key>Resources/Syntax Definitions/none.plist</key>
+		<data>
+		nNT7UwX5fnHiKUTeG01+hF08qVg=
+		</data>
+		<key>Resources/Syntax Definitions/nrnhoc.plist</key>
+		<data>
+		cnuLBwtTHJ5fRN7k5X6wrHbBp1U=
+		</data>
+		<key>Resources/Syntax Definitions/objectivec.plist</key>
+		<data>
+		eELV4ESVFWjAeloW0HNpvpwxBFU=
+		</data>
+		<key>Resources/Syntax Definitions/objectivecaml.plist</key>
+		<data>
+		IsHsk5QLaEb6eFUML2J760DkQxI=
+		</data>
+		<key>Resources/Syntax Definitions/ox.plist</key>
+		<data>
+		F3pTv9Vw/xLGnd3CB2rZWwOuCqA=
+		</data>
+		<key>Resources/Syntax Definitions/pascal.plist</key>
+		<data>
+		DsWEMXujbnOA+PuibOfXNt3B3fU=
+		</data>
+		<key>Resources/Syntax Definitions/pdf.plist</key>
+		<data>
+		gZJIgwJH1nTr/qp462tC11Y6XKk=
+		</data>
+		<key>Resources/Syntax Definitions/perl.plist</key>
+		<data>
+		edR+rhusvhZ2LeZmRnaaX0H0taE=
+		</data>
+		<key>Resources/Syntax Definitions/php.plist</key>
+		<data>
+		XnL4rR2Q8bj3rgXtgFw1wWf9FNE=
+		</data>
+		<key>Resources/Syntax Definitions/plist.plist</key>
+		<data>
+		0tSjXIByr2z0C0jUqXm8ly6jj+g=
+		</data>
+		<key>Resources/Syntax Definitions/postscript.plist</key>
+		<data>
+		RK6mtDaN1i0pCbm9smEimDStAMA=
+		</data>
+		<key>Resources/Syntax Definitions/powershell.plist</key>
+		<data>
+		Lf2yq45XNh/YoPDAf/9p6s/MJ4E=
+		</data>
+		<key>Resources/Syntax Definitions/prolog.plist</key>
+		<data>
+		IbG17rkjuaRaXF26u5LiADZfpGk=
+		</data>
+		<key>Resources/Syntax Definitions/python.plist</key>
+		<data>
+		7pAoMaCPmWyB0lggyqckuhThU7A=
+		</data>
+		<key>Resources/Syntax Definitions/r.plist</key>
+		<data>
+		QdrFa+4jpaxvIVyqLaKZliY7T4o=
+		</data>
+		<key>Resources/Syntax Definitions/rhtml.plist</key>
+		<data>
+		Cr2CDKaaZuOoNfeGponEC6ayU4o=
+		</data>
+		<key>Resources/Syntax Definitions/ruby.plist</key>
+		<data>
+		hiW4pmqV74TNVlkLYrk+QFj65+g=
+		</data>
+		<key>Resources/Syntax Definitions/scala.plist</key>
+		<data>
+		Vn5qCS6qxaC467mAFa6LXJ+omxc=
+		</data>
+		<key>Resources/Syntax Definitions/sgml.plist</key>
+		<data>
+		Oewjaa/omhpkvJT0OiODlx7CdHY=
+		</data>
+		<key>Resources/Syntax Definitions/shell.plist</key>
+		<data>
+		LrakDoLX+I6Qvp69t/8oUgmY0Rc=
+		</data>
+		<key>Resources/Syntax Definitions/sml.plist</key>
+		<data>
+		Ues8pNaDFxI9Rpk7HNg53EoubqE=
+		</data>
+		<key>Resources/Syntax Definitions/sql.plist</key>
+		<data>
+		TvrAJ5zTMQan+5004+khXUeuuHA=
+		</data>
+		<key>Resources/Syntax Definitions/stata.plist</key>
+		<data>
+		P7rGHy3+OWf05fOwdhLDkfSaCYY=
+		</data>
+		<key>Resources/Syntax Definitions/supercollider.plist</key>
+		<data>
+		QVmvD6oc6kSQkpx4uskpbR9YZaY=
+		</data>
+		<key>Resources/Syntax Definitions/swift.plist</key>
+		<data>
+		2MaSqPADEXlEEICel1VHRGIIk54=
+		</data>
+		<key>Resources/Syntax Definitions/tcltk.plist</key>
+		<data>
+		6hNInLuLa4/tjI3bO6jH0TWK8Nw=
+		</data>
+		<key>Resources/Syntax Definitions/torquescript.plist</key>
+		<data>
+		VamC0ZG5sLcUUOOfneZJVrXicVw=
+		</data>
+		<key>Resources/Syntax Definitions/udo.plist</key>
+		<data>
+		hTQwIbpXX0O92JpRLPpECu2ih9o=
+		</data>
+		<key>Resources/Syntax Definitions/vb.plist</key>
+		<data>
+		/K8R3VMfJCSHrRY9FMNjV1XbKm8=
+		</data>
+		<key>Resources/Syntax Definitions/verilog.plist</key>
+		<data>
+		T490+x35L/5hY2K4J5CMdrqL5HE=
+		</data>
+		<key>Resources/Syntax Definitions/vhdl.plist</key>
+		<data>
+		DpI+W3Lh27aY8e8opFEcJdBImEE=
+		</data>
+		<key>Resources/Syntax Definitions/xml.plist</key>
+		<data>
+		L/TgNkRXNYrN5OzU1+adNL7d3/c=
+		</data>
+		<key>Resources/en-GB.lproj/Localizable.strings</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			Y6+Ibc2to3muoCIy/nP6Rh5gL+w=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+		<key>Resources/en-GB.lproj/MGSContextMenu.nib</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			zVQd1SKxOL7FqOtnthIq8e8aoEE=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+		<key>Resources/en-GB.lproj/SMLDetab.nib</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			R8h35ifNRUcK2P3z0vbig8Cqr40=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+		<key>Resources/en-GB.lproj/SMLEntab.nib</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			45i6gPAUe/tu4xzmZkP/buh3Nsc=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+		<key>Resources/en-GB.lproj/SMLGoToLine.nib</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			YT8IypAhZfKm/8CV1NvlT9Vk1tc=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+		<key>Resources/en-GB.lproj/SyntaxGroupNames.strings</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			Z4f69r7nKpnZqMNcRsibUvaDZe4=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+		<key>Resources/en.lproj/Localizable.strings</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			Y6+Ibc2to3muoCIy/nP6Rh5gL+w=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+		<key>Resources/en.lproj/SyntaxGroupNames.strings</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			Z4f69r7nKpnZqMNcRsibUvaDZe4=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+	</dict>
+	<key>files2</key>
+	<dict>
+		<key>Resources/Assets.car</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			Q8z4AQ2MFTp3uhdb8dG+VNiQFwNf8t+331Y1FuZ01mw=
+			</data>
+		</dict>
+		<key>Resources/Base.lproj/MGSContextMenu.nib</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			VpRd6rA4IoZHLjS1hsamD+kPMmvueNhq86M/UC4XtiE=
+			</data>
+		</dict>
+		<key>Resources/Base.lproj/SMLDetab.nib</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			I8cG2vBBJy8JGwJtrs5eoOcYlXLr7EsWhmpJI1UVngU=
+			</data>
+		</dict>
+		<key>Resources/Base.lproj/SMLEntab.nib</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			6RKdqqsmHdZlv3dx64rJnY6AvpmmvIsBj8qXEXJT+Z0=
+			</data>
+		</dict>
+		<key>Resources/Base.lproj/SMLGoToLine.nib</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			92iY1JCQCWHivdED2LbFpF4kdjF69jGCBPX05TI05IA=
+			</data>
+		</dict>
+		<key>Resources/Colour Schemes/Classic Fragaria.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			9eS9bfgT28ORtaLj2etkAcH7MtdfMYUdrSd8IGkWENY=
+			</data>
+		</dict>
+		<key>Resources/Colour Schemes/Midnight.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			t2Pcso4tRZolxD9nA6N21m9D8OWH5k2YYak++9+be98=
+			</data>
+		</dict>
+		<key>Resources/Colour Schemes/Solarized Dark.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			93OrmTpyh+LCFxcdRdahFpo3XVD5nzKthGRPp/Fq5EE=
+			</data>
+		</dict>
+		<key>Resources/Colour Schemes/Solarized Light.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			gL5rTx4g1BnAW3M8EPhOgaOq88e94Dpu3NLyG2GmqSA=
+			</data>
+		</dict>
+		<key>Resources/Info.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			8nKG0IT6smHGPhKR1ghzxLi8LRLxrL+NjxJNNiX1Xz0=
+			</data>
+		</dict>
+		<key>Resources/LICENSE-2.0.txt</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			z8d0m5b2O9McPEK1xHG/dWgUBT6EfBDz6wA0F7xSPTA=
+			</data>
+		</dict>
+		<key>Resources/README.md</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			Cs/kICarvGVusQXrqf7OJhu0YQj1ijmYKRtJNm1HAzo=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/actionscript.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			/oINWwzKK6KQcAaIC3eEQQ8rqfik9FnbVB86ueYfKS4=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/actionscript3.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			STqwYR8tZqvcrZ7x75gY5Dke579QPmYboyLjiS/WaUE=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/active4d.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			OhehQHDLvL9D+h13SbBfZU/EWuSIE59lkIPMqP2E9QI=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/ada.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			ki+SYaOzMKEfTolV6C8GuFXevE+SP+fH7XeypsFmsBo=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/ampl.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			88HztY6/CFfhV5cRoO7wp64jHY6DrbnMCazgd/wBNKs=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/apache.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			PgGZDHl0HSoAC8kv3HXtDkdISs2j5BsoZDEr+9q+uvM=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/apex.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			5n//u/h4Gwkw0JBVWPIMETDWWfJzXxs/8pZrFwRvKmI=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/applescript.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			vLFoIRFxo8ePYt99qpSMEe8I8E2BzdQDX2WRJGZZ0g8=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/asm-m68k.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			eoC31wEwolKnM9LC2OEF7TCB6MkaJ7v0RQJTYaTE/4Q=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/asm-mips.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			miF0QfqvlTAGrchwXCJHbiNGhQ6C2F/uLeQ1il3vi80=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/asm-x86.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			OKyYl+cZi2XWZuiFq/T6sqp/MK2DtQLXhw9Ot3vwyik=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/asp-js.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			gOg9/mKfDXy0U2HEBKa1iFHIKvxj7KdnnPa2YMmgTWA=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/asp-vb.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			gqF4fcSalBcAn7bGJu4Q0rJZEEjK5uo611kmAMNq8eU=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/aspdotnet-cs.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			it7VPXdyQsdpg8iwZm7oM5l6g1rmNU4bzhXnhugIbMo=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/aspdotnet-vb.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			Gq9ePYa//Jz7VOXBtHzIFt4Ut0Tl0ZgPlShM3vDOKlE=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/awk.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			rOgc1W7YeN9nbLdEalox4H11yO2IGC8UkCqXOUDlAak=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/batch.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			bOqDMxGrJMggSPzGmk/wnAB5U/jJv1umn9YFsM5a2U8=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/c.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			WkqIl/6qimD9vj0+jLyc4KHL5vklzs4rzzIXgou2llA=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/cobol.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			lRaZqAWmfkHgexNUrfpIZ+DoOIoBPe2HHt+g9HaNnGM=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/coffeescript.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			IHWH1O+VkMzWlLSCPSDAnMFu8UxuZhkdJhmfV7AXou8=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/coldfusion.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			vGb4u2LMU94QMSmVXULC6mzXw+eF295CZt4W4c/SVHs=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/cpp.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			BkjMmjwnYMhCyWgveULypAIQ7Vra3FWOPmVqCV6sd4w=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/csharp.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			tjK0bEgLRyyutp8LI5krhWJAsZ6PIiQoZxtTJVi/8ow=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/csound.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			T5rL53Ss24ifAILEfSSwv4VElnDF00nojQ28s2ppReg=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/css.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			BRRHfR3p7N7kX3Sz9zdIVfTlM6K7lcUYwSH7lS8S2Tc=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/d.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			FpySviq7xAhKNnUjW/7T8InY4l+XenIM124CK5V/neI=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/dylan.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			aJw0z4r07N3JAhrFgd7NSZ05BW+XmshZKGH8vmee2I4=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/eiffel.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			0ZDhy6c90+ANo8GMWnVyoYsEN232vzeDz0birrG91XI=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/erl.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			0ITuk3+dQRXtcMnbOhPQQmKSrRoC2LRK9lFD4WLXpfk=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/eztpl.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			SkDpKz2B3vbQJo2ghJlVm+b1Oc4eEpcnpdtAn7FXeqI=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/f-script.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			zuNLbixXn3C3ZDCRAgtN5N7/w6Bstq7ED53eQrgiX3w=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/fortran.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			Hk+oG4nIB5lEVD4RrCPpkj5tjyPU0ht+LQyPABwyTQ8=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/freefem.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			XiQ007OWsGyHEKY67TlHmyHqSdryPIhOClq7p6TyJD4=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/gedcom.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			FrDduSCc6lBkieACCk72hg9JdXEzGtJs0C93aYNGOf4=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/gnuassembler.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			ak7jVNbdSn7mepOUnb1rsMBfZOTbBsz/FksG4dl5xWU=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/graphviz.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			MN4CTbvsMHuXaTMoY6AvQKIsfsZf2BAU6E5VDWzk6Ro=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/haskell.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			jfqpmQpQvKFG7XMuivfTdsuDHW3QS2esI6+0njy5vjY=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/header.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			o+Zq/xrYriWQm5IrlyLzUJ0pOjv521Dmh1wUv+Bq/Yw=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/html.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			CxrSwinmz6LCb9kszUddPhd0j5Hed2upJuUK1Hp/hTg=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/idl.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			8jxhEMhxB2YY9dXDASlwFn7XsJeqz0PK3fZ9CutnTMc=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/java.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			jqoTmMYigd/opG/mRuagoS4+Wv23NOg+C8b88jfjoxg=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/javafx.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			qH9+nd0UvDGmsrWeyF+7mwCDLdmgGy/Va9F/UHKL++A=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/javascript.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			eOeMsVCLw8G83yBOxn399IxkRAquUrgIolZWEbQMZEQ=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/jsp.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			/Rd6FCzT7FJ9TjvQXzy0tYYHMX5JmD4HunY8GMy57po=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/latex.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			Z7938ZfDXEZ0UjmSJA08hAQpyoKkL99OHRUC7XokcJA=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/lilypond.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			Rzr+G3qo2/MRD1+7eJkVpKmmrbDbWhPWPAVNAcO/7iM=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/lisp.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			cH7jVadYzYbDfkClOZOiZm+QSGoSnSNJz7qZPS6EgIs=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/logtalk.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			vUlnFaGALJZ3fV61V1B84Tx5UcWc22/zIlvb4WdCZ2k=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/lsl.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			3rUH28ivTrHyDSV+2Rf1L7JrR0MU9ZSR2Vx2NkPeFk8=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/lua.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			0yhnd2zbKZfLkH3iuPL/MgghXueXvk1HBvYhX4l8teA=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/markdown.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			oIu+5Id29VZlZqwRBI+0UtyrXu9HvuWUhuR7/JCKwMQ=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/matlab.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			dlw2/fgpV4rQYYPD3qK/QbvqI7ktitputopZBpoEnFk=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/mel.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			qBhflvIFyOGCv6Wyo2V2kVelEUlA91eC9603CBrqsS8=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/metapost.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			r3sKFZyHdr5Xik83SCR/B4+2GKn6fsz/6pyZ2VZAN7c=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/metaslang.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			iSddwgjpyZ06LB5m97HCTSXx+1pLgdyr3NPL3R7Cvdw=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/mysql.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			qj4/lS3S0V+bxlHdaue8d3NwOy1gOJRTsz4LPJfCddQ=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/nemerle.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			dhdYFc9WgBZONVjDJbeBC+vHtLbKeGP7HlPc5SpR3Xw=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/none.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			zdt33zrhTIsYbGFEJjtXQuJpiCtP9TMYpBeOjP0ywwQ=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/nrnhoc.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			7T+1rJfFBFxsmFj9He9pqRzpKZGXte4a7QSynhmAn64=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/objectivec.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			2MXNjV72Vu8GKyopJ9yqW2wBbT1/ikcfvxbjlGdZtvg=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/objectivecaml.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			0eOUk1noCDBIOpjiMgqrzK3tIixhu6TA3yFw5Lb7kz0=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/ox.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			1ERZ2RrXQ9Tkq2EYWukg0F9ikjt6bgXlYDIuf8jxIGo=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/pascal.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			85xn15HNbFOAdAqJgzwTPMInWrG2iKhPoxDUYtKMMXU=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/pdf.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			hYtypFY26lHYm639v53yX6K2jMtC14T2BQesOPTg6KI=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/perl.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			56USdQF1gIIdelKRvhUFk/rr5+FNBiKoiQTMuP70PX8=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/php.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			GTrweW1QQwLaQjJ8Vbyh0Y+DGOZrHv+/9w7RompHLxI=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/plist.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			zHKXn4JkmVrnX0ZRPA2jCDNrVQAMbGbKcBZ+OKUw2tc=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/postscript.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			Hgr+yMRaSsE3vLpg9PNc21gtAG1zLolQTLzkpUCMrzM=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/powershell.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			H6VIOKlJvMm7FhZOrO1Uu5pscbVLDUDYroGpx0xT+1k=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/prolog.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			sH7b9EgJpokuQ/syZqXYP5y7WJxau3CM1ypFJuA1cuo=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/python.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			GadJhFOMQOPyfWumCpbUx2F9rv43nooJAoe56Hxjg0w=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/r.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			OJAY/H6SThV7gC2fkNw7S9GcaENDcnJgMVr6SFUEJfg=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/rhtml.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			TupwgIoaYbloi4JeHQSuN5+FK4uwVOq+aGZSz6vb47E=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/ruby.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			A2UnV4ybmKhn+7bdrSB/1Hm7RDTm9ePsS4OncLW8E8M=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/scala.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			TEfbR9iGVLMV9yL1uHo816Em2gzni9BeCLN3udkBH7s=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/sgml.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			vRii/tmAoTSzV10uhIxTj3TdEbm2PElB2YbbiejpWsM=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/shell.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			8fmaQO7Nld3Sm0Scm5Oa652tPFPB2N3eqf6WFRt2YZ4=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/sml.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			9iITsB5UhSDuyMnyQmYUFKqVzgKcA/rZIxN+drSdskA=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/sql.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			pEXLzVEHoxwHWggzOiLwST1emv+LgVhxJNNWnfhMbKM=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/stata.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			qDdUiAO6jmxPksKhYJMR1tgS/oi6KjQaxfcdlfjfK1M=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/supercollider.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			ih4ZfBwoT1aM9qvBHjfDb3/hia2gqjks7UPGw/QoSgg=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/swift.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			hUBQ+5B8KQmYOWaQP7aSU66HTbfLXZ9FpPQJGNgsSsA=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/tcltk.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			khZEghkjQABAGruarbv4cIzj9iqOGvHsCvW8ORIuJI8=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/torquescript.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			wHNcYRB/+yYb7GY/+5Nj6OojZ0v6uB2EE0av0ve3G5E=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/udo.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			lYjGo2zDh+EKmCaqf+dS4BtDZtjwdFKKZBSk73ItAhY=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/vb.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			Dw2FbeII4aDRyzQtYXMEKdCCtY99pMnUPmYYIBtPR5Q=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/verilog.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			1hJjIb0jmubfJE+/ufa7nLzjePHiwCFNj3bkY7PFttM=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/vhdl.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			qs8S9xKHAYYl9HE9PyvvU8TKtWf30P+EgNa9RuwPiqM=
+			</data>
+		</dict>
+		<key>Resources/Syntax Definitions/xml.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			9OfGqOQbjyoSO+PumPhafDVO4ODJXKt9W6+oPEULvN8=
+			</data>
+		</dict>
+		<key>Resources/en-GB.lproj/Localizable.strings</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			ihEMRpI2c8GF3UJWA+kneUlmhwZF0e6zOhWZUubw/2A=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+		<key>Resources/en-GB.lproj/MGSContextMenu.nib</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			5sql4+hdWw0uyeJbrEKkRPrGyhgViXJwUtT7fE0pbzM=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+		<key>Resources/en-GB.lproj/SMLDetab.nib</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			k3GGv+CnOGH3U6fiYu+dEA15aczQ45W7MBBG4dxAI1g=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+		<key>Resources/en-GB.lproj/SMLEntab.nib</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			ymYIH8asBdbnqw2Vmz4d1uNCDak8RvSreaabBlv9sMQ=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+		<key>Resources/en-GB.lproj/SMLGoToLine.nib</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			1E9yv8+5/W8QJVDrXmynm8c9kOe+ojoYLUI8sXJfZo0=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+		<key>Resources/en-GB.lproj/SyntaxGroupNames.strings</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			vcXczGH43etDc1ddzmv6QKI3BnsNALM9xExityg+mt8=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+		<key>Resources/en.lproj/Localizable.strings</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			ihEMRpI2c8GF3UJWA+kneUlmhwZF0e6zOhWZUubw/2A=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+		<key>Resources/en.lproj/SyntaxGroupNames.strings</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			vcXczGH43etDc1ddzmv6QKI3BnsNALM9xExityg+mt8=
+			</data>
+			<key>optional</key>
+			<true/>
+		</dict>
+	</dict>
+	<key>rules</key>
+	<dict>
+		<key>^Resources/</key>
+		<true/>
+		<key>^Resources/.*\.lproj/</key>
+		<dict>
+			<key>optional</key>
+			<true/>
+			<key>weight</key>
+			<real>1000</real>
+		</dict>
+		<key>^Resources/.*\.lproj/locversion.plist$</key>
+		<dict>
+			<key>omit</key>
+			<true/>
+			<key>weight</key>
+			<real>1100</real>
+		</dict>
+		<key>^Resources/Base\.lproj/</key>
+		<dict>
+			<key>weight</key>
+			<real>1010</real>
+		</dict>
+		<key>^version.plist$</key>
+		<true/>
+	</dict>
+	<key>rules2</key>
+	<dict>
+		<key>.*\.dSYM($|/)</key>
+		<dict>
+			<key>weight</key>
+			<real>11</real>
+		</dict>
+		<key>^(.*/)?\.DS_Store$</key>
+		<dict>
+			<key>omit</key>
+			<true/>
+			<key>weight</key>
+			<real>2000</real>
+		</dict>
+		<key>^(Frameworks|SharedFrameworks|PlugIns|Plug-ins|XPCServices|Helpers|MacOS|Library/(Automator|Spotlight|LoginItems))/</key>
+		<dict>
+			<key>nested</key>
+			<true/>
+			<key>weight</key>
+			<real>10</real>
+		</dict>
+		<key>^.*</key>
+		<true/>
+		<key>^Info\.plist$</key>
+		<dict>
+			<key>omit</key>
+			<true/>
+			<key>weight</key>
+			<real>20</real>
+		</dict>
+		<key>^PkgInfo$</key>
+		<dict>
+			<key>omit</key>
+			<true/>
+			<key>weight</key>
+			<real>20</real>
+		</dict>
+		<key>^Resources/</key>
+		<dict>
+			<key>weight</key>
+			<real>20</real>
+		</dict>
+		<key>^Resources/.*\.lproj/</key>
+		<dict>
+			<key>optional</key>
+			<true/>
+			<key>weight</key>
+			<real>1000</real>
+		</dict>
+		<key>^Resources/.*\.lproj/locversion.plist$</key>
+		<dict>
+			<key>omit</key>
+			<true/>
+			<key>weight</key>
+			<real>1100</real>
+		</dict>
+		<key>^Resources/Base\.lproj/</key>
+		<dict>
+			<key>weight</key>
+			<real>1010</real>
+		</dict>
+		<key>^[^/]+$</key>
+		<dict>
+			<key>nested</key>
+			<true/>
+			<key>weight</key>
+			<real>10</real>
+		</dict>
+		<key>^embedded\.provisionprofile$</key>
+		<dict>
+			<key>weight</key>
+			<real>20</real>
+		</dict>
+		<key>^version\.plist$</key>
+		<dict>
+			<key>weight</key>
+			<real>20</real>
+		</dict>
+	</dict>
+</dict>
+</plist>

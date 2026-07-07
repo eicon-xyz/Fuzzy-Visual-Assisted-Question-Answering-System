@@ -279,19 +279,15 @@ python scripts\verify_integration.py
 
 ## 十、DAY4 计划（预览）
 
-| 优先级 | 任务 | 说明 |
-|--------|------|------|
-| P0 | 内网 GPU 端到端联调 | A 容器 + B 内网模式人工验收 |
-| P0 | 真实桌面截图框位置人工对齐 | GPU 延迟应明显低于 CPU |
-| P1 | `/clarify` UI 接入 | 低置信度澄清对话 |
-| P1 | `/step` 指纹校验与挂起 UI | 蓝图状态机完整体验 |
-| P2 | C 端 ASR 信号接入控制栏 | 按 `b-c-api-contract.md` |
+> **已完成**：详见 [`DAY4-工作内容_v2.md`](DAY4-工作内容_v2.md)
 
 ---
 
 ## 十一、参考文档
 
+- DAY1 基线：[`DAY1-工作内容.md`](DAY1-工作内容.md)
 - DAY2 基线：[`DAY2-工作内容.md`](DAY2-工作内容.md)
+- DAY4–6：[`DAY4-工作内容_v2.md`](DAY4-工作内容_v2.md) · [`DAY5-工作内容_v2.md`](DAY5-工作内容_v2.md) · [`DAY6-工作内容_v2.md`](DAY6-工作内容_v2.md)
 - 团队分工：[`设计文档V2.md`](../设计文档V2.md) §九
 - B 接口总结 v2：[`B端接口总结-对A与对C_v2.md`](B端接口总结-对A与对C_v2.md)
 - Resize + OmniParser：[`Resize指示条与OmniParser路径-技术说明.md`](Resize指示条与OmniParser路径-技术说明.md)

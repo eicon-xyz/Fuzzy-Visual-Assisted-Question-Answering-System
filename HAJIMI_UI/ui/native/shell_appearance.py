@@ -22,10 +22,33 @@ from ui.native.luxury.title import DEFAULT_SCRIPT_FONT_ID, LUXURY_SCRIPT_FONT_ID
 from ui.native.title_art import DEFAULT_TITLE_ART, TITLE_ART_MODE_IDS
 
 LUXURY_THEME_ID = "variant_luxury"
+ORANGE_CAT_THEME_ID = "variant_orange_cat"
 LUXURY_BG_MODE_IDS = tuple(LUXURY_BG_MODES.keys())
 DEFAULT_LUXURY_BG_MODE = "frosted"
 DEFAULT_LUXURY_STAR_INTENSITY = 0
 LUXURY_STAR_INTENSITY_MAX = 100
+
+SCHEME_DEFAULT_BLUE = "default_blue"
+SCHEME_ELEGANT_BLACK = "elegant_black"
+SCHEME_LUXURY_GOLD = "luxury_gold"
+SCHEME_KRAFT_PAPER = "kraft_paper"
+SCHEME_ORANGE_CAT = "orange_cat"
+
+APPEARANCE_SCHEME_IDS = (
+    SCHEME_DEFAULT_BLUE,
+    SCHEME_ELEGANT_BLACK,
+    SCHEME_LUXURY_GOLD,
+    SCHEME_KRAFT_PAPER,
+    SCHEME_ORANGE_CAT,
+)
+
+APPEARANCE_SCHEME_LABELS = {
+    SCHEME_DEFAULT_BLUE: "默认蓝",
+    SCHEME_ELEGANT_BLACK: "典雅黑",
+    SCHEME_LUXURY_GOLD: "黑金轻奢",
+    SCHEME_KRAFT_PAPER: "牛皮纸",
+    SCHEME_ORANGE_CAT: "橘猫耄耋",
+}
 
 SHELL_STYLES: dict[str, str] = {
     "qss": "QSS 实底",
@@ -85,8 +108,57 @@ def is_luxury_theme(theme_id: str) -> bool:
     return str(theme_id) == LUXURY_THEME_ID
 
 
+def is_orange_cat_theme(theme_id: str) -> bool:
+    return str(theme_id) == ORANGE_CAT_THEME_ID
+
+
 def is_crystal_shell(shell_style: str) -> bool:
     return str(shell_style).startswith("crystal")
+
+
+def migrate_appearance_settings(data: dict) -> dict:
+    """Map legacy theme ids to the consolidated scheme storage."""
+    out = dict(data)
+    ui_theme = str(out.get("ui_theme", "current"))
+    if ui_theme in ("variant_b", "variant_c"):
+        out["ui_theme"] = "current"
+    return out
+
+
+def settings_to_scheme(data: dict) -> str:
+    ui_theme = str(data.get("ui_theme", "current"))
+    if ui_theme == ORANGE_CAT_THEME_ID:
+        return SCHEME_ORANGE_CAT
+    if ui_theme == LUXURY_THEME_ID:
+        if data.get("luxury_bg_mode") == "kraft":
+            return SCHEME_KRAFT_PAPER
+        return SCHEME_LUXURY_GOLD
+    if is_crystal_shell(str(data.get("shell_style", DEFAULT_SHELL_STYLE))):
+        return SCHEME_ELEGANT_BLACK
+    return SCHEME_DEFAULT_BLUE
+
+
+def scheme_to_settings(scheme_id: str, existing: dict | None = None) -> dict:
+    out = dict(existing or {})
+    if scheme_id == SCHEME_ORANGE_CAT:
+        out["ui_theme"] = ORANGE_CAT_THEME_ID
+    elif scheme_id == SCHEME_LUXURY_GOLD:
+        out["ui_theme"] = LUXURY_THEME_ID
+        out["luxury_bg_mode"] = "frosted"
+    elif scheme_id == SCHEME_KRAFT_PAPER:
+        out["ui_theme"] = LUXURY_THEME_ID
+        out["luxury_bg_mode"] = "kraft"
+    elif scheme_id == SCHEME_ELEGANT_BLACK:
+        out["ui_theme"] = "current"
+        out["shell_style"] = "crystal_edge"
+    else:
+        out["ui_theme"] = "current"
+        out["shell_style"] = "qss"
+    return out
+
+
+def appearance_scheme_label(data: dict) -> str:
+    return APPEARANCE_SCHEME_LABELS.get(settings_to_scheme(data), "默认蓝")
 
 
 def shell_renderer_mode(shell_style: str) -> str:
@@ -160,6 +232,7 @@ class AppearanceSettings:
     luxury_script_font_id: str = DEFAULT_SCRIPT_FONT_ID
     luxury_gold_mode: str = DEFAULT_LUXURY_GOLD_MODE
     luxury_btn_mode: str = DEFAULT_LUXURY_BTN_MODE
+    orange_cat_splash_audio: str = ""
 
     @classmethod
     def from_user_settings(cls, data: dict) -> AppearanceSettings:
@@ -195,6 +268,7 @@ class AppearanceSettings:
         luxury_btn = data.get("luxury_btn_mode", DEFAULT_LUXURY_BTN_MODE)
         if luxury_btn not in ("edge", "hover"):
             luxury_btn = DEFAULT_LUXURY_BTN_MODE
+        orange_cat_audio = str(data.get("orange_cat_splash_audio", "") or "").strip()
         return cls(
             shell_style=shell_style,
             shell_alpha_medium=_clamp_int(
@@ -238,6 +312,7 @@ class AppearanceSettings:
             luxury_script_font_id=luxury_font,
             luxury_gold_mode=luxury_gold,
             luxury_btn_mode=luxury_btn,
+            orange_cat_splash_audio=orange_cat_audio,
         )
 
     def to_user_settings_fragment(self) -> dict:
@@ -258,6 +333,7 @@ class AppearanceSettings:
             "luxury_script_font_id": self.luxury_script_font_id,
             "luxury_gold_mode": self.luxury_gold_mode,
             "luxury_btn_mode": self.luxury_btn_mode,
+            "orange_cat_splash_audio": self.orange_cat_splash_audio,
         }
 
 

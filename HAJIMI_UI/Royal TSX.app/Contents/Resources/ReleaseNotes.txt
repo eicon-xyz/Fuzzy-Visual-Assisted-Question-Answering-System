@@ -1,0 +1,200 @@
+Version 6.4.3
+=============
+
+Release Date: 2026-05-12
+Download: https://royaltsx-v6.royalapps.com/updates/royaltsx_6.4.3.1000.dmg
+
+Bugfixes:
+* Fixed a bug that could cause items in overview to be filtered out when fuzzy search is active
+* Fixed a bug that caused the computer name validation to trigger even though it should not when editing plugin overrides
+* Fixed a bug that could cause full screen RDP sessions to flip back and forth between each other
+* Several small bugfixes
+
+
+Version 6.4.2
+=============
+
+Release Date: 2026-03-24
+Download: https://royaltsx-v6.royalapps.com/updates/royaltsx_6.4.2.1000.dmg
+
+Bugfixes:
+* Fixed a bug that could cause a crash when the app is in full screen and the navigation panel is hidden
+* Several small bugfixes
+
+
+Version 6.4.1
+=============
+
+Release Date: 2026-03-20
+Download: https://royaltsx-v6.royalapps.com/updates/royaltsx_6.4.1.1000.dmg
+
+Bugfixes:
+* Fixed a bug that could cause a crash when launching the app through its URL scheme (rtsx://)
+* Several small bugfixes
+
+
+Version 6.4
+===========
+
+Release Date: 2026-03-19
+Download: https://royaltsx-v6.royalapps.com/updates/royaltsx_6.4.0.1000.dmg
+
+Improvements:
+* Improved macOS 26 Tahoe support
+* Added dedicated "Type Clipboard" toolbar item
+* Connect with Options - Open in Web Browser now prefixes URLs without a scheme with "http://" before attempting to open them
+
+Bugfixes:
+* Fixed KeePass file conversion issue
+* Fixed LastPass login issue after account password change
+* Fixed a bug that caused fonts changed in the Terminal default settings to not be applied
+* Fixed a bug that could cause a crash on macOS 14 Sonoma and earlier when a management connection dashboard was activated
+* Several small bugfixes
+
+
+Version 6.3
+===========
+
+Release Date: 2025-09-02
+Download: https://royaltsx-v6.royalapps.com/updates/royaltsx_6.3.0.1000.dmg
+
+Improvements:
+* Improved compatibility with macOS 26 Tahoe
+* Replacement token support for credential reference by name
+* Credential schema updated to better protect TOTP secrets
+
+Bugfixes:
+* $MfaCode$ token is now correctly resolved in dynamic folder scripts
+* Several small bugfixes
+
+
+Version 6.2.2
+===============
+
+Release Date: 2025-06-06
+Download: https://royaltsx-v6.royalapps.com/updates/royaltsx_6.2.2.1000.dmg
+
+Improvements:
+* Use "\u200b" (non-printable space char) between two consecutive replacement tokens
+
+Bugfixes:
+* Fixed a bug that could cause http/https ad hoc web connections to be parsed incorrectly
+* Fixed a bug that caused ad hoc web connections based on credentials to fail to connect
+* TOTP secret is now always stored using upper case characters
+* Several small bugfixes
+
+
+Version 6.2.1
+=============
+
+Release Date: 2025-02-11
+Download: https://royaltsx-v6.royalapps.com/updates/royaltsx_6.2.1.1000.dmg
+
+Bugfixes:
+* Fixed tokens in usernames where not resolved when establishing connections
+* The $MfaCode$ token in key sequence tasks is now resolved if credentials are referenced via ID (Use an existing credential)
+* Several small bugfixes
+
+
+Version 6.2
+===========
+
+Release Date: 2025-02-03
+Download: https://royaltsx-v6.royalapps.com/updates/royaltsx_6.2.0.1000.dmg
+
+Improvements:
+* TOTP MFA code generation for credentials
+* MFA toolbar item
+* New tab bar implementation
+* Dynamic Folder option in "Advanced" to use environment variables for replacement tokens
+* The main window is now explicitly labeled in the window title when there's more than one window
+* Added support for enforcing strict key exchange for Secure Gateways
+* Chart view for password analyzer (requires macOS Sonoma or higher)
+
+Bugfixes:
+* Fixed a bug that could cause tabs to not be colored properly
+* Fixed a bug that could cause a crash when hovering over the main window's leading edge when the navigation panel was hidden
+* Fixes a bug that would cause the app to crash on macOS 11 Big Sur upon startup if the RoyalVNC plugin was installed
+* Selected object is now restored after saving Royal Server documents
+* Inherited custom properties are now copied to the target connection when creating ad hoc connections
+* Fixed LastPass integration unable to import items with encrypted URL fields
+* Fixed a bug that affected the rJSON "Path" property
+* Several small bugfixes
+
+
+Version 6.1
+===========
+
+Release Date: 2024-06-18
+Download: https://royaltsx-v6.royalapps.com/updates/royaltsx_6.1.0.1000.dmg
+
+Bugfixes:
+* Fixed Command Tasks menu was not enabled if no favorites were configured
+* Some icons in the 'Flat' icon library where incorrectly black only
+* Fixed a bug that could cause 'Connect with Options - Connect with SSH/SFTP/SCP' to not use the assigned credentials
+* Updated Rebex SSH library to address a weakness in the SSH protocol: Terrapin attack CVE-2023-48795
+* Several small UI tweaks
+* Several small bugfixes
+
+
+Version 6.0.2
+=============
+
+Release Date: 2023-11-21
+Download: https://royaltsx-v6.royalapps.com/updates/royaltsx_6.0.2.1000.dmg
+
+Improvements:
+* When copying passwords or other sensitive data to the clipboard, the "org.nspasteboard.ConcealedType" marker is now added
+* New Flag icons in 'Flat' icon library
+* The Apple Script "execute" command now supports targeting key sequence tasks in addition to command tasks
+* Caution: A wild animal has been spotted clinging to some toolbars. Watch out!
+
+Bugfixes:
+* Fixed a bug that prevented the keyboard shortcut for the "Documents" toolbar item (⇧⌘D) from working
+* Fixed a bug that could cause a crash when bulk-editing Remote Desktop Gateway objects
+* Fixed a bug that could cause a crash when a port check was executed against a very long hostname
+* The "Test Connection" button in the Secure Gateway properties now shows an error if the specified port cannot be parsed
+* Several small bugfixes
+
+
+Version 6.0.1
+=============
+
+Release Date: 2023-08-25
+Download: https://royaltsx-v6.royalapps.com/updates/royaltsx_6.0.1.1000.dmg
+
+Bugfixes:
+* Fixed a bug that caused auto fill to not replace tokens of protected fields in locked down documents even when "Allow passwords in web page connections" was enabled
+* Fixed a bug that caused the app to be unable to save documents to FAT or exFAT formatted drives
+* Option to monitor connection state in navigation panel is off by default
+* Several small UI tweaks
+* Several small bugfixes
+
+
+Version 6.0
+===========
+
+Release Date: 2023-08-10
+Download: https://royaltsx-v6.royalapps.com/updates/royaltsx_6.0.0.1000.dmg
+
+Improvements:
+* Password Analyzer (in the "View" menu)
+* Connection State monitoring for selected connections in navigation panel (can be disabled in Settings - Behavior - Monitor state of connections in navigation panel)
+* Support for searching in the properties dialog
+* New VNC plugin: RoyalVNC
+* Secure Gateway Cipher Configuration
+* New replacement token picker
+* New Dynamic Folder export format (XML)
+* Custom icon support in KeePass documents
+* Support for new $Clipboard$ replacement token
+* Improved UI of disconnected connections
+* Disconnected connection tabs now have alternate context menu items for disconnecting/reconnecting all disconnected (by holding the option key)
+* The Overview/Dashboard tab now has a context menu
+* A new app setting to focus the connection on the "Behavior" page for double-clicking an active connection
+* The 'Arc' browser now works with the Royal Passwords extension
+* Added support for TeamViewer connections in Remote Desktop Manager import
+* Support for overriding properties in ad hoc connections using the ?property_name=property_value syntax
+* Added support for opening/closing existing connections using the rtsx:// URI scheme's "using=id/name" and "action=connect/disconnect" syntax
+* Properly handle properties from parent folder in RoyalJSON when 'Path' property is used
+* Many performance and stability improvements
+* Many UI tweaks
