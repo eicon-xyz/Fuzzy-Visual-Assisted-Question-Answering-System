@@ -12,6 +12,8 @@ import queue
 import threading
 import time
 
+from server.services.memory.extractor import MemoryExtractor
+
 logger = logging.getLogger(__name__)
 
 # 全局事件队列：{task_id: queue.Queue}
@@ -91,6 +93,53 @@ def unregister_task(task_id: str) -> None:
     logger.info(f"[engine] unregistered task {task_id}")
 
 
+def _trigger_memory_extraction_success(
+    goal: str,
+    steps: list[dict],
+    previous_steps: list[dict],
+) -> None:
+    """Fire-and-forget: extract success memory in background thread."""
+    def _extract():
+        try:
+            extractor = MemoryExtractor()
+            extractor.extract_from_success(
+                user_id="default",
+                user_query=goal,
+                steps=steps,
+            )
+        except Exception:
+            logger.exception("Background memory extraction failed")
+
+    threading.Thread(target=_extract, daemon=True).start()
+
+
+def _trigger_memory_extraction_failure(
+    goal: str,
+    steps: list[dict],
+    failed_step_idx: int,
+) -> None:
+    """Fire-and-forget: extract failure memory in background thread.
+
+    Only triggered when the entire task failed (all retries exhausted).
+    """
+    def _extract():
+        try:
+            # Build error detail
+            failed_step = steps[failed_step_idx - 1] if failed_step_idx <= len(steps) else {}
+            error_detail = f"Step {failed_step_idx} failed: {failed_step.get('instruction', 'unknown')}"
+            extractor = MemoryExtractor()
+            extractor.extract_from_failure(
+                user_id="default",
+                user_query=goal,
+                steps=steps,
+                error_detail=error_detail,
+            )
+        except Exception:
+            logger.exception("Background failure memory extraction failed")
+
+    threading.Thread(target=_extract, daemon=True).start()
+
+
 def run_plan_agent_loop(
     task_id: str,
     goal: str,
@@ -151,6 +200,11 @@ def run_plan_agent_loop(
                 goal=goal,
                 previous_steps=previous_steps,
                 cancel_event=cancel_event,
+                on_screenshot=lambda b64: _push_event(
+                    task_id,
+                    "screenshot_updated",
+                    {"step_index": step_idx, "annotated_image": b64},
+                ),
             )
         except Exception as e:
             logger.exception(f"Step {step_idx} execution crashed")
@@ -251,6 +305,8 @@ def run_plan_agent_loop(
                 "completed_steps": len(previous_steps),
             },
         )
+        # Trigger async memory extraction (fire-and-forget)
+        _trigger_memory_extraction_success(goal, steps, previous_steps)
     else:
         _push_event(
             task_id,
@@ -260,10 +316,17 @@ def run_plan_agent_loop(
                 "failed_step": len(previous_steps) + 1,
             },
         )
+        # Trigger failure memory extraction (fire-and-forget)
+        failed_step_idx = len(previous_steps) + 1
+        _trigger_memory_extraction_failure(goal, steps, failed_step_idx)
 
     # Delayed cleanup
     def _cleanup():
         time.sleep(3)
+        try:
+            agent.close_browser()
+        except Exception:
+            pass
         unregister_task(task_id)
 
     threading.Thread(target=_cleanup, daemon=True).start()

@@ -66,6 +66,7 @@ Recent conversation:
 Screenshots provided:
 {screenHints}
 
+{user_memory}
 Create a step-by-step plan AND provide the exact screen coordinates for the first step.
 Remember: coordinates MUST be on a normalized 0-1000 scale (0,0 = top-left, 1000,1000 = bottom-right).
 Respond with ONLY a JSON object, no markdown fences."""
@@ -105,6 +106,7 @@ Recent conversation:
 Screenshots:
 {screenHints}
 
+{user_memory}
 Create a step-by-step plan. Respond with ONLY a JSON object."""
 
 

@@ -16,3 +16,9 @@ python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+markers = [
+    "e2e: E2E smoke tests that require a real browser (Chromium).",
+    "real_llm: Tests that make real LLM API calls (needs API key in .env).",
+]

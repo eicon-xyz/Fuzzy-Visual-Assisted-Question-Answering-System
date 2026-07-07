@@ -21,8 +21,6 @@ STATUS_ICONS = {
     "active": "🔄",
     "done": "✅",
     "failed": "❌",
-    "blocked": "🚫",
-    "skipped": "⏭️",
 }
 
 STYLE = """
@@ -90,10 +88,6 @@ QPlainTextEdit#log_output {
 }
 QPushButton#start_btn  { background: #22c55e; color: white; border: none; border-radius: 4px; padding: 6px 14px; }
 QPushButton#start_btn:hover { background: #16a34a; }
-QPushButton#pause_btn  { background: #f59e0b; color: white; border: none; border-radius: 4px; padding: 6px 14px; }
-QPushButton#pause_btn:hover { background: #d97706; }
-QPushButton#resume_btn { background: #3b82f6; color: white; border: none; border-radius: 4px; padding: 6px 14px; }
-QPushButton#resume_btn:hover { background: #2563eb; }
 QPushButton#stop_btn   { background: #ef4444; color: white; border: none; border-radius: 4px; padding: 6px 14px; font-weight: bold; }
 QPushButton#stop_btn:hover { background: #dc2626; }
 QPushButton:disabled { background: #94a3b8; color: #e2e8f0; }
@@ -142,8 +136,8 @@ class SSEClient(QThread):
                                 self.event_received.emit(event_type, data)
                             except Exception:
                                 pass
-        except Exception as e:
-            self.disconnected.emit()
+        except Exception:
+            pass
         finally:
             self.disconnected.emit()
 
@@ -168,7 +162,7 @@ class AgentPanel(QWidget):
         self._task_id = None
         self._sse_client = None
         self._steps_data = []  # [{step_index, status, ...}]
-        self._task_status = "idle"  # idle|executing|paused|completed|failed|cancelled
+        self._task_status = "idle"  # idle|executing|completed|failed|cancelled
 
         self._init_ui()
         self._update_button_states()
@@ -228,22 +222,12 @@ class AgentPanel(QWidget):
         # ── 底部控制栏 ──
         ctrl_row = QHBoxLayout()
 
-        self.start_btn = QPushButton("▶ 开始 (Ctrl+1)")
+        self.start_btn = QPushButton("▶ 开始")
         self.start_btn.setObjectName("start_btn")
         self.start_btn.clicked.connect(self._on_execute)
         ctrl_row.addWidget(self.start_btn)
 
-        self.pause_btn = QPushButton("⏸ 暂停 (Ctrl+2)")
-        self.pause_btn.setObjectName("pause_btn")
-        self.pause_btn.clicked.connect(self._on_pause)
-        ctrl_row.addWidget(self.pause_btn)
-
-        self.resume_btn = QPushButton("▶ 恢复 (Ctrl+3)")
-        self.resume_btn.setObjectName("resume_btn")
-        self.resume_btn.clicked.connect(self._on_resume)
-        ctrl_row.addWidget(self.resume_btn)
-
-        self.stop_btn = QPushButton("⏹ 停止 (Ctrl+4)")
+        self.stop_btn = QPushButton("⏹ 停止")
         self.stop_btn.setObjectName("stop_btn")
         self.stop_btn.clicked.connect(self._on_stop)
         ctrl_row.addWidget(self.stop_btn)
@@ -283,22 +267,21 @@ class AgentPanel(QWidget):
         self._task_status = status
         self._update_button_states()
 
-    def update_step(self, step_index: int, status: str, duration_ms: int = 0):
-        """更新步骤列表中的某个步骤的状态。"""
+    def update_step(self, step_index: int, status: str):
+        """更新步骤列表中某个步骤的状态。"""
         for i in range(self.step_list.count()):
             item = self.step_list.item(i)
             data = item.data(Qt.UserRole)
             if data and data.get("step_index") == step_index:
                 data["status"] = status
-                if duration_ms:
-                    data["duration_ms"] = duration_ms
                 icon = STATUS_ICONS.get(status, "⏳")
-                desc = data.get("description", "")
-                if status == "done" and duration_ms:
-                    item.setText(f"{icon}  {desc}    {duration_ms/1000:.1f}s")
+                instruction = data.get("instruction", "")
+                summary = data.get("action_summary", "")
+                if summary:
+                    item.setText(f"{icon}  {instruction}  —  {summary}")
                 else:
-                    item.setText(f"{icon}  {desc}")
-                if status == "active":
+                    item.setText(f"{icon}  {instruction}")
+                if status == "active" or status == "executing":
                     font = item.font()
                     font.setBold(True)
                     item.setFont(font)
@@ -312,7 +295,7 @@ class AgentPanel(QWidget):
         )
 
     def load_plan(self, plan: dict):
-        """从 SSE plan_ready 或 execute 响应加载步骤列表。"""
+        """从 execute 响应加载步骤列表。"""
         self.step_list.clear()
         self._steps_data = []
         goal = plan.get("goal", "")
@@ -320,15 +303,14 @@ class AgentPanel(QWidget):
         self.progress_label.setText(f"📋 任务: {goal}    0/{len(steps)}")
         for s in steps:
             si = s.get("step_index", len(self._steps_data) + 1)
-            desc = s.get("description", f"步骤 {si}")
-            status = s.get("status", "pending")
-            icon = STATUS_ICONS.get(status, "⏳")
-            item = QListWidgetItem(f"{icon}  {desc}")
+            instruction = s.get("instruction", f"步骤 {si}")
+            icon = STATUS_ICONS.get("pending", "⏳")
+            item = QListWidgetItem(f"{icon}  {instruction}")
             item.setData(Qt.UserRole, {
                 "step_index": si,
-                "status": status,
-                "description": desc,
-                "duration_ms": 0,
+                "status": "pending",
+                "instruction": instruction,
+                "action_summary": "",
             })
             self.step_list.addItem(item)
             self._steps_data.append(s)
@@ -347,35 +329,19 @@ class AgentPanel(QWidget):
         """处理 SSE 事件。"""
         if event_type == "heartbeat":
             pass
-        elif event_type == "plan_ready":
-            self.load_plan(data)
-            self.set_task_status("executing")
-            self.append_log(f"AI 已规划 {data.get('total_steps', 0)} 个步骤", "info")
         elif event_type == "step_start":
             si = data.get("step_index", 0)
             self.update_step(si, "active")
-            desc = data.get("description") or data.get("instruction", "")
-            self.append_log(f">>> 步骤 {si}: {desc}", "info")
-        elif event_type == "step_executing":
-            self.append_log(f"   └ {data.get('detail', '')}", "debug")
-        elif event_type == "step_done":
-            si = data.get("step_index", 0)
-            self.update_step(si, "done", data.get("duration_ms", 0))
-            self.append_log(f"   ✅ 步骤 {si} 完成 ({data.get('duration_ms', 0)}ms)", "info")
-        elif event_type == "step_failed":
-            si = data.get("step_index", 0)
-            self.update_step(si, "failed")
-            self.append_log(f"   ❌ 步骤 {si} 失败: {data.get('error', '')}", "error")
-        elif event_type == "step_retry":
-            self.append_log(f"   🔄 重试步骤 {data.get('step_index', '?')}", "warn")
-        elif event_type == "step_blocked":
-            si = data.get("step_index", 0)
-            self.update_step(si, "blocked")
-            self.append_log(f"   🚫 步骤 {si} 被拦截: {data.get('reason', '')}", "warn")
-        elif event_type == "log":
-            self.append_log(data.get("message", ""), data.get("level", "info"))
-        elif event_type == "screenshot":
-            b64 = data.get("image_base64", "")
+            self.append_log(f">>> 步骤 {si}: {data.get('instruction', '')}", "info")
+        elif event_type == "tool_called":
+            self.append_log(f"   🔧 {data.get('tool', '')}({data.get('args', {})})", "debug")
+        elif event_type == "tool_result":
+            ok = data.get("success", False)
+            level = "info" if ok else "warn"
+            summary = data.get("action_summary", "")
+            self.append_log(f"   {'✅' if ok else '⚠️'} {summary}", level)
+        elif event_type == "screenshot_updated":
+            b64 = data.get("annotated_image", "")
             if b64:
                 try:
                     import base64
@@ -386,16 +352,28 @@ class AgentPanel(QWidget):
                         self.set_screenshot(pix)
                 except Exception:
                     pass
+        elif event_type == "step_done":
+            si = data.get("step_index", 0)
+            self.update_step(si, "done")
+            self.append_log(f"   ✅ 步骤 {si} 完成: {data.get('action_summary', '')}", "info")
+        elif event_type == "step_failed":
+            si = data.get("step_index", 0)
+            self.update_step(si, "failed")
+            self.append_log(f"   ❌ 步骤 {si} 失败: {data.get('reason', '')}", "error")
+        elif event_type == "log":
+            self.append_log(data.get("message", ""), data.get("level", "info"))
         elif event_type == "task_done":
             self.set_task_status("completed")
-            done = data.get("steps_completed", 0)
-            fail = data.get("steps_failed", 0)
             total = data.get("total_steps", 0)
-            self.progress_label.setText(f"📋 任务完成    {done}/{total} (失败 {fail})")
-            self.append_log(f"任务{'成功' if data.get('success') else '部分失败'} ({done}/{total})", "info")
-        elif event_type == "task_error":
+            done = data.get("completed_steps", 0)
+            self.progress_label.setText(f"📋 任务完成    {done}/{total}")
+            self.append_log(f"🎉 任务完成 ({done}/{total})", "info")
+        elif event_type == "task_failed":
             self.set_task_status("failed")
-            self.append_log(f"💥 任务错误: {data.get('error', '')}", "error")
+            self.append_log(f"💥 {data.get('reason', '任务失败')}", "error")
+        elif event_type == "task_cancelled":
+            self.set_task_status("cancelled")
+            self.append_log("⏹ 任务已取消", "warn")
 
     def _connect_sse(self, task_id: str):
         """连接 SSE 事件流。"""
@@ -418,18 +396,6 @@ class AgentPanel(QWidget):
         self.append_log(f"用户指令: {query}", "info")
         self.send_query.emit(query)
 
-    def _on_pause(self):
-        if self._task_id:
-            self.cancel_requested.emit(self._task_id)
-        self.set_task_status("paused")
-        self.append_log("⏸ 已暂停", "warn")
-
-    def _on_resume(self):
-        # MVP: 暂不支持恢复，需重新执行
-        self.set_task_status("executing")
-        self.append_log("▶ 恢复执行（重新提交）", "info")
-        self._on_execute()
-
     def _on_stop(self):
         if self._task_id:
             self.cancel_requested.emit(self._task_id)
@@ -444,9 +410,7 @@ class AgentPanel(QWidget):
         s = self._task_status
         idle = s in ("idle", "completed", "failed", "cancelled")
         self.start_btn.setEnabled(idle)
-        self.pause_btn.setEnabled(s == "executing")
-        self.resume_btn.setEnabled(s == "paused")
-        self.stop_btn.setEnabled(s in ("executing", "paused"))
+        self.stop_btn.setEnabled(s == "executing")
         self.execute_btn.setEnabled(idle)
         self.query_input.setEnabled(idle)
 
@@ -458,9 +422,5 @@ class AgentPanel(QWidget):
             if key == Qt.Key_1:
                 self._on_execute()
             elif key == Qt.Key_2:
-                self._on_pause()
-            elif key == Qt.Key_3:
-                self._on_resume()
-            elif key == Qt.Key_4:
                 self._on_stop()
         super().keyPressEvent(event)

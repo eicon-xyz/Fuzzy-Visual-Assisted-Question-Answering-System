@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 .env
 校园gpu使用.md
+data/hajimi.db*
+OmniParser/

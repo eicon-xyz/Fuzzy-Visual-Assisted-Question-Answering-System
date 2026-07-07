@@ -86,6 +86,12 @@ class Config:
     DEEPSEEK_TIMEOUT: int = int(os.getenv("DEEPSEEK_TIMEOUT", "30"))
 
     # ═════════════════════════════════════════════════════════════════════
+    # Memory extractor — cheap model for background memory extraction
+    # ═════════════════════════════════════════════════════════════════════
+    MEMORY_EXTRACTOR_MODEL: str = os.getenv("MEMORY_EXTRACTOR_MODEL", "qwen-turbo")
+    MEMORY_EXTRACTOR_PROVIDER: str = os.getenv("MEMORY_EXTRACTOR_PROVIDER", "qwen")
+
+    # ═════════════════════════════════════════════════════════════════════
     # 特性开关
     # ═════════════════════════════════════════════════════════════════════
     USE_REAL_LLM: bool = os.getenv("USE_REAL_LLM", "true").lower() == "true"

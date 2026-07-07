@@ -7,6 +7,7 @@ executes via element_id (never coordinates), verifies, and marks step done/faile
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import threading
@@ -18,12 +19,14 @@ import pyperclip
 
 from server.config import settings
 from server.models.schemas import ExecutedStep, UIElement
+from server.services.browser.controller import BrowserController
 from server.services.executor.safety import check_step
 from server.services.llm.providers import extract_json_object
 from server.services.omniparser_client import (
     _filter_elements_for_llm,
     parse_screenshot_full,
 )
+from server.services.memory.retriever import get_retriever
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +87,31 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - 禁止假设屏幕上看不到的元素存在
 - 禁止在一次响应中调用多个工具（串行调用，每次只调一个）
 - 禁止跳过 get_screen_info 直接操作（除非只是按键等待）
-- 禁止在 get_screen_info 之后引用之前的 element_id"""
+- 禁止在 get_screen_info 之后引用之前的 element_id
+
+## 浏览器工具（browser_ 前缀）
+当需要操作网页时，优先使用 browser_ 前缀的工具。它们基于 DOM 操作，比视觉点击更精确：
+- browser_navigate(url): 导航到网页。首次使用浏览器时，会自动启动浏览器。
+- browser_snapshot(): 获取页面结构化元素列表（链接、按钮、输入框等），不是完整HTML。用于观察页面。
+- browser_click(selector): 点击元素。selector 用 snapshot 返回的 CSS 选择器，或 text=匹配文本。
+- browser_type(selector, text): 在输入框输入文本。
+- browser_scroll(direction, amount): 滚轮翻页。
+- browser_close(): 关闭浏览器窗口。
+- browser_screenshot(): 截取当前浏览器页面的屏幕截图，用于视觉验证。
+- browser_press_key(keys): 在浏览器中按键盘按键。如'Enter'提交搜索、'Escape'关闭弹窗。
+
+### 浏览器工作流程
+1. 如果当前步骤涉及网页操作，先调用 browser_navigate 打开目标网址
+2. 然后调用 browser_snapshot 查看页面有哪些可交互元素
+3. 根据 snapshot 返回的 selector 信息，调用 browser_click / browser_type 执行操作
+4. 必要时再次 browser_snapshot 验证结果
+5. 步骤完成后，如果后续不再需要浏览器，调用 browser_close 释放资源。
+
+### 视觉验证
+- 当需要判断页面是否显示了预期内容时，使用 browser_screenshot
+- browser_screenshot 返回的是 JPEG 图片的 base64 编码，前端可以展示截图
+- snapshot 用于定位元素 + 点击；screenshot 的 image_b64 字段可供前端渲染展示
+- 对于结构验证（如'搜索结果是否出现'），优先使用 browser_snapshot 查看元素列表"""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -245,6 +272,118 @@ def _build_tool_definitions() -> list[dict]:
                 },
             },
         },
+        # ── Browser tools ──
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_navigate",
+                "description": "浏览器导航到指定URL。打开网页后使用。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "要导航到的URL，如'https://baidu.com'",
+                        }
+                    },
+                    "required": ["url"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_snapshot",
+                "description": "获取当前网页的精简DOM结构（仅交互元素：链接、按钮、输入框等），不返回完整HTML。用于观察页面状态。",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_click",
+                "description": "在浏览器中点击指定元素。传入CSS选择器或文本匹配。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "selector": {
+                            "type": "string",
+                            "description": "CSS选择器，如'#submit'、'.btn'、'text=登录'",
+                        }
+                    },
+                    "required": ["selector"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_type",
+                "description": "在浏览器输入框中输入文本。先清空再输入。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "selector": {
+                            "type": "string",
+                            "description": "输入框的CSS选择器",
+                        },
+                        "text": {"type": "string", "description": "要输入的文本"},
+                    },
+                    "required": ["selector", "text"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_scroll",
+                "description": "滚轮滚动页面。direction: 'up'或'down'。amount: 滚动像素量（默认300）。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "direction": {"type": "string", "enum": ["up", "down"]},
+                        "amount": {
+                            "type": "integer",
+                            "description": "滚动像素量，默认300",
+                        },
+                    },
+                    "required": ["direction"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_close",
+                "description": "关闭浏览器窗口。任务完成后调用以释放资源。",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_screenshot",
+                "description": "对当前浏览器页面截图，返回base64 JPEG。用于视觉验证页面状态（如'搜索结果是否出现'）。",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_press_key",
+                "description": "在浏览器页面中按键盘按键。如'Enter'提交搜索、'Escape'关闭弹窗、'Tab'切换焦点。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "keys": {
+                            "type": "string",
+                            "description": "按键名，如'Enter'、'Escape'、'Tab'、'PageDown'",
+                        }
+                    },
+                    "required": ["keys"],
+                },
+            },
+        },
     ]
 
 
@@ -289,6 +428,95 @@ class ExecutionAgent:
         self.element_map: dict[str, UIElement] = {}
         self.screen_elements: list[dict] = []
         self.tools = _build_tool_definitions()
+        self._browser: Optional[BrowserController] = None
+
+    @property
+    def browser(self) -> BrowserController:
+        """Lazy-init BrowserController — created on first browser_xxx tool call."""
+        if self._browser is None:
+            self._browser = BrowserController()
+        return self._browser
+
+    def _get_or_create_browser_loop(self) -> asyncio.AbstractEventLoop:
+        """Lazy-init a dedicated event loop in a daemon thread.
+
+        Playwright objects (browser, page, CDP session) are bound to the
+        event loop that created them.  Using asyncio.run() per-call would
+        create+destroy a loop each time, causing "Event loop is closed"
+        and "object belongs to different event loop" errors.
+
+        Instead we create ONE persistent loop running in its own daemon
+        thread, and every browser coroutine is submitted to it via
+        run_coroutine_threadsafe.  The loop lives as long as the
+        ExecutionAgent instance.
+        """
+        if getattr(self, "_browser_loop", None) is None:
+            self._browser_loop = asyncio.new_event_loop()
+            self._browser_loop_thread = threading.Thread(
+                target=self._browser_loop.run_forever, daemon=True
+            )
+            self._browser_loop_thread.start()
+            logger.info("Browser event loop thread started")
+        return self._browser_loop
+
+    def _run_async(self, coro):
+        """Run an async coroutine synchronously on the persistent browser loop.
+
+        Thread-safe: can be called from any thread.  Submits the coroutine
+        to the dedicated browser event loop and blocks until completion.
+
+        Defensive: if the loop has died for any reason, tears it down and
+        creates a fresh one, then retries once.
+        """
+        loop = self._get_or_create_browser_loop()
+        if loop.is_closed():
+            logger.warning("Browser event loop was closed; recreating")
+            self._browser_loop = None
+            loop = self._get_or_create_browser_loop()
+
+        try:
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+            return future.result(timeout=120)
+        except (RuntimeError, BrokenPipeError, ConnectionError) as e:
+            # Loop may have crashed — recreate and retry once
+            logger.warning("Browser event loop error (%s); recreating", e)
+            try:
+                loop.call_soon_threadsafe(loop.stop)
+            except Exception:
+                pass
+            self._browser_loop = None
+            self._browser = None  # force re-create so start() runs in new loop
+            loop = self._get_or_create_browser_loop()
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+            return future.result(timeout=120)
+
+    def _stop_browser_loop(self) -> None:
+        """Stop the dedicated browser event loop thread. Idempotent."""
+        loop = getattr(self, "_browser_loop", None)
+        if loop is not None and not loop.is_closed():
+            try:
+                loop.call_soon_threadsafe(loop.stop)
+            except Exception:
+                pass
+        if getattr(self, "_browser_loop_thread", None) is not None:
+            self._browser_loop_thread.join(timeout=5)
+        self._browser_loop = None
+        self._browser_loop_thread = None
+
+    def _ensure_browser_started(self) -> None:
+        """Lazy-start the browser on first use."""
+        if not self.browser.is_started:
+            self._run_async(self.browser.start(headless=False))
+
+    def close_browser(self) -> None:
+        """Close browser and clean up. Safe to call multiple times."""
+        if self._browser is not None and self._browser.is_started:
+            try:
+                self._run_async(self._browser.close())
+            except Exception as e:
+                logger.warning("Error closing browser during cleanup: %s", e)
+        self._browser = None
+        self._stop_browser_loop()
 
     def clear_element_map(self):
         self.element_map = {}
@@ -346,6 +574,9 @@ class ExecutionAgent:
             "element_count": len(self.screen_elements),
             "action_summary": f"screenshot taken ({len(self.screen_elements)} elements)",
         }
+        # Include annotated screenshot so the frontend can display visual updates
+        if parse_result.annotated_image:
+            result["annotated_image"] = parse_result.annotated_image
         # Warn LLM after 3+ screen calls AND detect near-duplicate screens
         self._get_screen_call_count = getattr(self, "_get_screen_call_count", 0) + 1
         this_ids = frozenset(self.element_map.keys())
@@ -383,38 +614,18 @@ class ExecutionAgent:
         # Windows Search executables for reliable Win+Search matching.
         # Without this, Windows Search may not find the app when pasting
         # Chinese text (e.g. "计算器" may not match "Calculator.lnk").
-        _APP_NAME_MAP = {
-            "计算器": "calc",
-            "记事本": "notepad",
-            "画图": "mspaint",
-            "截图": "Snipping Tool",
-            "任务管理器": "Task Manager",
-            "控制面板": "Control Panel",
-            "资源管理器": "explorer",
-            "文件资源管理器": "explorer",
-            "浏览器": "chrome",
-            "Chrome": "chrome",
-            "Edge": "microsoft-edge:",
-            "微信": "WeChat",
-            "QQ": "QQ",
-            "网易云音乐": "CloudMusic",
-            "Word": "winword",
-            "Excel": "excel",
-            "PowerPoint": "powerpnt",
-            "WPS": "WPS Office",
-            "VSCode": "code",
-        }
-        search_name = _APP_NAME_MAP.get(app_name, app_name)
+        # The canonical mapping table lives in server.services.launcher.APP_EXECUTABLE_MAP
+        from server.services.launcher import APP_EXECUTABLE_MAP, launch_app
+
+        search_name = APP_EXECUTABLE_MAP.get(app_name, app_name)
         if search_name != app_name:
             logger.info(f"App name mapped: '{app_name}' → '{search_name}'")
-
-        from server.services.launcher import launch_app
 
         result = launch_app(search_name)
         return {
             "success": result.get("success", False),
             "app_name": app_name,
-            "action_summary": f"launched app '{app_name}' via Win+Search",
+            "action_summary": f"launched app '{app_name}' (tier {result.get('tier', '?')})",
         }
 
     def _do_click(self, element_id: str, double: bool = False) -> dict:
@@ -562,6 +773,46 @@ class ExecutionAgent:
             }
         elif tool_name == "mark_step_failed":
             return {"__step_failed__": True, "reason": tool_args.get("reason", "")}
+        # ── Browser tools ──
+        elif tool_name == "browser_navigate":
+            self._ensure_browser_started()
+            return self._run_async(self.browser.navigate(tool_args.get("url", "")))
+        elif tool_name == "browser_snapshot":
+            self._ensure_browser_started()
+            return self._run_async(self.browser.get_snapshot())
+        elif tool_name == "browser_click":
+            self._ensure_browser_started()
+            return self._run_async(
+                self.browser.click(tool_args.get("selector", ""))
+            )
+        elif tool_name == "browser_type":
+            self._ensure_browser_started()
+            return self._run_async(
+                self.browser.type(
+                    tool_args.get("selector", ""),
+                    tool_args.get("text", ""),
+                )
+            )
+        elif tool_name == "browser_scroll":
+            self._ensure_browser_started()
+            return self._run_async(
+                self.browser.scroll(
+                    tool_args.get("direction", "down"),
+                    tool_args.get("amount", 300),
+                )
+            )
+        elif tool_name == "browser_close":
+            if self._browser is not None and self._browser.is_started:
+                self._run_async(self.browser.close())
+            return {"success": True, "action_summary": "browser closed"}
+        elif tool_name == "browser_screenshot":
+            self._ensure_browser_started()
+            return self._run_async(self.browser.screenshot())
+        elif tool_name == "browser_press_key":
+            self._ensure_browser_started()
+            return self._run_async(
+                self.browser.press_key(tool_args.get("keys", "Enter"))
+            )
         else:
             return {"success": False, "error": f"Unknown tool: {tool_name}"}
 
@@ -573,6 +824,7 @@ class ExecutionAgent:
         goal: str,
         previous_steps: list[dict],
         cancel_event: Optional[threading.Event] = None,
+        on_screenshot: Optional[callable] = None,
     ) -> ExecutedStep:
         """Run the agent loop for a single step.
 
@@ -581,6 +833,8 @@ class ExecutionAgent:
             goal: Overall task goal from Planning Agent
             previous_steps: List of completed step dicts with action_summary
             cancel_event: Threading event set by user cancellation
+            on_screenshot: Optional callback(b64_str) when a new screenshot is taken.
+                Called from the agent loop thread after each get_screen_info.
 
         Returns:
             ExecutedStep with action, target_element_id, params, action_summary, status filled
@@ -596,7 +850,21 @@ class ExecutionAgent:
 
         # Build the conversation once: system prompt + task context.
         # Tool call history accumulates across rounds below.
-        messages = [{"role": "system", "content": EXECUTION_SYSTEM_PROMPT}]
+        # Build system prompt with user memory (if available)
+        system_content = EXECUTION_SYSTEM_PROMPT
+        try:
+            retriever = get_retriever()
+            user_memory = retriever.retrieve(
+                user_id="default",
+                query=goal,
+                element_count=None,  # Element count not available at this point
+            )
+            if user_memory:
+                system_content = EXECUTION_SYSTEM_PROMPT + "\n\n" + user_memory
+        except Exception:
+            pass  # Memory retrieval failure should not block execution
+
+        messages = [{"role": "system", "content": system_content}]
         # Add a hint: if the step is just about launching an app, the LLM should
         # call launch_app then mark_step_done directly, not verify via get_screen_info
         if (
@@ -695,6 +963,15 @@ class ExecutionAgent:
             logger.info(
                 f"Round {round_num}: {tool_name}({tool_args}) → success={result.get('success')}"
             )
+
+            # If the tool took a screenshot, push it to the frontend
+            if tool_name == "get_screen_info" and on_screenshot:
+                annotated = result.get("annotated_image")
+                if annotated:
+                    try:
+                        on_screenshot(annotated)
+                    except Exception:
+                        pass
 
             # Check for step completion signals
             if result.get("__step_complete__"):

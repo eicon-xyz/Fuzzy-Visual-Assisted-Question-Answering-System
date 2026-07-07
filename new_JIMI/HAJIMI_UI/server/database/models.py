@@ -12,8 +12,11 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
+    Index,
     Integer,
+    LargeBinary,
     String,
     Text,
 )
@@ -170,3 +173,34 @@ class RedlineLog(Base):
     action = Column(String(16), nullable=False)  # reject | guided_reject | degrade
     message = Column(String(512), nullable=False)
     created_at = Column(DateTime, default=_now, index=True)
+
+
+# ────────────────────────── t_memories ──────────────────────────
+
+
+class Memory(Base):
+    """用户记忆 — 自动学习的用户习惯、成功模式、失败教训"""
+
+    __tablename__ = "t_memories"
+
+    memory_id = Column(String(64), primary_key=True, default=_new_uuid)
+    user_id = Column(
+        String(64), ForeignKey("t_users.user_id"), nullable=False, index=True
+    )
+    memory_type = Column(String(32), nullable=False, index=True)
+    # 'profile' | 'success_pattern' | 'failure_lesson'
+    category = Column(String(64), nullable=True)
+    # 'app_preference' | 'path_habit' | 'term_mapping' | 'task_workflow' | 'failure_avoidance'
+    trigger_query = Column(Text, nullable=False)
+    summary = Column(String(500), nullable=False)
+    embedding = Column("embedding", LargeBinary, nullable=True)
+    confidence = Column(Float, default=1.0)
+    is_active = Column(Boolean, default=True, index=True)
+    event_count = Column(Integer, default=1)
+    resolved_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
+
+    __table_args__ = (
+        Index("ix_memories_user_active_type", "user_id", "is_active", "memory_type"),
+    )

@@ -13,6 +13,7 @@ from server.database import SessionLocal
 from server.database.models import (
     Failure,
     Feedback,
+    Memory,
     RedlineLog,
     StepLog,
     SystemConfig,
@@ -277,6 +278,133 @@ class FailureRepository:
             db.commit()
             db.refresh(f)
             return f
+        finally:
+            if close_db:
+                db.close()
+
+
+class MemoryRepository:
+    """用户记忆仓库"""
+
+    @staticmethod
+    def create(
+        user_id: str,
+        memory_type: str,
+        trigger_query: str,
+        summary: str,
+        embedding_bytes: Optional[bytes] = None,
+        category: Optional[str] = None,
+        db: Optional[Session] = None,
+    ) -> Memory:
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            m = Memory(
+                user_id=user_id,
+                memory_type=memory_type,
+                category=category,
+                trigger_query=trigger_query,
+                summary=summary,
+                embedding=embedding_bytes,
+            )
+            db.add(m)
+            db.commit()
+            db.refresh(m)
+            return m
+        finally:
+            if close_db:
+                db.close()
+
+    @staticmethod
+    def get_active_by_user(
+        user_id: str,
+        db: Optional[Session] = None,
+    ) -> list:
+        """Get all is_active=True memories for a user."""
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            return (
+                db.query(Memory)
+                .filter(
+                    Memory.user_id == user_id,
+                    Memory.is_active == True,
+                )
+                .all()
+            )
+        finally:
+            if close_db:
+                db.close()
+
+    @staticmethod
+    def deactivate(
+        memory_id: str,
+        db: Optional[Session] = None,
+    ) -> None:
+        """Mark a memory as inactive (covered by newer memory)."""
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            db.query(Memory).filter(Memory.memory_id == memory_id).update(
+                {"is_active": False}
+            )
+            db.commit()
+        finally:
+            if close_db:
+                db.close()
+
+    @staticmethod
+    def increment_resolved(
+        memory_id: str,
+        db: Optional[Session] = None,
+    ) -> None:
+        """Increment resolved_count for a failure_lesson. Deactivates if >= 1."""
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            mem = db.query(Memory).filter(Memory.memory_id == memory_id).first()
+            if mem:
+                mem.resolved_count += 1
+                if mem.resolved_count >= 1:
+                    mem.is_active = False
+                db.commit()
+        finally:
+            if close_db:
+                db.close()
+
+    @staticmethod
+    def get_by_user_and_type(
+        user_id: str,
+        memory_type: str,
+        is_active: Optional[bool] = True,
+        db: Optional[Session] = None,
+    ) -> list:
+        """Get memories filtered by user, type, and active status."""
+        close_db = False
+        if db is None:
+            db = SessionLocal()
+            close_db = True
+
+        try:
+            q = db.query(Memory).filter(
+                Memory.user_id == user_id,
+                Memory.memory_type == memory_type,
+            )
+            if is_active is not None:
+                q = q.filter(Memory.is_active == is_active)
+            return q.all()
         finally:
             if close_db:
                 db.close()

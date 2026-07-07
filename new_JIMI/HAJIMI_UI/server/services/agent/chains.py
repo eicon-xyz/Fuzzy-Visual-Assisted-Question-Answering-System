@@ -30,6 +30,7 @@ from server.services.llm.providers import (
     extract_json_object,
     parse_point_tags,
 )
+from server.services.memory.retriever import get_retriever
 
 logger = logging.getLogger(__name__)
 
@@ -140,10 +141,23 @@ def plan_and_locate(
 
     screen_hints = _summarize_screenshots(images)
 
+    # Retrieve user memories for prompt injection
+    user_memory = ""
+    try:
+        retriever = get_retriever()
+        user_memory = retriever.retrieve(
+            user_id="default",  # Phase 1: single-user, use default
+            query=goal,
+            element_count=None,  # No element count available in planner
+        )
+    except Exception:
+        pass  # Memory retrieval failure should not block planning
+
     user_text = PLAN_LOCATE_COMBO_USER.format(
         goal=goal,
         recentMessages=recent_text,
         screenHints=screen_hints,
+        user_memory=user_memory,
     )
 
     # Get raw text via LLM
@@ -220,10 +234,22 @@ def plan_goal(
         images = [{"base64Jpeg": image_base64, "label": "Screen"}]
 
     screen_hints = _summarize_screenshots(images)
+
+    user_memory = ""
+    try:
+        retriever = get_retriever()
+        user_memory = retriever.retrieve(
+            user_id="default",
+            query=goal,
+        )
+    except Exception:
+        pass
+
     user_text = PLANNER_USER_TEMPLATE.format(
         goal=goal,
         recentMessages=recent_text,
         screenHints=screen_hints,
+        user_memory=user_memory,
     )
 
     data = call_llm_json(
