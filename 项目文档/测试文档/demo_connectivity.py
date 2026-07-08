@@ -33,8 +33,8 @@ health = r.json()
 show("A端 /api/demo/health", health)
 if health["status"] != "ok":
     print("\n  ❌ A端未启动！")
-    print("  cd new_JIMI/HAJIMI_UI")
-    print("  python -m uvicorn server.main:app --host 127.0.0.1 --port 8010")
+    print("  cd HAJIMI_UI")
+    print("  python -m uvicorn server.main:app --host 0.0.0.0 --port 8010")
     sys.exit(1)
 
 # ══ 2. 审计数据写入 ══

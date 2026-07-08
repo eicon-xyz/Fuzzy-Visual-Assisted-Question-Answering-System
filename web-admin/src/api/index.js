@@ -8,7 +8,7 @@ import {
 } from './auth'
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: '/api',    // proxy → http://0.0.0.0:8010
   timeout: 15000,
 })
 

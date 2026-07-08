@@ -1,16 +1,13 @@
 """
-HAJIMI new_JIMI A-end Server 单元测试
-=======================================
-测试 new_JIMI/HAJIMI_UI/server/ 的 27 个 HTTP 端点。
-覆盖 admin/audit/config/auth/demo/flow/monitor 全部路由。
+HAJIMI A端 Server 单元测试
+============================
+测试 HAJIMI_UI/server/ 的全部 HTTP 端点。
 
-要求：A 端运行在 http://127.0.0.1:8010
+A 端由 启动本地.bat 自动启动，或手动:
+    cd HAJIMI_UI
+    python -m uvicorn server.main:app --host 0.0.0.0 --port 8010
 
-用法::
-    cd new_JIMI/HAJIMI_UI
-    python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
-
-    cd E:/Fuzzy-Visual-Assisted-Question-Answering-System
+用法:
     python 项目文档/测试文档/test_new_jimi.py
 """
 import sys, os, time, json, uuid
@@ -41,7 +38,7 @@ def test_connectivity():
         return True
     except Exception as e:
         ok("A端可达", False)
-        print(f"  启动: cd new_JIMI/HAJIMI_UI && python -m uvicorn server.main:app --host 127.0.0.1 --port 8010")
+        print(f"  启动: 启动本地.bat 或 cd HAJIMI_UI && python -m uvicorn server.main:app --host 0.0.0.0 --port 8010")
         return False
 
 # ── 2. Demo 端点 (5) ──
@@ -89,17 +86,17 @@ def test_admin():
         except Exception as e:
             ok(f"GET {path}", False)
 
-    # session/status (new_JIMI only)
+    # session/status (A端)
     try:
         r = httpx.get(f"{SERVER}/api/admin/session/status", headers=AH, timeout=10)
-        ok(f"GET session/status → {r.status_code} (new_JIMI专属)", r.status_code == 200)
+        ok(f"GET session/status → {r.status_code} (A端)", r.status_code == 200)
     except Exception as e:
         ok("GET session/status", False)
 
-    # metrics/reset (new_JIMI only)
+    # metrics/reset (A端)
     try:
         r = httpx.post(f"{SERVER}/api/admin/metrics/reset", headers=AH, timeout=10)
-        ok(f"POST metrics/reset → {r.status_code} (new_JIMI专属)", r.status_code == 200)
+        ok(f"POST metrics/reset → {r.status_code} (A端)", r.status_code == 200)
     except Exception as e:
         ok("POST metrics/reset", False)
 
@@ -175,12 +172,12 @@ def test_monitor():
 # ══ MAIN ══
 if __name__ == "__main__":
     print(f"\n{'='*50}")
-    print(f"  HAJIMI new_JIMI A-end 单元测试")
+    print(f"  HAJIMI A端 单元测试")
     print(f"  目标: {SERVER} | 27 端点")
     print(f"{'='*50}")
     if not test_connectivity():
         print(f"\n  A端离线。启动命令:")
-        print(f"  cd new_JIMI/HAJIMI_UI")
+        print(f"  启动: 启动本地.bat 或 cd HAJIMI_UI && python -m uvicorn server.main:app --host 0.0.0.0 --port 8010")
         print(f"  python -m uvicorn server.main:app --host 127.0.0.1 --port 8010")
         sys.exit(0)
     test_demo()
@@ -193,6 +190,6 @@ if __name__ == "__main__":
     print(f"\n{'='*50}")
     print(f"  结果: {PASS} 通过, {FAIL} 失败")
     if FAIL == 0:
-        print(f"  new_JIMI A端 全部通过")
+        print(f"  A端 全部通过")
     else:
         print(f"  {FAIL} 项失败，请检查 A端日志")

@@ -10,8 +10,8 @@ HAJIMI C<->A<->B 数据连通性集成测试
 
 用法:
     先启动 A 端:
-    cd new_JIMI/HAJIMI_UI
-    python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
+    cd HAJIMI_UI
+    python -m uvicorn server.main:app --host 0.0.0.0 --port 8010
 
     再跑测试:
     cd E:/Fuzzy-Visual-Assisted-Question-Answering-System
@@ -50,7 +50,7 @@ def test_server_up():
         return r.status_code == 200
     except:
         ok("A端在线", False)
-        info("启动: cd new_JIMI/HAJIMI_UI && python -m uvicorn server.main:app --host 127.0.0.1 --port 8010")
+        info("启动: 启动本地.bat 或 cd HAJIMI_UI && python -m uvicorn server.main:app --host 0.0.0.0 --port 8010")
         return False
 
 # ══ 1. C端审计代理 → A端 → Web面板可查 ══
@@ -220,7 +220,7 @@ if __name__ == "__main__":
 
     if not test_server_up():
         print(f"\n  结果: A端离线。")
-        print(f"  启动: cd new_JIMI/HAJIMI_UI")
+        print(f"  启动: 启动本地.bat 或 cd HAJIMI_UI && python -m uvicorn server.main:app --host 0.0.0.0 --port 8010")
         print(f"        python -m uvicorn server.main:app --host 127.0.0.1 --port 8010")
         print(f"  然后: npm run dev (web-admin/) → 浏览器 http://localhost:5173")
         print(f"        面板将自动检测A端并切换到真实数据")
