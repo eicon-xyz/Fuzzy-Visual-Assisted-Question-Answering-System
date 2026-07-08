@@ -2,7 +2,7 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: '/api',    // proxy → http://0.0.0.0:8010
   timeout: 15000,
 })
 
