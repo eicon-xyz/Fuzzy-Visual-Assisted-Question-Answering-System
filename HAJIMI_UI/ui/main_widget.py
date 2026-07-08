@@ -667,7 +667,7 @@ class MainWidget(QWidget):
         p.prev_clicked.connect(self.controller.prev_step)
         p.stop_clicked.connect(self.controller.stop_l5_execution)
         b.stop_clicked.connect(self.controller.stop_l5_execution)
-        c.l5_compact_status_updated.connect(self._on_l5_compact_status)
+        b.l5_compact_status_updated.connect(self._on_l5_compact_status)
         p.compact_requested.connect(self.switch_to_compact)
         p.drag_requested.connect(self.controller.begin_window_drag)
         p.inspect_requested.connect(self._on_inspect_requested)
