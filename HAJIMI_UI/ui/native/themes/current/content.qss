@@ -328,6 +328,28 @@ QLabel#HintTextSmall {
     font-size: 10px;
 }
 
+QTreeWidget#L5TimelineTree {
+    background: transparent;
+    border: none;
+    font-size: 12px;
+    color: #e2e8f0;
+    outline: none;
+}
+
+QTreeWidget#L5TimelineTree::item {
+    padding: 4px 2px;
+    border: none;
+}
+
+QTreeWidget#L5TimelineTree::item:selected {
+    background: rgba(124, 143, 212, 0.15);
+    color: #e2e8f0;
+}
+
+QTreeWidget#L5TimelineTree::item:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
 QPushButton#SendBtnAccent:disabled,
 QTextEdit#ChatInput:disabled,
 QLineEdit#CompactInput:disabled {

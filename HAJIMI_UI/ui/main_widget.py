@@ -45,7 +45,7 @@ from core.user_settings import (
     load_voice_settings,
     save_settings_fragment,
 )
-from core.env_sync import sync_server_env
+from core.env_sync import sync_l5_sidecar_env, sync_server_env
 from core.service_manager import (
     restart_local_a_end,
     run_gpu_one_click_bat,
@@ -990,6 +990,7 @@ class MainWidget(QWidget):
             apply_user_settings(merged)
             if merged.get("deployment_mode") in ("local", "gpu_api"):
                 sync_server_env(merged)
+                sync_l5_sidecar_env(merged)
                 restart_local_a_end()
             if is_intranet_mode():
                 mode_label = "内网 API"
@@ -1060,6 +1061,7 @@ class MainWidget(QWidget):
 
             settings = load_user_settings()
             sync_server_env(settings)
+            sync_l5_sidecar_env(settings)
             if is_gpu_api_mode():
                 start_gpu_api_services()
                 from core.routing_config import routing_needs_omniparser

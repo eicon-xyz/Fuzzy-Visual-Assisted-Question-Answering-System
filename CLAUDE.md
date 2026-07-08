@@ -121,6 +121,15 @@ Settings stored at `%LOCALAPPDATA%\HAJIMI\user_settings.json`. `apply_user_setti
 ## Common Commands
 
 ```bash
+# Root — local A+B + remote GPU Omni (Windows)
+启动本地.bat
+
+# Root — LAN integration (B UI + teammate A :8010)
+联调启动.bat
+
+# Root — stop services
+stop_all.bat
+
 # B-end — Mock mode (no backend needed)
 cd HAJIMI_UI
 set HAJIMI_MOCK_ONLY=1
@@ -133,20 +142,11 @@ python main.py
 cd HAJIMI_UI
 python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
 
-# Full local stack (Windows .bat)
-scripts\start_all.bat
+# CPU fallback full stack (dev, no campus GPU)
+HAJIMI_UI\scripts\dev\start_local_cpu.bat
 
-# Run A-end tests
-cd HAJIMI_UI
-pytest server/tests/ -v
-
-# Web admin dashboard
-cd web-admin
-npm run dev          # Dev server on :5173
-npm run build        # Production build → dist/
-
-# UI style preview (no backend)
-python -m ui.style_preview_demo
+# L5 Sidecar root: server_A/server_A (fallback new_JIMI/HAJIMI_UI)
+# Override: set HAJIMI_L5_ROOT=...
 ```
 
 ## Important Constraints

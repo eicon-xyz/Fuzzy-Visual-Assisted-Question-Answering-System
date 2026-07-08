@@ -15,16 +15,12 @@ if exist "%~dp0..\server\.venv\Scripts\python.exe" (
 echo [HAJIMI] Freeing port %L5_API_PORT% (stale L5 Sidecar) ...
 "%KILL_PY%" "%~dp0kill_port.py" %L5_API_PORT% >nul 2>&1
 
-if defined HAJIMI_L5_ROOT (
-    set "L5_ROOT=%HAJIMI_L5_ROOT%"
-) else (
-    set "L5_ROOT=%~dp0..\..\new_JIMI\HAJIMI_UI"
-)
+call "%~dp0_resolve_l5_root.bat"
 
 if not exist "%L5_ROOT%\scripts\start_server.bat" (
-    echo [HAJIMI] ERROR: new_JIMI Sidecar not found at:
+    echo [HAJIMI] ERROR: L5 Sidecar not found at:
     echo   %L5_ROOT%
-    echo Set HAJIMI_L5_ROOT to new_JIMI\HAJIMI_UI if using a custom path.
+    echo Set HAJIMI_L5_ROOT to server_A if using a custom path.
     endlocal
     exit /b 1
 )

@@ -72,6 +72,7 @@ class AppController(QObject):
         self._task_started_at: Optional[float] = None
         self._audit_emitted = False
         self._fingerprint_mismatch_count = 0
+        self._l5_overlay_hint_shown = False
 
         if self.worker:
             self.worker.sig_process_success.connect(self.on_process_success)
@@ -140,9 +141,12 @@ class AppController(QObject):
         self._fingerprint_mismatch_count = 0
         self._l5_mode = False
         self._l5_blocked_pending = False
+        self._l5_overlay_hint_shown = False
 
         panel = self._medium_panel()
-        if panel:
+        if panel and panel.is_l5_completed:
+            panel.finish_l5_execution()
+        elif panel and not is_l5_route():
             panel.set_l5_execution_mode(False)
 
         if is_l5_route() and USE_MOCK_ONLY:
@@ -158,7 +162,7 @@ class AppController(QObject):
                 self.message_added.emit("已取消 L5 自动执行", "system")
                 self.status_updated.emit("idle", "准备就绪")
                 return
-            if self._l5_mode and self.execute_worker and self.execute_worker.isRunning():
+            if self.execute_worker and self.execute_worker.isRunning():
                 self.message_added.emit("已取消上一 L5 任务，开始新任务", "system")
                 self.execute_worker.request_cancel()
                 self.execute_worker.stop_sse()
@@ -166,7 +170,7 @@ class AppController(QObject):
             self._l5_mode = True
             self._task_route = "l5"
             if panel:
-                panel.set_l5_execution_mode(True)
+                panel.begin_l5_planning()
                 panel.notify_l5_audit_compat("")
             self.message_added.emit(
                 "L5 自动执行已启动；审计 route 将按 L3 上报（契约兼容）。",
@@ -203,13 +207,23 @@ class AppController(QObject):
         self.status_updated.emit("idle", "准备就绪")
         self._reset_l5_state()
 
+    def _complete_l5_state(self, outcome: str = "done") -> None:
+        self._l5_mode = False
+        self._l5_blocked_pending = False
+        self.l5_compact_status_updated.emit("", False)
+        panel = self._medium_panel()
+        if panel:
+            panel.complete_l5_execution(outcome=outcome)
+            if self.steps:
+                panel.mirror_l5_steps_to_guide(self.steps)
+
     def _reset_l5_state(self) -> None:
         self._l5_mode = False
         self._l5_blocked_pending = False
         self.l5_compact_status_updated.emit("", False)
         panel = self._medium_panel()
         if panel:
-            panel.set_l5_execution_mode(False)
+            panel.finish_l5_execution()
 
     def _update_l5_compact_status(self) -> None:
         panel = self._medium_panel()
@@ -226,6 +240,12 @@ class AppController(QObject):
             return
         if not summary or "click" not in summary.lower():
             return
+        if not self._l5_overlay_hint_shown:
+            self._l5_overlay_hint_shown = True
+            self.message_added.emit(
+                "桌面标注待 Sidecar 回传坐标；时间线内可查看执行详情",
+                "system",
+            )
         # Reserved: map bbox from future tool_result payload → overlay_updated
 
     def handle_l5_hotkey(self, key: str) -> bool:
@@ -246,6 +266,10 @@ class AppController(QObject):
         return False
 
     def advance_step(self):
+        panel = self._medium_panel()
+        if panel and panel.is_l5_completed:
+            panel.finish_l5_execution()
+            return
         if self._l5_mode:
             if self._l5_blocked_pending:
                 self._l5_blocked_pending = False
@@ -584,20 +608,43 @@ class AppController(QObject):
         ]
         self.current_step_index = 0
         self.exit_inspect_mode()
-        self.steps_updated.emit(self.steps, 0)
-        self.blueprint_updated.emit(self.steps, 0)
-        self.status_updated.emit("executing", "L5 自动执行中")
         panel = self._medium_panel()
         if panel:
             panel.notify_l5_audit_compat("")
             panel.reset_l5_timeline(self.steps)
+            shot = response.get("screenshot_base64") or ""
+            if shot:
+                panel.show_l5_initial_screenshot(0, shot)
+        self.steps_updated.emit(self.steps, 0)
+        self.blueprint_updated.emit(self.steps, 0)
+        self.status_updated.emit("executing", "L5 自动执行中")
         self._update_l5_compact_status()
+
+    def _maybe_l5_llm_auth_hint(self, message: str) -> None:
+        text = (message or "").lower()
+        if "401" not in text and "llm error" not in text:
+            return
+        self.message_added.emit(
+            "8011 Sidecar 的 LLM Key 无效或未从 8010 同步。"
+            "请在设置中保存模型配置，或检查 L5 server/.env 后重启 Sidecar（scripts\\start_l5_sidecar.bat）。",
+            "system",
+        )
 
     def on_execute_error(self, error_msg: str) -> None:
         self._emit_audit("fail")
         self.message_added.emit(f"L5 执行失败: {error_msg}", "system danger")
+        if "无法直接操控您的电脑" in error_msg:
+            print(
+                f"[L5] physical redline after normalize; "
+                f"query={self._task_query!r}"
+            )
+            self.message_added.emit(
+                "提示：该句式可能未被 L5 归一化覆盖，可暂用「打开 XXX」或「怎么 XXX」重试。",
+                "system",
+            )
+        self._maybe_l5_llm_auth_hint(error_msg)
         self.status_updated.emit("idle", "准备就绪")
-        self._reset_l5_state()
+        self._complete_l5_state("error")
 
     def on_l5_sse_event(self, event_type: str, data: dict) -> None:
         panel = self._medium_panel()
@@ -621,6 +668,14 @@ class AppController(QObject):
                 or "检测到高风险步骤，按 H 批准继续或 J 停止",
                 "system danger",
             )
+        elif event_type == "step_failed":
+            summary = str(
+                data.get("action_summary")
+                or data.get("reason")
+                or data.get("error")
+                or ""
+            )
+            self._maybe_l5_llm_auth_hint(summary)
         elif event_type == "task_done":
             self.current_step_index = len(self.steps)
             self._emit_audit("success")
@@ -629,14 +684,20 @@ class AppController(QObject):
                 "system",
             )
             self.status_updated.emit("idle", "准备就绪")
-            self._reset_l5_state()
-        elif event_type in ("task_failed", "task_cancelled"):
-            result = "cancel" if event_type == "task_cancelled" else "fail"
-            self._emit_audit(result)
-            label = "已取消" if result == "cancel" else "执行失败"
-            self.message_added.emit(f"L5 {label}", "system danger")
+            self._complete_l5_state("done")
+        elif event_type == "task_failed":
+            self._emit_audit("fail")
+            fail_msg = str(data.get("message") or data.get("reason") or "")
+            self.message_added.emit("L5 执行失败", "system danger")
+            self._maybe_l5_llm_auth_hint(fail_msg)
             self.status_updated.emit("idle", "准备就绪")
-            self._reset_l5_state()
+            self._complete_l5_state("failed")
+        elif event_type == "task_cancelled":
+            if self._l5_mode:
+                self._emit_audit("cancel")
+                self.message_added.emit("L5 已取消", "system danger")
+                self.status_updated.emit("idle", "准备就绪")
+                self._complete_l5_state("cancelled")
         self._update_l5_compact_status()
 
     def on_process_success(self, response, fingerprint):

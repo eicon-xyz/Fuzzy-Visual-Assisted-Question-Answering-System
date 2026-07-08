@@ -85,15 +85,10 @@ def stop_port(port: int) -> List[int]:
 
 
 def resolve_l5_root() -> Path:
-    """new_JIMI/HAJIMI_UI 路径；HAJIMI_L5_ROOT 可覆盖。"""
-    try:
-        from config import HAJIMI_L5_ROOT
-    except Exception:
-        HAJIMI_L5_ROOT = ""
-    env = (HAJIMI_L5_ROOT or os.environ.get("HAJIMI_L5_ROOT", "")).strip()
-    if env:
-        return Path(env).resolve()
-    return (ROOT.parent / "new_JIMI" / "HAJIMI_UI").resolve()
+    """server_A Sidecar 根目录；HAJIMI_L5_ROOT 可覆盖。"""
+    from core.paths import resolve_l5_root as _resolve
+
+    return _resolve()
 
 
 def stop_backend_services(

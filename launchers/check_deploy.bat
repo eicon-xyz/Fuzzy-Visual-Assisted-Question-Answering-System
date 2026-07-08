@@ -1,6 +1,4 @@
 @echo off
-setlocal EnableExtensions
-cd /d %~dp0..\HAJIMI_UI
-call scripts\check_deploy.bat
-endlocal
+cd /d %~dp0..\HAJIMI_UI\scripts\dev
+call check_deploy.bat
 exit /b %ERRORLEVEL%

@@ -1,6 +1,4 @@
 @echo off
-setlocal EnableExtensions
-cd /d %~dp0..
-call 启动HAJIMI.bat
-endlocal
+cd /d %~dp0..\HAJIMI_UI\scripts\dev
+call start_gpu_one_click.bat
 exit /b %ERRORLEVEL%

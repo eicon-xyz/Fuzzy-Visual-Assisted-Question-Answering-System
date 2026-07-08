@@ -32,7 +32,7 @@ def _build_default_l5_api_url() -> str:
 
 L5_API_URL = os.environ.get("L5_API_URL", _build_default_l5_api_url())
 L5_DEFAULT_PORT = int(os.environ.get("L5_API_PORT", str(DEFAULT_L5_PORT)))
-# new_JIMI Sidecar 根目录（空则 service_manager 解析为 ../new_JIMI/HAJIMI_UI）
+# server_A Sidecar 根目录（空则 core.paths.resolve_l5_root → ../server_A）
 HAJIMI_L5_ROOT = os.environ.get("HAJIMI_L5_ROOT", "").strip()
 AUTO_LAUNCH_A_END = os.environ.get("HAJIMI_AUTO_LAUNCH_A_END", "1").lower() not in (
     "0",
@@ -45,7 +45,7 @@ AUTO_LAUNCH_L5 = os.environ.get("HAJIMI_AUTO_LAUNCH_L5", "1").lower() not in (
     "no",
 )
 L5_START_HINT = (
-    f"scripts\\start_l5_sidecar.bat  (new_JIMI L5 Sidecar default :{DEFAULT_L5_PORT})"
+    f"scripts\\start_l5_sidecar.bat  (server_A L5 Sidecar default :{DEFAULT_L5_PORT})"
 )
 L5_TOOL_SSE = os.environ.get("HAJIMI_L5_TOOL_SSE", "0").lower() in (
     "1",
@@ -151,7 +151,7 @@ def reload_from_env() -> None:
         "no",
     )
     L5_START_HINT = (
-        f"scripts\\start_l5_sidecar.bat  (new_JIMI L5 Sidecar default :{L5_DEFAULT_PORT})"
+        f"scripts\\start_l5_sidecar.bat  (server_A L5 Sidecar default :{L5_DEFAULT_PORT})"
     )
     L5_TOOL_SSE = os.environ.get("HAJIMI_L5_TOOL_SSE", "0").lower() in (
         "1",

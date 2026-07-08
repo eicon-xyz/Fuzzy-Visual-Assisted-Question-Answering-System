@@ -54,6 +54,7 @@ class Config:
         self.DEMO_KEY = os.getenv("HAJIMI_DEMO_KEY", DEFAULT_DEMO_KEY)
 
         self.LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+        self.LLM_PROVIDER = os.getenv("LLM_PROVIDER", "deepseek").lower()
         self.LLM_BASE_URL = os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)
         self.LLM_MODEL = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
         self.LLM_WIRE_API = os.getenv("LLM_WIRE_API", "").lower()
@@ -75,8 +76,14 @@ class Config:
         self.DEEPSEEK_BASE_URL = os.getenv(
             "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
         )
-        self.DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
+        self.DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
         self.DEEPSEEK_TIMEOUT = int(os.getenv("DEEPSEEK_TIMEOUT", "30"))
+
+        self.QWEN_API_KEY = os.getenv("QWEN_API_KEY", "")
+        self.QWEN_BASE_URL = os.getenv("QWEN_BASE_URL", "")
+        self.QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen-vl-max")
+
+        self.REQUIRE_IMAGE = os.getenv("REQUIRE_IMAGE", "true").lower() == "true"
 
         self.OMNIPARSER_URL = omni_url
         self.OMNIPARSER_LOCAL_URL = os.getenv("OMNIPARSER_LOCAL_URL", omni_url)
