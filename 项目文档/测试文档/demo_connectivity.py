@@ -15,7 +15,7 @@ if sys.platform == "win32":
 
 import httpx
 
-S = "http://127.0.0.1:8010"
+S = "http://0.0.0.0:8010"
 K = "hajimi-demo-2026"
 DH = {"X-Demo-Key": K, "Content-Type": "application/json"}
 AH = {"X-Admin-Key": K, "Content-Type": "application/json"}

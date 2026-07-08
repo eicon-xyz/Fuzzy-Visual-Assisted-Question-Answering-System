@@ -63,7 +63,7 @@ class ConfigPoller:
 
     def __init__(
         self,
-        server_url: str = "http://localhost:8010",
+        server_url: str = "http://0.0.0.0:8010",
         demo_key: str = "hajimi-demo-2026",
         client_version: str = "v2.1.0",
         interval_min: int = DEFAULT_INTERVAL_MIN,
