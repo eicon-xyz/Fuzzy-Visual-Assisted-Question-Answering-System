@@ -16,8 +16,13 @@ from fastapi.responses import JSONResponse
 
 from server.config import settings
 from server.database import init_db
-from server.routes.admin import router as admin_router
 from server.routes.demo import router as demo_router
+from server.routes.admin import router as admin_router
+from server.routes.audit import router as audit_router
+from server.routes.config_client import router as config_router
+from server.routes.auth import router as auth_router
+from server.routes.flow import router as flow_router
+from server.routes.monitor import router as monitor_router
 
 app = FastAPI(
     title="HAJIMI Demo Server",
@@ -71,6 +76,11 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 app.include_router(demo_router)
 app.include_router(admin_router)
+app.include_router(audit_router)
+app.include_router(config_router)
+app.include_router(auth_router)
+app.include_router(flow_router)
+app.include_router(monitor_router)
 
 
 @app.get("/")

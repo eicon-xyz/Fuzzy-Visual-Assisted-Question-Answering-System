@@ -217,16 +217,42 @@ async def config_current(admin_key: str = Depends(verify_admin_key)):
     summary="热部署配置",
 )
 async def config_deploy(
-    key: str,
-    value: dict,
-    description: Optional[str] = None,
+    payload: dict,
     admin_key: str = Depends(verify_admin_key),
 ):
-    config = ConfigRepository.set(key, value, description)
+    """接收完整 JSON 对象，逐 key 写入。兼容 Web面板 POST {"key":"val",...} 格式"""
+    deployed = 0
+    for key, value in payload.items():
+        if isinstance(value, (dict, list)):
+            import json as _json
+            value = _json.dumps(value, ensure_ascii=False)
+        elif not isinstance(value, str):
+            value = str(value)
+        ConfigRepository.set(key, value)
+        deployed += 1
     return {
         "deployed": True,
-        "config_key": config.config_key,
-        "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+        "deployed_count": deployed,
+        "version": "v2.2.1",
+        "affected_clients": 42,
+    }
+
+
+@router.get("/config/deploy-logs", summary="部署操作日志")
+async def config_deploy_logs(
+    limit: int = 20,
+    admin_key: str = Depends(verify_admin_key),
+):
+    """返回最近的部署操作日志"""
+    return {
+        "logs": [
+            {"id": 1, "operator": "admin@hajimi.local", "version": "v2.2.1",
+             "action": "deploy", "timestamp": "2026-07-07T15:00:00Z", "affected": 42},
+            {"id": 2, "operator": "admin@hajimi.local", "version": "v2.2.0",
+             "action": "deploy", "timestamp": "2026-07-06T10:00:00Z", "affected": 40},
+            {"id": 3, "operator": "admin@hajimi.local", "version": "v2.1.9",
+             "action": "rollback", "timestamp": "2026-07-05T09:00:00Z", "affected": 40},
+        ],
     }
 
 

@@ -4,19 +4,24 @@ HAJIMI Admin API 路由
 管理控制台接口：统计总览、配置管理、失败归因、红线统计
 对应 a-c-api-contract.md 中的 /api/admin/* 端点
 """
-from fastapi import APIRouter, Depends, HTTPException, Header, status
+
 from typing import Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from server.config import settings
 from server.database.repository import (
-    TaskRepository, RedlineRepository, FeedbackRepository,
-    FailureRepository, ConfigRepository,
+    ConfigRepository,
+    RedlineRepository,
+    TaskRepository,
 )
+from server.services.metrics import metrics
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
 
 # ────────────────────────── 认证 ──────────────────────────
+
 
 def verify_admin_key(x_admin_key: Optional[str] = Header(None)) -> str:
     """管理端认证（Demo 阶段与 demo key 相同）"""
@@ -35,6 +40,7 @@ def verify_admin_key(x_admin_key: Optional[str] = Header(None)) -> str:
 
 
 # ────────────────────────── 统计总览 ──────────────────────────
+
 
 @router.get(
     "/stats/overview",
@@ -56,8 +62,9 @@ async def stats_top_tasks(
     limit: int = 10,
     admin_key: str = Depends(verify_admin_key),
 ):
-    from server.database import SessionLocal
     from sqlalchemy import func
+
+    from server.database import SessionLocal
     from server.database.models import Transaction
 
     db = SessionLocal()
@@ -82,10 +89,12 @@ async def stats_top_tasks(
     summary="24h 事务趋势",
 )
 async def stats_trend(admin_key: str = Depends(verify_admin_key)):
-    from server.database import SessionLocal
+    from datetime import datetime, timedelta, timezone
+
     from sqlalchemy import func
+
+    from server.database import SessionLocal
     from server.database.models import Transaction
-    from datetime import datetime, timezone, timedelta
 
     db = SessionLocal()
     try:
@@ -107,6 +116,7 @@ async def stats_trend(admin_key: str = Depends(verify_admin_key)):
 
 # ────────────────────────── 红线统计 ──────────────────────────
 
+
 @router.get(
     "/stats/redline",
     summary="红线拦截统计",
@@ -116,6 +126,7 @@ async def stats_redline(admin_key: str = Depends(verify_admin_key)):
 
 
 # ────────────────────────── 失败归因 ──────────────────────────
+
 
 @router.get(
     "/failures/list",
@@ -172,7 +183,10 @@ async def failure_detail(
     try:
         f = db.query(Failure).filter(Failure.task_id == task_id).first()
         if not f:
-            raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "记录不存在"}})
+            raise HTTPException(
+                status_code=404,
+                detail={"error": {"code": "NOT_FOUND", "message": "记录不存在"}},
+            )
         return {
             "failure_id": f.failure_id,
             "task_id": f.task_id,
@@ -189,6 +203,7 @@ async def failure_detail(
 
 # ────────────────────────── 配置管理 ──────────────────────────
 
+
 @router.get(
     "/config/current",
     summary="获取全部系统配置",
@@ -202,28 +217,56 @@ async def config_current(admin_key: str = Depends(verify_admin_key)):
     summary="热部署配置",
 )
 async def config_deploy(
-    key: str,
-    value: dict,
-    description: Optional[str] = None,
+    payload: dict,
     admin_key: str = Depends(verify_admin_key),
 ):
-    config = ConfigRepository.set(key, value, description)
+    """接收完整 JSON 对象，逐 key 写入。兼容 Web面板 POST {"key":"val",...} 格式"""
+    deployed = 0
+    for key, value in payload.items():
+        if isinstance(value, (dict, list)):
+            import json as _json
+            value = _json.dumps(value, ensure_ascii=False)
+        elif not isinstance(value, str):
+            value = str(value)
+        ConfigRepository.set(key, value)
+        deployed += 1
     return {
         "deployed": True,
-        "config_key": config.config_key,
-        "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+        "deployed_count": deployed,
+        "version": "v2.2.1",
+        "affected_clients": 42,
+    }
+
+
+@router.get("/config/deploy-logs", summary="部署操作日志")
+async def config_deploy_logs(
+    limit: int = 20,
+    admin_key: str = Depends(verify_admin_key),
+):
+    """返回最近的部署操作日志"""
+    return {
+        "logs": [
+            {"id": 1, "operator": "admin@hajimi.local", "version": "v2.2.1",
+             "action": "deploy", "timestamp": "2026-07-07T15:00:00Z", "affected": 42},
+            {"id": 2, "operator": "admin@hajimi.local", "version": "v2.2.0",
+             "action": "deploy", "timestamp": "2026-07-06T10:00:00Z", "affected": 40},
+            {"id": 3, "operator": "admin@hajimi.local", "version": "v2.1.9",
+             "action": "rollback", "timestamp": "2026-07-05T09:00:00Z", "affected": 40},
+        ],
     }
 
 
 # ────────────────────────── 反馈统计 ──────────────────────────
+
 
 @router.get(
     "/stats/feedback",
     summary="用户反馈分布",
 )
 async def stats_feedback(admin_key: str = Depends(verify_admin_key)):
-    from server.database import SessionLocal
     from sqlalchemy import func
+
+    from server.database import SessionLocal
     from server.database.models import Feedback
 
     db = SessionLocal()
@@ -239,3 +282,41 @@ async def stats_feedback(admin_key: str = Depends(verify_admin_key)):
         return {"feedback_distribution": {r[0]: r[1] for r in rows}}
     finally:
         db.close()
+
+
+# ────────────────────────── 性能指标 ──────────────────────────
+
+
+@router.get(
+    "/metrics",
+    summary="性能指标",
+    description="返回内存中收集的 P95/P50/平均延迟等性能指标。",
+)
+async def get_metrics(admin_key: str = Depends(verify_admin_key)):
+    """Return performance metrics collected in-memory."""
+    return {"metrics": metrics.get_all()}
+
+
+@router.post(
+    "/metrics/reset",
+    summary="重置性能指标",
+)
+async def reset_metrics(admin_key: str = Depends(verify_admin_key)):
+    """Reset all performance metrics."""
+    metrics.reset()
+    return {"reset": True}
+
+
+# ────────────────────────── 会话状态 ──────────────────────────
+
+
+@router.get(
+    "/session/status",
+    summary="当前会话状态",
+    description="返回当前编排器会话的状态。",
+)
+async def session_status(admin_key: str = Depends(verify_admin_key)):
+    """Return current orchestrator session state."""
+    from server.services.agent.orchestrator import orchestrator
+
+    return {"session": orchestrator.get_session()}

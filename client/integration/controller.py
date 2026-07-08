@@ -66,7 +66,7 @@ class VoiceIntegrationController:
     严格按照 B-C 接口契约 §四 "信号注册总表" 实现。
     """
 
-    # 默认语音设置（B-C 接口契约 §接口5）
+    # 默认语音设置 — 与 B端 core/defaults.py DEFAULT_VOICE_SETTINGS 保持同步
     DEFAULT_VOICE_SETTINGS: Dict[str, Any] = {
         "tts_enabled": True,
         "tts_speed": 0.85,
@@ -74,11 +74,12 @@ class VoiceIntegrationController:
         "asr_enabled": True,
         "asr_engine": "vosk",
         "asr_language": "zh-CN",
+        "config_pull_interval_min": 30,
     }
 
     def __init__(
         self,
-        server_url: str = "http://localhost:8010",
+        server_url: str = "http://localhost:8010",   # A端主端口（B端嵌入）; L5 Sidecar 在 8011
         demo_key: str = "hajimi-demo-2026",
         client_version: str = "v2.1.0",
     ):

@@ -170,6 +170,24 @@ let USE_MOCK = true
 export function setUseMock(v) { USE_MOCK = v }
 export function isMockMode() { return USE_MOCK }
 
+/**
+ * 自动检测 A 端是否在线，在线则自动切换真实数据。
+ * 页面加载时调用一次即可。
+ */
+export async function autoDetectServer() {
+  try {
+    const r = await fetch('/api/demo/health', { signal: AbortSignal.timeout(3000) })
+    if (r.ok) {
+      USE_MOCK = false
+      console.log('[HAJIMI] A端在线，切换到真实数据模式')
+    }
+  } catch {
+    USE_MOCK = true
+    console.log('[HAJIMI] A端离线，使用 Mock 数据')
+  }
+  return !USE_MOCK
+}
+
 // ═══════════════════════════════════════════
 //  API 方法
 // ═══════════════════════════════════════════
