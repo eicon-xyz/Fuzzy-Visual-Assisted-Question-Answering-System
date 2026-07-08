@@ -28,7 +28,7 @@ try:
 except ImportError:
     print("pip install httpx"); sys.exit(1)
 
-SERVER = "http://0.0.0.0:8010"
+SERVER = "http://127.0.0.1:8010"
 KEY = "hajimi-demo-2026"
 DH = {"X-Demo-Key": KEY, "Content-Type": "application/json"}
 AH = {"X-Admin-Key": KEY, "Content-Type": "application/json"}

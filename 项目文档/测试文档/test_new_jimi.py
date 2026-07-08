@@ -19,7 +19,7 @@ try:
 except ImportError:
     print("pip install httpx"); sys.exit(1)
 
-SERVER = "http://0.0.0.0:8010"
+SERVER = "http://127.0.0.1:8010"
 PASS = 0; FAIL = 0
 def ok(msg, cond=True):
     global PASS, FAIL

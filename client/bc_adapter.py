@@ -39,7 +39,7 @@ class BCAdapter:
 
     def __init__(
         self,
-        server_url: str = "http://0.0.0.0:8010",
+        server_url: str = "http://127.0.0.1:8010",
         demo_key: str = "hajimi-demo-2026",
         client_version: str = "v2.1.0",
         vosk_model_path: str = "models/vosk-model-small-cn-0.22",
