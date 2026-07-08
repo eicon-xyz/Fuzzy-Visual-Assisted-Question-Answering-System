@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
     QStackedWidget,
     QFileDialog,
     QComboBox,
+    QSpinBox,
 )
 
 from ui.native.luxury.qss import DEFAULT_LUXURY_BTN_MODE, DEFAULT_LUXURY_GOLD_MODE
@@ -74,6 +75,34 @@ class SettingsEnterFilter(QObject):
                 self._submit()
                 return True
         return False
+
+
+class SettingsSlider(QSlider):
+    """设置页滑块：未点击聚焦时不响应滚轮，避免滚动页面时误触。"""
+
+    def __init__(self, orientation=Qt.Horizontal, parent=None):
+        super().__init__(orientation, parent)
+        self.setFocusPolicy(Qt.ClickFocus)
+
+    def wheelEvent(self, event):
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()
+
+
+class SettingsSpinBox(QSpinBox):
+    """设置页数字框：未点击聚焦时不响应滚轮。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFocusPolicy(Qt.ClickFocus)
+
+    def wheelEvent(self, event):
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()
 
 
 class SettingsFieldRow(QWidget):
@@ -421,6 +450,30 @@ class ModelSettingsGroup(QFrame):
         self.l4 = L4VisionGroup(embedded=True)
         layout.addWidget(self.l4)
 
+        proxy_title = QLabel("网络代理（仅 B 端 / Google ASR）")
+        proxy_title.setObjectName("SectionTitle")
+        layout.addWidget(proxy_title)
+        proxy_hint = QLabel(
+            "默认关闭，不影响「启动本地」的 A/隧道。"
+            " 启用后写入当前 B 进程环境变量；本机 127.0.0.1 已加入 NO_PROXY。"
+            " 需 Clash 等代理已运行。"
+        )
+        proxy_hint.setObjectName("HintTextSmall")
+        proxy_hint.setWordWrap(True)
+        layout.addWidget(proxy_hint)
+        self._proxy_enabled = QCheckBox("启用 HTTP(S) 代理")
+        self._proxy_enabled.setObjectName("SettingsCheck")
+        self._proxy_enabled.setChecked(False)
+        layout.addWidget(self._proxy_enabled)
+        self.field_http_proxy = SettingsFieldRow(
+            "HTTP 代理", "http://127.0.0.1:7890"
+        )
+        self.field_https_proxy = SettingsFieldRow(
+            "HTTPS 代理", "留空则复用 HTTP"
+        )
+        layout.addWidget(self.field_http_proxy)
+        layout.addWidget(self.field_https_proxy)
+
         save_row = QHBoxLayout()
         self._save_btn = QPushButton("保存并应用")
         self._save_btn.setObjectName("StepBtnPrimary")
@@ -437,6 +490,21 @@ class ModelSettingsGroup(QFrame):
     def set_feedback(self, text: str) -> None:
         self._feedback.setText(text)
 
+    def proxy_values(self) -> dict:
+        return {
+            "proxy_enabled": self._proxy_enabled.isChecked(),
+            "http_proxy": self.field_http_proxy.text()
+            or "http://127.0.0.1:7890",
+            "https_proxy": self.field_https_proxy.text(),
+        }
+
+    def set_proxy(self, data: dict) -> None:
+        self._proxy_enabled.setChecked(bool(data.get("proxy_enabled", False)))
+        self.field_http_proxy.set_text(
+            data.get("http_proxy") or "http://127.0.0.1:7890"
+        )
+        self.field_https_proxy.set_text(data.get("https_proxy") or "")
+
     def settings_inputs(self) -> list:
         return [
             self.field_a_url.input,
@@ -448,6 +516,8 @@ class ModelSettingsGroup(QFrame):
             self.field_omni_gpu.input,
             self.l4._field_planner.input,
             self.l4._field_locator.input,
+            self.field_http_proxy.input,
+            self.field_https_proxy.input,
         ]
 
 
@@ -487,7 +557,7 @@ class UiAppearanceGroup(QFrame):
 
         self._font_size_label = QLabel()
         self._font_size_label.setObjectName("HintTextSmall")
-        self._font_size_slider = QSlider(Qt.Horizontal)
+        self._font_size_slider = SettingsSlider(Qt.Horizontal)
         self._font_size_slider.setRange(FONT_SIZE_MIN, FONT_SIZE_MAX)
         self._font_size_slider.setValue(DEFAULT_FONT_SIZE)
         self._font_size_slider.valueChanged.connect(self._update_font_size_label)
@@ -521,7 +591,7 @@ class UiAppearanceGroup(QFrame):
         classic_alpha_l.setSpacing(4)
         self._medium_alpha_label = QLabel()
         self._medium_alpha_label.setObjectName("HintTextSmall")
-        self._medium_alpha_slider = QSlider(Qt.Horizontal)
+        self._medium_alpha_slider = SettingsSlider(Qt.Horizontal)
         self._medium_alpha_slider.setRange(SHELL_ALPHA_MIN, SHELL_ALPHA_MAX)
         self._medium_alpha_slider.setValue(DEFAULT_SHELL_ALPHA_MEDIUM)
         self._medium_alpha_slider.valueChanged.connect(self._update_medium_alpha_label)
@@ -534,7 +604,7 @@ class UiAppearanceGroup(QFrame):
 
         self._compact_alpha_label = QLabel()
         self._compact_alpha_label.setObjectName("HintTextSmall")
-        self._compact_alpha_slider = QSlider(Qt.Horizontal)
+        self._compact_alpha_slider = SettingsSlider(Qt.Horizontal)
         self._compact_alpha_slider.setRange(SHELL_ALPHA_MIN, SHELL_ALPHA_MAX)
         self._compact_alpha_slider.setValue(DEFAULT_SHELL_ALPHA_COMPACT)
         self._compact_alpha_slider.valueChanged.connect(self._update_compact_alpha_label)
@@ -551,7 +621,7 @@ class UiAppearanceGroup(QFrame):
         classic_shadow_l.setSpacing(4)
         self._shadow_label = QLabel()
         self._shadow_label.setObjectName("HintTextSmall")
-        self._shadow_slider = QSlider(Qt.Horizontal)
+        self._shadow_slider = SettingsSlider(Qt.Horizontal)
         self._shadow_slider.setRange(0, SHADOW_STRENGTH_MAX)
         self._shadow_slider.setValue(DEFAULT_CRYSTAL_EDGE_SHADOW)
         self._shadow_slider.valueChanged.connect(self._update_shadow_label)
@@ -588,7 +658,7 @@ class UiAppearanceGroup(QFrame):
         self._luxury_star_section = CollapsibleSection("星空强度", expanded=False)
         self._luxury_star_label = QLabel()
         self._luxury_star_label.setObjectName("HintTextSmall")
-        self._luxury_star_slider = QSlider(Qt.Horizontal)
+        self._luxury_star_slider = SettingsSlider(Qt.Horizontal)
         self._luxury_star_slider.setRange(0, LUXURY_STAR_INTENSITY_MAX)
         self._luxury_star_slider.setValue(DEFAULT_LUXURY_STAR_INTENSITY)
         self._luxury_star_slider.valueChanged.connect(self._update_luxury_star_label)
@@ -679,7 +749,7 @@ class UiAppearanceGroup(QFrame):
         self._top_light_group.buttonClicked.connect(self._emit_preview)
         self._top_light_label = QLabel()
         self._top_light_label.setObjectName("HintTextSmall")
-        self._top_light_slider = QSlider(Qt.Horizontal)
+        self._top_light_slider = SettingsSlider(Qt.Horizontal)
         self._top_light_slider.setRange(0, SHADOW_STRENGTH_MAX)
         self._top_light_slider.setValue(DEFAULT_TOP_LIGHT_PEAK)
         self._top_light_slider.valueChanged.connect(self._update_top_light_label)
@@ -723,7 +793,7 @@ class UiAppearanceGroup(QFrame):
         self._qss_highlight_group.buttonClicked.connect(self._emit_preview)
         self._qss_highlight_label = QLabel()
         self._qss_highlight_label.setObjectName("HintTextSmall")
-        self._qss_highlight_slider = QSlider(Qt.Horizontal)
+        self._qss_highlight_slider = SettingsSlider(Qt.Horizontal)
         self._qss_highlight_slider.setRange(0, SHADOW_STRENGTH_MAX)
         self._qss_highlight_slider.setValue(DEFAULT_QSS_HIGHLIGHT_PEAK)
         self._qss_highlight_slider.valueChanged.connect(self._update_qss_highlight_label)
@@ -1118,6 +1188,11 @@ class VoiceSettingsGroup(QFrame):
 
     voice_save_requested = pyqtSignal()
 
+    _VOSK_MODEL_PRESETS = [
+        "models/vosk-model-small-cn-0.22",
+        "models/vosk-model-cn-0.22",
+    ]
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("Card")
@@ -1129,26 +1204,28 @@ class VoiceSettingsGroup(QFrame):
         title.setObjectName("CardTitle")
         layout.addWidget(title)
 
-        hint = QLabel("控制麦克风识别与步骤语音播报；保存后 C 集成模块即时读取。")
+        hint = QLabel(
+            "控制麦克风识别与步骤语音播报；保存后 C 集成模块即时读取。"
+            " 点击麦克风开始说话，转写结果仅填入输入框，需手动发送。"
+        )
         hint.setObjectName("HintTextSmall")
         hint.setWordWrap(True)
         layout.addWidget(hint)
+
+        tts_hdr = QLabel("播报 (TTS)")
+        tts_hdr.setObjectName("SetRowLabel")
+        layout.addWidget(tts_hdr)
 
         self._tts_enabled = QCheckBox("启用 TTS 语音播报")
         self._tts_enabled.setObjectName("SettingsCheck")
         self._tts_enabled.setChecked(True)
         layout.addWidget(self._tts_enabled)
 
-        self._asr_enabled = QCheckBox("启用 ASR 语音识别")
-        self._asr_enabled.setObjectName("SettingsCheck")
-        self._asr_enabled.setChecked(True)
-        layout.addWidget(self._asr_enabled)
-
         speed_row = QHBoxLayout()
         speed_lbl = QLabel("TTS 语速")
         speed_lbl.setObjectName("SetRowLabel")
         speed_lbl.setMinimumWidth(120)
-        self._tts_speed = QSlider(Qt.Horizontal)
+        self._tts_speed = SettingsSlider(Qt.Horizontal)
         self._tts_speed.setObjectName("SettingsSlider")
         self._tts_speed.setMinimum(50)
         self._tts_speed.setMaximum(150)
@@ -1172,16 +1249,112 @@ class VoiceSettingsGroup(QFrame):
         tts_engine_row.addWidget(self._tts_engine, 1)
         layout.addLayout(tts_engine_row)
 
+        tts_note = QLabel("azure / baidu TTS 尚未接入，当前仅 pyttsx3 可用。")
+        tts_note.setObjectName("HintTextSmall")
+        tts_note.setWordWrap(True)
+        layout.addWidget(tts_note)
+
+        asr_hdr = QLabel("识别 (ASR)")
+        asr_hdr.setObjectName("SetRowLabel")
+        layout.addWidget(asr_hdr)
+
+        self._asr_enabled = QCheckBox("启用 ASR 语音识别")
+        self._asr_enabled.setObjectName("SettingsCheck")
+        self._asr_enabled.setChecked(True)
+        layout.addWidget(self._asr_enabled)
+
         asr_engine_row = QHBoxLayout()
         asr_engine_lbl = QLabel("ASR 引擎")
         asr_engine_lbl.setObjectName("SetRowLabel")
         asr_engine_lbl.setMinimumWidth(120)
         self._asr_engine = QComboBox()
         self._asr_engine.setObjectName("SettingsCombo")
-        self._asr_engine.addItems(["vosk", "baidu", "google"])
+        self._asr_engine.addItems(["vosk", "google"])
+        self._asr_engine.currentTextChanged.connect(self._on_asr_engine_changed)
         asr_engine_row.addWidget(asr_engine_lbl)
         asr_engine_row.addWidget(self._asr_engine, 1)
         layout.addLayout(asr_engine_row)
+
+        self._asr_engine_hint = QLabel("")
+        self._asr_engine_hint.setObjectName("HintTextSmall")
+        self._asr_engine_hint.setWordWrap(True)
+        layout.addWidget(self._asr_engine_hint)
+
+        lang_row = QHBoxLayout()
+        lang_lbl = QLabel("识别语言")
+        lang_lbl.setObjectName("SetRowLabel")
+        lang_lbl.setMinimumWidth(120)
+        self._asr_language = QComboBox()
+        self._asr_language.setObjectName("SettingsCombo")
+        self._asr_language.addItems(["zh-CN", "en-US"])
+        lang_row.addWidget(lang_lbl)
+        lang_row.addWidget(self._asr_language, 1)
+        layout.addLayout(lang_row)
+
+        mic_row = QHBoxLayout()
+        mic_lbl = QLabel("麦克风设备")
+        mic_lbl.setObjectName("SetRowLabel")
+        mic_lbl.setMinimumWidth(120)
+        self._mic_combo = QComboBox()
+        self._mic_combo.setObjectName("SettingsCombo")
+        self._mic_refresh_btn = QPushButton("刷新")
+        self._mic_refresh_btn.setObjectName("StepBtn")
+        self._mic_refresh_btn.clicked.connect(self._refresh_microphones)
+        mic_row.addWidget(mic_lbl)
+        mic_row.addWidget(self._mic_combo, 1)
+        mic_row.addWidget(self._mic_refresh_btn)
+        layout.addLayout(mic_row)
+
+        model_row = QHBoxLayout()
+        model_lbl = QLabel("Vosk 模型路径")
+        model_lbl.setObjectName("SetRowLabel")
+        model_lbl.setMinimumWidth(120)
+        self._vosk_model = QComboBox()
+        self._vosk_model.setObjectName("SettingsCombo")
+        self._vosk_model.setEditable(True)
+        for preset in self._VOSK_MODEL_PRESETS:
+            self._vosk_model.addItem(preset)
+        model_row.addWidget(model_lbl)
+        model_row.addWidget(self._vosk_model, 1)
+        layout.addLayout(model_row)
+
+        model_note = QLabel(
+            "离线 vosk 引擎使用；google 在线引擎忽略此项。"
+            " 大模型 vosk-model-cn-0.22 识别更准（约 1.8GB）。"
+        )
+        model_note.setObjectName("HintTextSmall")
+        model_note.setWordWrap(True)
+        layout.addWidget(model_note)
+
+        rec_hdr = QLabel("录音行为")
+        rec_hdr.setObjectName("SetRowLabel")
+        layout.addWidget(rec_hdr)
+
+        start_row = QHBoxLayout()
+        start_lbl = QLabel("开说等待 (秒)")
+        start_lbl.setObjectName("SetRowLabel")
+        start_lbl.setMinimumWidth(120)
+        self._asr_start_timeout = SettingsSpinBox()
+        self._asr_start_timeout.setObjectName("SettingsSpin")
+        self._asr_start_timeout.setRange(3, 30)
+        self._asr_start_timeout.setValue(10)
+        start_row.addWidget(start_lbl)
+        start_row.addWidget(self._asr_start_timeout)
+        start_row.addStretch()
+        layout.addLayout(start_row)
+
+        silence_row = QHBoxLayout()
+        silence_lbl = QLabel("静音结束 (秒)")
+        silence_lbl.setObjectName("SetRowLabel")
+        silence_lbl.setMinimumWidth(120)
+        self._asr_silence = SettingsSpinBox()
+        self._asr_silence.setObjectName("SettingsSpin")
+        self._asr_silence.setRange(1, 15)
+        self._asr_silence.setValue(5)
+        silence_row.addWidget(silence_lbl)
+        silence_row.addWidget(self._asr_silence)
+        silence_row.addStretch()
+        layout.addLayout(silence_row)
 
         save_row = QHBoxLayout()
         self._save_btn = QPushButton("保存并应用")
@@ -1196,20 +1369,78 @@ class VoiceSettingsGroup(QFrame):
         self._feedback.setWordWrap(True)
         layout.addWidget(self._feedback)
 
+        self._c_health = QLabel("")
+        self._c_health.setObjectName("HintTextSmall")
+        self._c_health.setWordWrap(True)
+        layout.addWidget(self._c_health)
+
+        self._on_asr_engine_changed(self._asr_engine.currentText())
+        QTimer.singleShot(0, self._refresh_microphones)
+
     def _on_speed_changed(self, value: int) -> None:
         self._speed_value_lbl.setText(f"{value / 100:.2f}")
+
+    def _on_asr_engine_changed(self, engine: str) -> None:
+        if engine == "google":
+            self._asr_engine_hint.setText(
+                "Google 在线识别：请在「模型设置」启用 HTTP 代理（Clash），"
+                "失败时将自动改用 Vosk。"
+            )
+        else:
+            self._asr_engine_hint.setText(
+                "Vosk 离线识别：可换大模型 vosk-model-cn-0.22 提升准确率。"
+            )
+
+    def _refresh_microphones(self) -> None:
+        saved_index = self._mic_combo.currentData()
+        self._mic_combo.clear()
+        self._mic_combo.addItem("系统默认", None)
+        devices = []
+        try:
+            from core.repo_paths import clear_shadow_client_modules, ensure_repo_root_on_path
+
+            ensure_repo_root_on_path()
+            clear_shadow_client_modules()
+            from client.voice.asr_client import ASRClient
+
+            devices = ASRClient.list_microphones()
+        except Exception:
+            pass
+        for dev in devices:
+            idx = dev.get("index")
+            name = dev.get("name", f"Device {idx}")
+            self._mic_combo.addItem(f"[{idx}] {name}", idx)
+        if not devices:
+            self._mic_combo.setToolTip(
+                "未检测到输入设备；请安装 pyaudio 或点击刷新。"
+            )
+        else:
+            self._mic_combo.setToolTip("")
+        if saved_index is not None:
+            for i in range(self._mic_combo.count()):
+                if self._mic_combo.itemData(i) == saved_index:
+                    self._mic_combo.setCurrentIndex(i)
+                    return
 
     def set_feedback(self, text: str) -> None:
         self._feedback.setText(text)
 
+    def set_c_health_status(self, text: str) -> None:
+        self._c_health.setText(text or "")
+
     def current_voice(self) -> dict:
+        mic_index = self._mic_combo.currentData()
         return {
             "tts_enabled": self._tts_enabled.isChecked(),
             "asr_enabled": self._asr_enabled.isChecked(),
             "tts_speed": round(self._tts_speed.value() / 100.0, 2),
             "tts_engine": self._tts_engine.currentText(),
             "asr_engine": self._asr_engine.currentText(),
-            "asr_language": "zh-CN",
+            "asr_language": self._asr_language.currentText(),
+            "microphone_index": mic_index,
+            "vosk_model_path": self._vosk_model.currentText().strip(),
+            "asr_silence_sec": float(self._asr_silence.value()),
+            "asr_start_timeout_sec": float(self._asr_start_timeout.value()),
         }
 
     def set_voice(self, data: dict) -> None:
@@ -1225,6 +1456,38 @@ class VoiceSettingsGroup(QFrame):
         if idx >= 0:
             self._tts_engine.setCurrentIndex(idx)
         asr_engine = voice.get("asr_engine", "vosk")
+        if asr_engine == "baidu":
+            asr_engine = "vosk"
         idx = self._asr_engine.findText(str(asr_engine))
         if idx >= 0:
             self._asr_engine.setCurrentIndex(idx)
+        lang = voice.get("asr_language", "zh-CN")
+        idx = self._asr_language.findText(str(lang))
+        if idx >= 0:
+            self._asr_language.setCurrentIndex(idx)
+        model_path = voice.get("vosk_model_path", self._VOSK_MODEL_PRESETS[0])
+        idx = self._vosk_model.findText(str(model_path))
+        if idx >= 0:
+            self._vosk_model.setCurrentIndex(idx)
+        else:
+            self._vosk_model.setEditText(str(model_path))
+        self._asr_silence.setValue(
+            max(1, min(15, int(float(voice.get("asr_silence_sec", 5)))))
+        )
+        self._asr_start_timeout.setValue(
+            max(3, min(30, int(float(voice.get("asr_start_timeout_sec", 10)))))
+        )
+        mic_index = voice.get("microphone_index")
+
+        def _apply_mic_selection() -> None:
+            self._refresh_microphones()
+            if mic_index is None:
+                self._mic_combo.setCurrentIndex(0)
+            else:
+                for i in range(self._mic_combo.count()):
+                    if self._mic_combo.itemData(i) == mic_index:
+                        self._mic_combo.setCurrentIndex(i)
+                        break
+
+        QTimer.singleShot(0, _apply_mic_selection)
+        self._on_asr_engine_changed(self._asr_engine.currentText())

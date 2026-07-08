@@ -41,8 +41,8 @@
       <el-header style="display: flex; align-items: center; justify-content: space-between; background: #fff; border-bottom: 1px solid #e6e6e6">
         <span style="font-size: 16px; font-weight: 600">{{ route.meta.title }}</span>
         <div>
-          <span style="margin-right: 12px; color: #909399">admin@hajimi.local</span>
-          <el-button text @click="logout">退出</el-button>
+          <span style="margin-right: 12px; color: #909399">{{ username }}</span>
+          <el-button text @click="handleLogout">退出</el-button>
         </div>
       </el-header>
       <el-main style="background: #f0f2f5; overflow-y: auto">
@@ -53,13 +53,16 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { getUsername, logout } from '../auth'
 
 const route = useRoute()
 const router = useRouter()
+const username = computed(() => getUsername())
 
-function logout() {
-  localStorage.removeItem('hajimi_token')
+async function handleLogout() {
+  await logout()
   router.replace('/login')
 }
 </script>

@@ -15,6 +15,7 @@ HAJIMI Client — 语音识别 (ASR) 模块
     transcript = asr.stop_and_transcribe()
 """
 
+import os
 import threading
 import queue
 import time
@@ -55,6 +56,8 @@ class ASRClient:
     """
 
     MAX_RECORD_SECONDS = 60
+    DEFAULT_SILENCE_SEC = 5.0
+    DEFAULT_START_TIMEOUT_SEC = 10.0
 
     def __init__(
         self,
@@ -63,6 +66,8 @@ class ASRClient:
         language: str = "zh-CN",
         vosk_model_path: str = "models/vosk-model-small-cn-0.22",
         microphone_index: Optional[int] = None,
+        silence_sec: Optional[float] = None,
+        start_timeout_sec: Optional[float] = None,
     ):
         """初始化 ASR 客户端
 
@@ -78,16 +83,33 @@ class ASRClient:
         self._language = language
         self._vosk_model_path = vosk_model_path
         self._microphone_index = microphone_index  # None = 系统默认
+        self._silence_sec = float(
+            silence_sec
+            if silence_sec is not None
+            else os.environ.get("HAJIMI_ASR_SILENCE_SEC", self.DEFAULT_SILENCE_SEC)
+        )
+        self._start_timeout_sec = float(
+            start_timeout_sec
+            if start_timeout_sec is not None
+            else os.environ.get(
+                "HAJIMI_ASR_START_TIMEOUT_SEC", self.DEFAULT_START_TIMEOUT_SEC
+            )
+        )
 
         # 运行时状态
         self._recording = False
         self._recording_thread: Optional[threading.Thread] = None
         self._audio_data: list = []           # 缓存音频帧（Mock 模式）
         self._start_time: float = 0.0
+        self._finalized = False
+        self._last_result: Optional[ASRResult] = None
+        self._finalize_lock = threading.Lock()
+        self._stop_reason: Optional[str] = None  # manual / wait_timeout / none
 
         # 引擎就绪检测
         self._vosk_available = self._check_vosk()
         self._google_available = self._check_google()
+        self._pyaudio_available = self._check_pyaudio()
 
         # 实际使用的引擎
         self._active_engine = self._resolve_engine()
@@ -106,7 +128,33 @@ class ASRClient:
         """开始录音（非阻塞，在独立线程中运行）"""
         if self._recording:
             return
+        if (
+            self._active_engine != ASREngine.MOCK
+            and not self._pyaudio_available
+        ):
+            result = ASRResult(
+                transcript="",
+                confidence=0.0,
+                engine=self._active_engine,
+                error="未安装 PyAudio，无法录音。请运行: pip install pyaudio",
+            )
+            self._emit_result(result)
+            return
+        if self._microphone_index is not None and not self._validate_microphone_index(
+            self._microphone_index
+        ):
+            result = ASRResult(
+                transcript="",
+                confidence=0.0,
+                engine=self._active_engine,
+                error="所选麦克风不可用，请在设置中换设备或选「系统默认」",
+            )
+            self._emit_result(result)
+            return
         self._recording = True
+        self._finalized = False
+        self._last_result = None
+        self._stop_reason = None
         self._audio_data.clear()
         self._start_time = time.time()
         self._recording_thread = threading.Thread(
@@ -115,11 +163,54 @@ class ASRClient:
         self._recording_thread.start()
 
     def stop_and_transcribe(self) -> ASRResult:
-        """停止录音并执行语音转文字"""
+        """停止录音并执行语音转文字（幂等，可重复调用）"""
         self._recording = False
-        if self._recording_thread and self._recording_thread.is_alive():
-            self._recording_thread.join(timeout=3.0)
-        return self._transcribe()
+        if self._stop_reason is None:
+            self._stop_reason = "manual"
+        return self._finalize_recording()
+
+    def _record_join_timeout_sec(self) -> float:
+        """等待录音线程结束的最长秒数（ambient + 开说等待 + 静音结束 + 缓冲）"""
+        return self._start_timeout_sec + self._silence_sec + 1.5
+
+    def _empty_audio_error(self) -> str:
+        if self._stop_reason == "wait_timeout":
+            sec = int(self._start_timeout_sec)
+            return (
+                f"开说等待超时（{sec} 秒），请点击麦克风后尽快说话"
+            )
+        if self._stop_reason == "manual":
+            return (
+                "未检测到语音：请说话后再点击结束，"
+                "或说完后保持静音 {:.0f} 秒自动结束".format(self._silence_sec)
+            )
+        return "未捕获到音频，请检查麦克风设备与系统权限"
+
+    def _finalize_recording(self) -> ASRResult:
+        """结束录音并转写；listen 自然结束或 asr_stop 时共用。"""
+        with self._finalize_lock:
+            if self._finalized:
+                return self._last_result or ASRResult(
+                    transcript="",
+                    confidence=0.0,
+                    engine=self._active_engine,
+                    error=self._empty_audio_error(),
+                )
+            self._finalized = True
+            self._recording = False
+            thread = self._recording_thread
+            is_worker = threading.current_thread() is thread
+
+        if thread and thread.is_alive() and not is_worker:
+            thread.join(timeout=self._record_join_timeout_sec())
+
+        with self._finalize_lock:
+            if self._last_result is None:
+                self._last_result = self._transcribe()
+            result = self._last_result
+
+        self._emit_result(result)
+        return result
 
     def cancel(self) -> None:
         """取消当前录音（不转写）"""
@@ -129,9 +220,12 @@ class ASRClient:
     @property
     def engine_status(self) -> dict:
         """返回各引擎可用状态"""
+        mic_ok = self._active_engine == ASREngine.MOCK or self._pyaudio_available
         return {
             "vosk_available": self._vosk_available,
             "google_available": self._google_available,
+            "pyaudio_available": self._pyaudio_available,
+            "mic_available": mic_ok,
             "active_engine": self._active_engine,
             "vosk_model_path": self._vosk_model_path,
         }
@@ -223,21 +317,47 @@ class ASRClient:
         except ImportError:
             return False
 
+    @staticmethod
+    def _check_pyaudio() -> bool:
+        """检测 PyAudio 是否可用（SpeechRecognition 录音必需）"""
+        try:
+            import pyaudio  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
+    @staticmethod
+    def _validate_microphone_index(index: int) -> bool:
+        """检查指定麦克风索引是否存在且可输入"""
+        try:
+            import pyaudio
+            p = pyaudio.PyAudio()
+            try:
+                if index < 0 or index >= p.get_device_count():
+                    return False
+                info = p.get_device_info_by_index(index)
+                return info.get("maxInputChannels", 0) > 0
+            finally:
+                p.terminate()
+        except Exception:
+            return False
+
     def _record_loop(self) -> None:
         """录音循环（在独立线程中运行）"""
         try:
             if self._active_engine == ASREngine.MOCK:
                 self._mock_record()
+                self._finalize_recording()
             elif self._active_engine in (ASREngine.VOSK, ASREngine.GOOGLE):
                 self._speech_recognition_record()
         except Exception as e:
-            if self._callback:
-                self._callback(ASRResult(
-                    transcript="",
-                    confidence=0.0,
-                    engine=self._active_engine,
-                    error=str(e),
-                ))
+            self._last_result = ASRResult(
+                transcript="",
+                confidence=0.0,
+                engine=self._active_engine,
+                error=str(e),
+            )
+            self._finalize_recording()
 
     def _mock_record(self) -> None:
         """Mock 录音模式（用于无麦克风环境自测）"""
@@ -253,6 +373,7 @@ class ASRClient:
         try:
             import speech_recognition as sr
             recognizer = sr.Recognizer()
+            recognizer.pause_threshold = self._silence_sec
 
             # 选择麦克风设备
             mic_kwargs = {}
@@ -264,25 +385,70 @@ class ASRClient:
                 try:
                     audio = recognizer.listen(
                         source,
-                        timeout=self.MAX_RECORD_SECONDS,
+                        timeout=self._start_timeout_sec,
                         phrase_time_limit=self.MAX_RECORD_SECONDS,
                     )
                     self._audio_data.append(audio)
                 except sr.WaitTimeoutError:
-                    pass
+                    if self._stop_reason is None:
+                        self._stop_reason = "wait_timeout"
         except Exception as e:
-            if self._callback:
-                self._callback(ASRResult(
-                    transcript="",
-                    confidence=0.0,
-                    engine=self._active_engine,
-                    error=f"录音失败: {e}",
-                ))
+            self._last_result = ASRResult(
+                transcript="",
+                confidence=0.0,
+                engine=self._active_engine,
+                error=f"录音失败: {e}",
+            )
+            self._finalize_recording()
+            return
+        self._finalize_recording()
+
+    @staticmethod
+    def _is_network_error(exc: BaseException) -> bool:
+        name = type(exc).__name__
+        text = str(exc).lower()
+        if name in ("ConnectionError", "TimeoutError", "URLError", "RequestError"):
+            return True
+        markers = (
+            "10054",
+            "10060",
+            "10061",
+            "forcibly",
+            "connection reset",
+            "connection refused",
+            "timed out",
+            "network is unreachable",
+            "getaddrinfo",
+            "ssl",
+            "proxy",
+        )
+        return any(m in text for m in markers)
+
+    def _recognize_google(self, audio) -> str:
+        """调用 Google Web Speech（HTTPS，便于代理穿透）。"""
+        import speech_recognition as sr
+
+        recognizer = sr.Recognizer()
+        kwargs = {"language": self._language}
+        try:
+            return recognizer.recognize_google(
+                audio,
+                endpoint="https://www.google.com/speech-api/v2/recognize",
+                **kwargs,
+            )
+        except TypeError:
+            # 旧版 SpeechRecognition 无 endpoint 参数
+            return recognizer.recognize_google(audio, **kwargs)
+
+    def _fallback_vosk(self, audio) -> Optional[ASRResult]:
+        if not self._vosk_available:
+            return None
+        return self._transcribe_vosk(audio)
 
     def _transcribe(self) -> ASRResult:
         """执行转写
 
-        引擎选择链: Vosk 离线(直接调用 vosk 库) → Google 在线 → 错误返回
+        优先用户选定引擎；Google 网络失败或无法识别时降级 Vosk。
         """
         if self._active_engine == ASREngine.MOCK:
             return self._mock_transcribe()
@@ -292,49 +458,60 @@ class ASRClient:
                 transcript="",
                 confidence=0.0,
                 engine=self._active_engine,
-                error="未捕获到音频数据",
+                error=self._empty_audio_error(),
             )
 
         audio = self._audio_data[0]
 
-        # ── Vosk 离线识别（直接调用 vosk 库，不经过 speech_recognition 封装）──
+        # 首选 Vosk
         if self._active_engine == ASREngine.VOSK and self._vosk_available:
             vosk_result = self._transcribe_vosk(audio)
             if vosk_result is not None:
-                self._emit_result(vosk_result)
                 return vosk_result
 
-        # ── Google 在线降级 ──
+        # Google（用户首选或 Vosk 不可用时的备用）
+        google_err: Optional[str] = None
         try:
-            import speech_recognition as sr
-            recognizer = sr.Recognizer()
-            text = recognizer.recognize_google(audio, language=self._language)
-            result = ASRResult(
+            text = self._recognize_google(audio)
+            return ASRResult(
                 transcript=text,
                 confidence=0.85,
                 engine=ASREngine.GOOGLE,
             )
-            self._emit_result(result)
-            return result
         except ImportError:
             pass
         except Exception as e:
             err_name = type(e).__name__
             if "UnknownValue" in err_name:
-                return ASRResult(
-                    transcript="",
-                    confidence=0.0,
-                    engine=ASREngine.GOOGLE,
-                    error="Google 无法识别语音内容",
+                google_err = "Google 无法识别语音内容"
+            elif self._is_network_error(e):
+                google_err = (
+                    "Google 网络不可用（需在模型设置启用代理或使用 VPN）。"
+                    f" 详情: {e}"
                 )
+            else:
+                google_err = f"Google 语音服务不可用: {e}"
+
+        # Google 失败 → 降级 Vosk（同段音频）
+        if google_err and self._vosk_available:
+            vosk_fb = self._fallback_vosk(audio)
+            if vosk_fb is not None and vosk_fb.success:
+                return vosk_fb
+            if vosk_fb is not None and vosk_fb.error:
+                google_err = f"{google_err} 已尝试 Vosk：{vosk_fb.error}"
+            else:
+                google_err = f"{google_err} 已尝试 Vosk 离线仍失败。"
+
+        if google_err:
+            if not self._vosk_available:
+                google_err += " 且未安装 Vosk 模型；可在设置改用 vosk。"
             return ASRResult(
                 transcript="",
                 confidence=0.0,
                 engine=ASREngine.GOOGLE,
-                error=f"Google 语音服务不可用: {e}",
+                error=google_err,
             )
 
-        # 全部失败
         return ASRResult(
             transcript="",
             confidence=0.0,
@@ -401,13 +578,11 @@ class ASRClient:
         ]
         import random
         transcript = random.choice(mock_texts)
-        result = ASRResult(
+        return ASRResult(
             transcript=transcript,
             confidence=0.92,
             engine=ASREngine.MOCK,
         )
-        self._emit_result(result)
-        return result
 
     def _emit_result(self, result: ASRResult) -> None:
         """安全地调用回调"""

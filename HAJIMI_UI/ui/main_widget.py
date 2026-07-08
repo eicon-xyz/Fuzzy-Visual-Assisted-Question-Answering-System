@@ -32,7 +32,11 @@ from config import (
     DEMO_KEY,
 )
 from core.bc_signals import BCIntegrationSignals
-from core.repo_paths import resolve_repo_root
+from core.repo_paths import (
+    clear_shadow_client_modules,
+    ensure_repo_root_on_path,
+    resolve_repo_root,
+)
 from core.task_worker import TaskWorkerThread
 from core.execute_worker import ExecuteWorkerThread
 from core.step_advance_worker import StepAdvanceWorkerThread
@@ -203,6 +207,15 @@ class MainWidget(QWidget):
         self._bc_signals = BCIntegrationSignals(self)
         self._shared_state = {"voice_settings": load_voice_settings()}
         self._c_controller = None
+        self._asr_listening = False
+        self._c_load_error = ""
+        self._c_degraded_notified = False
+        self._asr_timeout_timer = QTimer(self)
+        self._asr_timeout_timer.setSingleShot(True)
+        self._asr_timeout_timer.timeout.connect(self._on_asr_timeout)
+        self._asr_nudge_timer = QTimer(self)
+        self._asr_nudge_timer.setSingleShot(True)
+        self._asr_nudge_timer.timeout.connect(self._on_asr_nudge)
 
         self.controller = AppController(
             self.worker,
@@ -235,7 +248,7 @@ class MainWidget(QWidget):
         self.setMouseTracking(True)
         self._install_resize_tracking()
 
-        self._init_c_integration()
+        self._prepare_lazy_voice_ui()
         self._wire_controller()
         self._wire_native_widgets()
         self._wire_inspect_worker()
@@ -250,30 +263,66 @@ class MainWidget(QWidget):
         self._orange_cat_splash = OrangeCatSplashController(self)
         self._apply_native_appearance()
 
+    def _prepare_lazy_voice_ui(self) -> None:
+        """启动时不加载 C，仅准备麦克风；首次点击再加载。"""
+        if os.environ.get("HAJIMI_C_ENABLED", "1") != "1":
+            self.medium_panel.set_c_integration_status("C 端已禁用（HAJIMI_C_ENABLED=0）")
+            self.medium_panel.set_mic_enabled(False)
+            return
+        voice = self._shared_state.get("voice_settings") or load_voice_settings()
+        asr_on = voice.get("asr_enabled", True)
+        self.medium_panel.set_mic_enabled(bool(asr_on))
+        self.medium_panel.set_c_integration_status(
+            "语音模块将在首次点击麦克风时加载（加速启动）"
+        )
+
+    def _ensure_c_integration(self) -> bool:
+        """懒加载 C；成功返回 True。"""
+        if self._c_controller is not None and not self._c_load_error:
+            return True
+        self._init_c_integration()
+        return self._c_controller is not None and not self._c_load_error
+
     def _init_c_integration(self) -> None:
         if os.environ.get("HAJIMI_C_ENABLED", "1") != "1":
             return
+        if self._c_controller is not None and not self._c_load_error:
+            return
         try:
+            ensure_repo_root_on_path()
+            clear_shadow_client_modules()
             root = resolve_repo_root()
-            root_str = str(root)
-            if root_str not in sys.path:
-                sys.path.insert(0, root_str)
             client_dir = root / "client"
             if not client_dir.is_dir():
-                print("[C] client/ not found — voice integration skipped")
+                msg = "client/ 目录未找到，语音集成已跳过"
+                print(f"[C] {msg}")
+                self._c_load_error = msg
+                self.medium_panel.set_c_integration_status(msg)
                 return
             from client.integration.controller import VoiceIntegrationController
 
+            voice = self._shared_state.get("voice_settings") or load_voice_settings()
+            self._c_load_error = ""
             self._c_controller = VoiceIntegrationController(
                 server_url=API_BASE_URL,
                 demo_key=DEMO_KEY,
+                voice_settings=voice,
             )
             self._c_controller.start()
             self._c_controller.bind_to(self._bc_signals, self._shared_state)
-            QTimer.singleShot(800, self._request_c_health_check)
+            print("[C] integration OK — VoiceIntegrationController signals bound")
+            if voice.get("asr_enabled", True):
+                self.medium_panel.set_mic_enabled(True)
+            QTimer.singleShot(200, self._request_c_health_check)
         except Exception as exc:
+            msg = f"C 端加载失败: {exc}"
             print(f"[C] integration unavailable: {exc}")
+            self._c_load_error = msg
             self._c_controller = None
+            if hasattr(self, "medium_panel"):
+                self.medium_panel.set_c_integration_status(
+                    f"{msg}。请运行: python client/voice_setup.py"
+                )
 
     def _request_c_health_check(self) -> None:
         if self._bc_signals:
@@ -294,20 +343,45 @@ class MainWidget(QWidget):
             queue_depth = int(health.get("queue_depth") or 0)
 
         voice = self._shared_state.get("voice_settings") or {}
-        self.medium_panel.set_mic_enabled(bool(asr_ok and voice.get("asr_enabled", True)))
+        asr_on = voice.get("asr_enabled", True)
+        # 懒加载：未加载 C 时仍允许点 mic；已加载则保持可点
+        self.medium_panel.set_mic_enabled(bool(asr_on))
+        health_text = (
+            f"C 端：{overall or 'unknown'}"
+            f" | ASR={'可用' if asr_ok else '不可用'}"
+            f" | TTS={'可用' if tts_ok else '不可用'}"
+        )
+        if not asr_ok and self._c_controller and not self._c_load_error:
+            health_text += "（仍可尝试录音；若失败请检查 pyaudio / 引擎设置）"
+        elif not asr_ok and not self._c_load_error:
+            health_text += "。请运行: pip install -r client/requirements.txt（含 pyaudio）"
+        self.medium_panel.set_c_integration_status(health_text)
         if tts_ok and voice.get("tts_enabled", True):
             self.medium_panel.set_speaker_playing(False)
         if queue_depth > 50:
             self.medium_panel.set_voice_audit_hint(f"离线队列积压：{queue_depth} 条")
-        if overall == "degraded":
-            self.controller.message_added.emit("部分 C 端服务降级", "system")
+        if overall == "degraded" and not getattr(self, "_c_degraded_notified", False):
+            if asr_ok and tts_ok:
+                self.controller.message_added.emit(
+                    "A 端未连接，语音功能正常；审计上报将离线排队",
+                    "system",
+                )
+            else:
+                self.controller.message_added.emit("部分 C 端服务降级", "system")
+            self._c_degraded_notified = True
         elif overall == "unhealthy":
             self.controller.message_added.emit(
                 "C 端服务异常，语音功能不可用", "system danger"
             )
 
-    def _on_tts_status(self, status: str, _text: str, _queue_depth: int) -> None:
+    def _on_tts_status(self, status: str, text: str, _queue_depth: int) -> None:
         self.medium_panel.set_speaker_playing(status == "playing")
+        if status == "playing" and text:
+            preview = text if len(text) <= 24 else text[:24] + "…"
+            self.medium_panel.set_stage_hint(f"正在播报：{preview}")
+        elif status in ("idle", "stopped", "error"):
+            if self.medium_panel._stage_hint.text().startswith("正在播报"):
+                self.medium_panel.set_stage_hint("")
 
     def _on_audit_status(
         self, status: str, _batch_size: int, queue_depth: int, error
@@ -628,26 +702,98 @@ class MainWidget(QWidget):
         self.step_worker.sig_progress.connect(self._on_step_progress)
 
         if self._bc_signals:
+            self._bc_signals.asr_result.connect(self._on_asr_session_finished)
             self._bc_signals.asr_result.connect(self.controller.on_asr_result)
             self._bc_signals.tts_status.connect(self._on_tts_status)
             self._bc_signals.audit_status.connect(self._on_audit_status)
             self._bc_signals.config_updated.connect(self._on_config_updated)
             self._bc_signals.health_result.connect(self._on_c_health_result)
-            self.medium_panel.mic_pressed.connect(self._bc_signals.asr_start.emit)
-            self.medium_panel.mic_released.connect(self._bc_signals.asr_stop.emit)
+            self.medium_panel.mic_clicked.connect(self._on_mic_clicked)
+
+    def _asr_hint_text(self) -> str:
+        return "正在聆听…（看到提示后再说话；说完静音 5 秒自动结束）"
+
+    def _is_asr_hint_active(self) -> bool:
+        hint = self.medium_panel._stage_hint.text()
+        return hint.startswith("正在聆听") or hint.startswith("仍在录音")
+
+    def _set_asr_stage_hint(self, text: str) -> None:
+        self.medium_panel.set_stage_hint(text)
+
+    def _reset_asr_ui(self, *, clear_hint: bool = True) -> None:
+        self._asr_listening = False
+        self._asr_timeout_timer.stop()
+        self._asr_nudge_timer.stop()
+        self.medium_panel.set_mic_recording(False)
+        if clear_hint and self._is_asr_hint_active():
+            self.medium_panel.set_stage_hint("")
+
+    def _on_asr_timeout(self) -> None:
+        if not self._asr_listening and not (
+            self._c_controller and self._c_controller.asr_is_recording()
+        ):
+            return
+        if self._bc_signals:
+            self._bc_signals.asr_stop.emit()
+        self._reset_asr_ui(clear_hint=True)
+        self.controller.message_added.emit("录音超时，请重试", "system")
+
+    def _on_asr_nudge(self) -> None:
+        if self._asr_listening or (
+            self._c_controller and self._c_controller.asr_is_recording()
+        ):
+            self._set_asr_stage_hint("仍在录音，请说话或再次点击结束")
+
+    def _on_mic_clicked(self) -> None:
+        if not self._bc_signals:
+            return
+        voice = self._shared_state.get("voice_settings") or {}
+        if not voice.get("asr_enabled", True):
+            self.controller.message_added.emit("ASR 已在设置中关闭", "system")
+            return
+        c_recording = bool(
+            self._c_controller and self._c_controller.asr_is_recording()
+        )
+        if self._asr_listening or c_recording:
+            self._reset_asr_ui(clear_hint=False)
+            self._bc_signals.asr_stop.emit()
+            return
+        if not self._c_controller or self._c_load_error:
+            self._set_asr_stage_hint("正在加载语音模块…")
+            QApplication.processEvents()
+            if not self._ensure_c_integration():
+                self._reset_asr_ui(clear_hint=True)
+                msg = self._c_load_error or "C 端未加载"
+                self.controller.message_added.emit(
+                    f"语音不可用：{msg}。请确认 client/ 目录存在",
+                    "system danger",
+                )
+                return
+        self._asr_listening = True
+        self.medium_panel.set_mic_recording(True)
+        self._set_asr_stage_hint(self._asr_hint_text())
+        self._asr_nudge_timer.start(12000)
+        self._asr_timeout_timer.start(65000)
+        self._bc_signals.asr_start.emit()
+
+    def _on_asr_session_finished(self, _data) -> None:
+        self._reset_asr_ui(clear_hint=True)
+        self._request_c_health_check()
 
     def _on_step_action_started(self, action: str):
         self.medium_panel.set_step_controls_enabled(False)
 
     def _on_step_action_finished(self):
         self.medium_panel.set_step_controls_enabled(True)
-        self.medium_panel.set_stage_hint("")
+        if not self._asr_listening and not self._is_asr_hint_active():
+            self.medium_panel.set_stage_hint("")
         if not self.controller._current_step_needs_prepare():
             self.prepare_step_dialog.hide()
             self.medium_panel.hide_prepare_banner()
 
     def _on_step_progress(self, _pct: int, label: str):
-        self.medium_panel.set_stage_hint(label)
+        if not self._asr_listening and not self._is_asr_hint_active():
+            self.medium_panel.set_stage_hint(label)
 
     def _on_status_updated(self, status: str, _label: str):
         busy = status == "processing"
@@ -657,7 +803,8 @@ class MainWidget(QWidget):
             self._orange_cat_splash.on_status_updated(self._current_ui_theme(), status)
 
     def _on_task_progress(self, _pct: int, label: str):
-        self.medium_panel.set_stage_hint(label)
+        if not self._asr_listening and not self._is_asr_hint_active():
+            self.medium_panel.set_stage_hint(label)
 
     def _wire_native_widgets(self):
         p = self.medium_panel
@@ -1038,11 +1185,11 @@ class MainWidget(QWidget):
             self._shared_state["voice_settings"] = voice
             self.controller.set_voice_settings(voice)
             if self._c_controller:
-                for key, value in voice.items():
-                    self._c_controller.update_voice_setting(key, value)
+                self._c_controller.apply_voice_settings(voice)
+            engine = voice.get("asr_engine", "vosk")
             self.medium_panel.on_voice_settings_applied(
                 merged,
-                "语音设置已保存并应用",
+                f"语音设置已保存并应用（ASR 引擎：{engine}）",
             )
             self.controller.message_added.emit("语音设置已保存并应用", "system")
             self._request_c_health_check()

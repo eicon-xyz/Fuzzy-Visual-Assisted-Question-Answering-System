@@ -59,6 +59,45 @@ QPushButton#NavItemQuit:hover {
 QLabel#SetRowLabel {
     font-size: 12px;
     font-weight: 500;
+    color: #94a3b8;
+}
+
+QComboBox#SettingsCombo {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: #f1f5f9;
+    padding: 4px 8px;
+    min-height: 24px;
+}
+
+QComboBox#SettingsCombo:focus {
+    border-color: rgba(90, 158, 196, 0.6);
+}
+
+QComboBox#SettingsCombo QAbstractItemView {
+    background: rgba(15, 23, 42, 0.98);
+    color: #f1f5f9;
+    selection-background-color: rgba(90, 158, 196, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+QSpinBox#SettingsSpin {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: #f1f5f9;
+    padding: 2px 6px;
+    min-height: 24px;
+}
+
+QSpinBox#SettingsSpin:focus {
+    border-color: rgba(90, 158, 196, 0.6);
+}
+
+QCheckBox#SettingsCheck {
+    color: #f1f5f9;
+    spacing: 6px;
 }
 
 QFrame#ToggleSwitch {

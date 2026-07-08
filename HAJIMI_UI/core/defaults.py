@@ -23,6 +23,10 @@ DEFAULT_VOICE_SETTINGS = {
     "asr_enabled": True,
     "asr_engine": "vosk",
     "asr_language": "zh-CN",
+    "microphone_index": None,
+    "vosk_model_path": "models/vosk-model-small-cn-0.22",
+    "asr_silence_sec": 5.0,
+    "asr_start_timeout_sec": 10.0,
     "config_pull_interval_min": 30,
 }
 

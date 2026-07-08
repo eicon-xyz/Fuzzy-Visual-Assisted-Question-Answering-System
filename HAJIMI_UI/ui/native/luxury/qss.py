@@ -207,6 +207,41 @@ QRadioButton#SettingsRadio {{
     color: {TOKENS.secondary};
     spacing: 8px;
 }}
+QLabel#SetRowLabel {{
+    color: {TOKENS.secondary_muted};
+}}
+QComboBox#SettingsCombo {{
+    background: transparent;
+    border: 1px solid {TOKENS.surface_line};
+    border-radius: 8px;
+    color: {TOKENS.secondary};
+    padding: 4px 8px;
+    min-height: 24px;
+}}
+QComboBox#SettingsCombo:focus {{
+    border-color: {gold};
+}}
+QComboBox#SettingsCombo QAbstractItemView {{
+    background: rgba(20, 18, 16, 0.98);
+    color: {TOKENS.secondary};
+    selection-background-color: rgba(201, 168, 76, 0.25);
+    border: 1px solid {TOKENS.surface_line};
+}}
+QSpinBox#SettingsSpin {{
+    background: transparent;
+    border: 1px solid {TOKENS.surface_line};
+    border-radius: 8px;
+    color: {TOKENS.secondary};
+    padding: 2px 6px;
+    min-height: 24px;
+}}
+QSpinBox#SettingsSpin:focus {{
+    border-color: {gold};
+}}
+QCheckBox#SettingsCheck {{
+    color: {TOKENS.secondary};
+    spacing: 6px;
+}}
 QPushButton#CollapseToggle {{
     background: transparent;
     border: none;

@@ -123,8 +123,7 @@ class MediumPanel(QWidget):
     appearance_settings_saved = pyqtSignal(dict)
     voice_settings_saved = pyqtSignal(dict)
     appearance_preview_requested = pyqtSignal(dict)
-    mic_pressed = pyqtSignal()
-    mic_released = pyqtSignal()
+    mic_clicked = pyqtSignal()
     panel_resize_requested = pyqtSignal(int, int)
     panel_restore_size = pyqtSignal()
     prepare_banner_clicked = pyqtSignal()
@@ -721,6 +720,8 @@ class MediumPanel(QWidget):
         omni = data.get("omniparser") or {}
         self._field_omni_url.set_text(omni.get("url", ""))
         self._field_omni_gpu.set_text(omni.get("gpu_url", ""))
+        if hasattr(self, "_model_group"):
+            self._model_group.set_proxy(data)
         self._apply_deployment_mode_ui(data.get("deployment_mode", "gpu_api"))
         self._apply_guidance_route_ui(route)
 
@@ -763,6 +764,8 @@ class MediumPanel(QWidget):
         }
         if hasattr(self, "_l5_exec_group"):
             payload.update(self._l5_exec_group.get_values())
+        if hasattr(self, "_model_group"):
+            payload.update(self._model_group.proxy_values())
         return payload
 
     def _collect_appearance_settings(self) -> dict:
@@ -1132,11 +1135,11 @@ class MediumPanel(QWidget):
         mic_btn.setObjectName("IconBtnGhost")
         mic_btn.setIcon(action_icon("mic"))
         mic_btn.setFixedSize(32, 32)
-        mic_btn.setToolTip("按住说话")
+        mic_btn.setToolTip("点击说话（再次点击结束；静音 5 秒自动结束）")
         mic_btn.setEnabled(False)
-        mic_btn.pressed.connect(self.mic_pressed.emit)
-        mic_btn.released.connect(self.mic_released.emit)
+        mic_btn.clicked.connect(self.mic_clicked.emit)
         self._mic_btn = mic_btn
+        self._mic_recording = False
         self._send_btn = QPushButton()
         self._send_btn.setObjectName("SendBtnAccent")
         self._send_btn.setIcon(action_icon("send", "#5a9ec4"))
@@ -1381,8 +1384,33 @@ class MediumPanel(QWidget):
 
     def set_mic_enabled(self, enabled: bool) -> None:
         if hasattr(self, "_mic_btn"):
-            self._mic_btn.setEnabled(enabled)
-            self._mic_btn.setVisible(enabled)
+            if getattr(self, "_mic_recording", False):
+                self._mic_btn.setEnabled(True)
+            else:
+                self._mic_btn.setEnabled(enabled)
+            self._mic_btn.setVisible(True)
+
+    def set_mic_recording(self, recording: bool) -> None:
+        """录音中：高亮麦克风；录音时仍允许再次点击结束。"""
+        self._mic_recording = recording
+        if not hasattr(self, "_mic_btn"):
+            return
+        accent = accent_for_theme(getattr(self, "_ui_theme", "current"))
+        self._mic_btn.setIcon(
+            action_icon("mic", accent if recording else TEXT_TERTIARY)
+        )
+        self._mic_btn.setToolTip(
+            "录音中…再次点击结束" if recording else "点击说话（再次点击结束；静音 5 秒自动结束）"
+        )
+        if recording:
+            self._mic_btn.setEnabled(True)
+
+    def set_c_integration_status(self, text: str) -> None:
+        if hasattr(self, "_voice_group"):
+            self._voice_group.set_c_health_status(text)
+
+    def focus_input(self) -> None:
+        self._input.setFocus(Qt.OtherFocusReason)
 
     def set_speaker_playing(self, playing: bool) -> None:
         if not hasattr(self, "_speaker_btn"):
@@ -1406,6 +1434,7 @@ class MediumPanel(QWidget):
             self._input.setObjectName("ChatInput")
         self._input.style().unpolish(self._input)
         self._input.style().polish(self._input)
+        self.focus_input()
 
     def set_voice_audit_hint(self, text: str) -> None:
         if text:

@@ -152,14 +152,14 @@ class AuditAgent:
     # 默认配置
     DEFAULT_BATCH_SIZE = 10
     DEFAULT_FLUSH_INTERVAL = 300   # 5 分钟
-    DEFAULT_BASE_URL = "http://localhost:8010"
+    DEFAULT_BASE_URL = "http://127.0.0.1:8010"  # 服务器监听 0.0.0.0，客户端连 127.0.0.1
     DEFAULT_DEMO_KEY = "hajimi-demo-2026"
     MAX_RETRIES = 3
     RETRY_DELAYS = [60, 300, 900, 3600]  # 1min, 5min, 15min, 1h
 
     def __init__(
         self,
-        db_path: str = "client/audit/audit_queue.db",
+        db_path: str | None = None,
         server_url: str = DEFAULT_BASE_URL,
         demo_key: str = DEFAULT_DEMO_KEY,
         client_id: str = "",
@@ -167,6 +167,11 @@ class AuditAgent:
         flush_interval: int = DEFAULT_FLUSH_INTERVAL,
         status_callback: Optional[AuditStatusCallback] = None,
     ):
+        from client.paths import default_audit_db_path, migrate_legacy_audit_db
+
+        if db_path is None:
+            db_path = default_audit_db_path()
+            migrate_legacy_audit_db(db_path)
         self._db_path = db_path
         self._server_url = server_url.rstrip("/")
         self._demo_key = demo_key

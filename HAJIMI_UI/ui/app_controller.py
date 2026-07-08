@@ -589,7 +589,6 @@ class AppController(QObject):
                 panel.set_input_from_asr(transcript, low_confidence=low_confidence)
         if low_confidence:
             self.message_added.emit("识别置信度较低，请确认后发送", "system")
-        self.submit_query(transcript)
 
     def on_execute_success(self, response: dict, _fingerprint: str) -> None:
         self.task_id = response.get("task_id")

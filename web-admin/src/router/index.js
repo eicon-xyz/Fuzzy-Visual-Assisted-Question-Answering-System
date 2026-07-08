@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { isAuthenticated, migrateLegacyToken } from '../auth'
 
 const routes = [
   {
@@ -51,10 +52,11 @@ const router = createRouter({
   routes,
 })
 
-// 导航守卫：未登录跳转
+migrateLegacyToken()
+
 router.beforeEach((to) => {
-  const token = localStorage.getItem('hajimi_token')
-  if (!to.meta.noAuth && !token) {
+  if (to.meta.noAuth) return true
+  if (!isAuthenticated()) {
     return '/login'
   }
 })

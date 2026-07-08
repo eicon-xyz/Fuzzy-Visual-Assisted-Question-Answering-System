@@ -7,6 +7,9 @@ set HAJIMI_API_URL=http://127.0.0.1:%HAJIMI_PORT%
 
 echo [HAJIMI] Starting B-end client (A-end: %HAJIMI_API_URL%) ...
 
+REM Optional B-only proxy for Google ASR (from model settings; default off)
+call "%~dp0apply_proxy_env.bat"
+
 set "CLIENT_PY="
 if defined VIDEO_RAG_PY if exist "%VIDEO_RAG_PY%" set "CLIENT_PY=%VIDEO_RAG_PY%"
 if not defined CLIENT_PY if defined PYTHON if exist "%PYTHON%" set "CLIENT_PY=%PYTHON%"

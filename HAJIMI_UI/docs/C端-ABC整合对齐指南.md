@@ -13,7 +13,7 @@
 |------|------|
 | `BCIntegrationSignals` | `core/bc_signals.py` — 九信号 + `health_result` |
 | 启动 | `start()` → `bind_to(bc_signals, shared_state)` |
-| 麦克风 | `mic_pressed` → `asr_start`；`mic_released` → `asr_stop` |
+| 麦克风 | `mic_clicked` → 首次 `asr_start`、录音中再次点击 `asr_stop`；静音 5s / 开说前 10s 由 C ASR 自动结束 |
 | 审计 | `AppController._emit_audit()` → `audit_submit` |
 | TTS | 步骤切换 → `tts_enqueue` |
 | 语音设置 | `user_settings.json` 的 `voice` 块 + 设置页第三块 save |

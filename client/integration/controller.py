@@ -74,14 +74,28 @@ class VoiceIntegrationController:
         "asr_enabled": True,
         "asr_engine": "vosk",
         "asr_language": "zh-CN",
+        "microphone_index": None,
+        "vosk_model_path": "models/vosk-model-small-cn-0.22",
+        "asr_silence_sec": 5.0,
+        "asr_start_timeout_sec": 10.0,
         "config_pull_interval_min": 30,
     }
 
+    _ASR_REBUILD_KEYS = frozenset({
+        "asr_engine",
+        "asr_language",
+        "microphone_index",
+        "vosk_model_path",
+        "asr_silence_sec",
+        "asr_start_timeout_sec",
+    })
+
     def __init__(
         self,
-        server_url: str = "http://localhost:8010",   # A端主端口（B端嵌入）; L5 Sidecar 在 8011
+        server_url: str = "http://127.0.0.1:8010",   # A端主端口（B端嵌入）; L5 Sidecar 在 8011
         demo_key: str = "hajimi-demo-2026",
         client_version: str = "v2.1.0",
+        voice_settings: Optional[Dict[str, Any]] = None,
     ):
         self._server_url = server_url
         self._demo_key = demo_key
@@ -96,6 +110,8 @@ class VoiceIntegrationController:
         # B 的信号引用（PyQt5 绑定后设置）
         self._b_signals = None
         self._voice_settings = dict(self.DEFAULT_VOICE_SETTINGS)
+        if voice_settings:
+            self._voice_settings.update(voice_settings)
         self._settings_lock = threading.Lock()
 
         # 运行状态
@@ -110,18 +126,12 @@ class VoiceIntegrationController:
         self._started = True
 
         # 延迟导入以确保所有依赖就绪
-        from client.voice.asr_client import ASRClient, ASREngine
         from client.voice.tts_engine import TTSEngine
         from client.audit.audit_agent import AuditAgent
         from client.config.config_poller import ConfigPoller
 
         # ASR
-        asr_engine = self._voice_settings.get("asr_engine", "vosk")
-        self._asr_client = ASRClient(
-            result_callback=self._on_asr_result,
-            engine=asr_engine,
-            language=self._voice_settings.get("asr_language", "zh-CN"),
-        )
+        self._asr_client = self._create_asr_client()
 
         # TTS
         self._tts_engine = TTSEngine(
@@ -130,9 +140,13 @@ class VoiceIntegrationController:
             rate=int(self._voice_settings.get("tts_speed", 0.85) * 200),
         )
 
-        # 审计代理
+        # 审计代理（用户数据目录，避免在 HAJIMI_UI/client/ 下生成 shadow 包）
+        from client.paths import default_audit_db_path, migrate_legacy_audit_db
+
+        audit_db = default_audit_db_path()
+        migrate_legacy_audit_db(audit_db)
         self._audit_agent = AuditAgent(
-            db_path="client/audit/audit_queue.db",
+            db_path=audit_db,
             server_url=self._server_url,
             demo_key=self._demo_key,
             status_callback=self._on_audit_status,
@@ -161,6 +175,12 @@ class VoiceIntegrationController:
         if self._config_poller:
             self._config_poller.shutdown()
 
+    def asr_is_recording(self) -> bool:
+        """B 端查询 C 是否仍在录音（用于 UI/C 状态对齐）"""
+        if self._asr_client:
+            return bool(self._asr_client.is_recording)
+        return False
+
     # ────────────────────────── 信号绑定 ──────────────────────────
 
     def bind_to(self, b_signals: Any, shared_state: Optional[Dict] = None) -> None:
@@ -181,6 +201,8 @@ class VoiceIntegrationController:
             if "voice_settings" in shared_state:
                 with self._settings_lock:
                     self._voice_settings.update(shared_state["voice_settings"])
+                if self._started:
+                    self._rebuild_asr_client()
 
         # 尝试绑定 PyQt5 信号（如果可用）
         if self._has_pyqt_signals(b_signals):
@@ -191,9 +213,10 @@ class VoiceIntegrationController:
 
     @staticmethod
     def _has_pyqt_signals(b_signals: Any) -> bool:
-        """检查是否存在 PyQt5 信号"""
+        """检查是否存在 PyQt5 信号（应检查 signal.connect，而非 QObject.connect）。"""
         try:
-            return hasattr(b_signals, "asr_start") and hasattr(b_signals, "connect")
+            sig = getattr(b_signals, "asr_start", None)
+            return sig is not None and hasattr(sig, "connect")
         except Exception:
             return False
 
@@ -204,10 +227,10 @@ class VoiceIntegrationController:
             if not self._started:
                 return
 
-            # ASR（B-C 接口 §接口1-2）
-            if self._asr_client and hasattr(b_signals, "asr_start"):
-                b_signals.asr_start.connect(self._asr_client.start_recording)
-            if self._asr_client and hasattr(b_signals, "asr_stop"):
+            # ASR（B-C 接口 §接口1-2）— 绑定包装方法，便于热重建 ASRClient
+            if hasattr(b_signals, "asr_start"):
+                b_signals.asr_start.connect(self._handle_asr_start)
+            if hasattr(b_signals, "asr_stop"):
                 b_signals.asr_stop.connect(self._on_asr_stop)
 
             # TTS（B-C 接口 §接口3）
@@ -226,28 +249,85 @@ class VoiceIntegrationController:
             # 信号绑定失败不阻塞启动
             pass
 
+    # ────────────────────────── ASR 工厂 ──────────────────────────
+
+    @staticmethod
+    def _parse_microphone_index(raw: Any) -> Optional[int]:
+        if raw is None or raw == "":
+            return None
+        try:
+            idx = int(raw)
+            return idx if idx >= 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def _create_asr_client(self):
+        from client.voice.asr_client import ASRClient
+
+        with self._settings_lock:
+            vs = dict(self._voice_settings)
+        return ASRClient(
+            result_callback=self._on_asr_result,
+            engine=vs.get("asr_engine", "vosk"),
+            language=vs.get("asr_language", "zh-CN"),
+            vosk_model_path=vs.get(
+                "vosk_model_path", "models/vosk-model-small-cn-0.22"
+            ),
+            microphone_index=self._parse_microphone_index(
+                vs.get("microphone_index")
+            ),
+            silence_sec=vs.get("asr_silence_sec"),
+            start_timeout_sec=vs.get("asr_start_timeout_sec"),
+        )
+
+    def _rebuild_asr_client(self) -> None:
+        if not self._started:
+            return
+        if self._asr_client and self._asr_client.is_recording:
+            return
+        if self._asr_client:
+            self._asr_client.cancel()
+        self._asr_client = self._create_asr_client()
+
+    def _handle_asr_start(self) -> None:
+        if not self._voice_settings.get("asr_enabled", True):
+            return
+        if self._asr_client:
+            self._asr_client.start_recording()
+
     # ────────────────────────── 回调处理 ──────────────────────────
 
     def _on_asr_result(self, result: Any) -> None:
-        """ASR 转写结果 → 回传给 B（B-C 接口 §接口2）"""
-        if self._b_signals and hasattr(self._b_signals, "asr_result"):
+        """ASR 转写结果 → 回传给 B（B-C 接口 §接口2，主线程 emit）"""
+        if not self._b_signals or not hasattr(self._b_signals, "asr_result"):
+            return
+        data = {
+            "transcript": getattr(result, "transcript", ""),
+            "confidence": getattr(result, "confidence", 0.0),
+            "engine": getattr(result, "engine", "mock"),
+            "error": getattr(result, "error", None),
+        }
+
+        def _deliver() -> None:
             try:
-                # 构造回调数据
-                data = {
-                    "transcript": getattr(result, "transcript", ""),
-                    "confidence": getattr(result, "confidence", 0.0),
-                    "engine": getattr(result, "engine", "mock"),
-                    "error": getattr(result, "error", None),
-                }
+                self._b_signals.asr_result.emit(data)
+            except Exception:
+                pass
+
+        try:
+            from PyQt5.QtCore import QTimer
+
+            QTimer.singleShot(0, _deliver)
+        except Exception:
+            try:
                 self._b_signals.asr_result.emit(data)
             except Exception:
                 pass
 
     def _on_asr_stop(self) -> None:
-        """B 松开麦克风按钮 → 停止录音并转写"""
+        """B 再次点击麦克风 → 停止录音并转写（结果经 result_callback 回传）"""
         if self._asr_client:
-            result = self._asr_client.stop_and_transcribe()
-            self._on_asr_result(result)
+            self._asr_client.stop_and_transcribe()
 
     def _on_tts_enqueue(
         self,
@@ -321,7 +401,11 @@ class VoiceIntegrationController:
         # ASR
         if self._asr_client:
             engine_info = getattr(self._asr_client, "engine_status", {})
-            status.asr_available = engine_info.get("vosk_available", False) or engine_info.get("google_available", False)
+            engine_ok = engine_info.get("vosk_available", False) or engine_info.get(
+                "google_available", False
+            )
+            mic_ok = engine_info.get("mic_available", False)
+            status.asr_available = bool(engine_ok and mic_ok)
             status.asr_engine = engine_info.get("active_engine", "mock")
 
         # TTS
@@ -348,14 +432,29 @@ class VoiceIntegrationController:
         with self._settings_lock:
             return dict(self._voice_settings)
 
+    def apply_voice_settings(self, settings: Dict[str, Any]) -> None:
+        """批量更新语音设置（保存后由 B 端调用）"""
+        rebuild = False
+        with self._settings_lock:
+            for key, value in settings.items():
+                self._voice_settings[key] = value
+                if key in self._ASR_REBUILD_KEYS:
+                    rebuild = True
+        if rebuild:
+            self._rebuild_asr_client()
+        if "tts_speed" in settings and self._tts_engine:
+            self._tts_engine.set_rate(int(settings["tts_speed"] * 200))
+        if "config_pull_interval_min" in settings and self._config_poller:
+            self._config_poller.set_interval(settings["config_pull_interval_min"])
+
     def update_voice_setting(self, key: str, value: Any) -> None:
         """更新单项语音设置并立即生效"""
         with self._settings_lock:
-            if key in self._voice_settings:
-                self._voice_settings[key] = value
+            self._voice_settings[key] = value
 
-        # 即时生效
-        if key == "tts_speed" and self._tts_engine:
+        if key in self._ASR_REBUILD_KEYS:
+            self._rebuild_asr_client()
+        elif key == "tts_speed" and self._tts_engine:
             self._tts_engine.set_rate(int(value * 200))
         elif key == "tts_engine" and self._tts_engine:
             pass  # 引擎切换需要重启 TTS，暂不支持热切换

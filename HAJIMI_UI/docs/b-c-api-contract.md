@@ -38,7 +38,7 @@ B 与 C 运行在同一个 Python 进程中（PyQt5 桌面应用），通过 **Q
 
 | # | 接口名 | 方向 | 通信方式 | 用途 |
 |---|--------|------|----------|------|
-| 1 | **ASR 录音控制** | B → C | Qt 信号 | 麦克风按下/松开 → 启停录音 |
+| 1 | **ASR 录音控制** | B → C | Qt 信号 | 麦克风点击 → 启停录音 |
 | 2 | **ASR 转写结果** | C → B | Qt 信号 | 语音转文字结果回传 |
 | 3 | **TTS 播报触发** | B → C | Qt 信号 | 步骤指引文字 → 入队语音播报 |
 | 4 | **TTS 状态回传** | C → B | Qt 信号 | 播报开始/完成/错误 |
@@ -59,19 +59,23 @@ B 与 C 运行在同一个 Python 进程中（PyQt5 桌面应用），通过 **Q
 **方向**：B → C
 
 **触发时机**：
-- `asr_start`：用户按下麦克风按钮
-- `asr_stop`：用户松开按钮 或 静默 2 秒自动触发
+- `asr_start`：用户**点击**麦克风按钮（开始录音）
+- `asr_stop`：用户**再次点击**麦克风（立即结束并转写），或 C 端检测到静音/超时后自动结束
+
+**静音策略（C 端 `ASRClient`，2026-07 实测）**：
+- 开说前：最多等待 **10s**（`HAJIMI_ASR_START_TIMEOUT_SEC`）
+- 开说后：连续 **5s** 无有效声音结束（`HAJIMI_ASR_SILENCE_SEC` / `pause_threshold`）
 
 **Python 绑定示例**：
 
 ```python
-# B 侧（PyQt5 按钮）
-mic_button.pressed.connect(asr_start_signal.emit)
-mic_button.released.connect(asr_stop_signal.emit)
+# B 侧（PyQt5 按钮 — 点击切换，非按住）
+mic_button.clicked.connect(on_mic_clicked)  # 首次 → asr_start；录音中 → asr_stop
 
 # C 侧
 asr_start_signal.connect(asr_client.start_recording)
-asr_stop_signal.connect(asr_client.stop_and_transcribe)
+asr_stop_signal.connect(asr_client.stop_and_transcribe)  # 幂等
+# listen 自然结束后 C 也会自动转写并通过 asr_result 回传
 ```
 
 | 信号 | 参数 | 类型 | 说明 |
@@ -102,10 +106,9 @@ asr_result_signal.emit(transcript, confidence, engine)
 | `error` | string \| null | ❌ | 错误信息，成功时为 null |
 
 **B 侧处理**：
-1. 收到 `transcript` → 自动填入输入框
+1. 收到 `transcript` → 填入输入框并聚焦，**不自动发送**（用户点发送或 Enter）
 2. 若 `confidence` < 0.6 → 输入框文字用浅色显示，提示"识别置信度较低"
-3. 若 `error` 不为 null → 弹出 Toast 提示"语音识别失败：{error}"
-4. 填入后自动触发发送（`handleUserSubmit`）
+3. 若 `error` 不为 null → 系统消息提示"语音识别失败：{error}"
 
 ```json
 {
@@ -437,6 +440,10 @@ def health_check() -> HealthStatus:
 | `queue_depth` | int | 离线审计队列深度 |
 | `overall` | string | `healthy` / `degraded` / `unhealthy` |
 
+**实测样例（2026-07，Vosk 就绪、A-end 未启动）**：`asr_available=True`, `tts_available=True`, `overall=degraded`。
+
+**B 端麦克风灰显**：`asr_available=False` 或设置 ASR 关闭或 C 未加载；设置 → 语音设置底部显示 C 健康文案。
+
 **B 侧处理**：
 - `overall = degraded` → 状态栏显示黄色 "⚠ 部分服务降级"
 - `overall = unhealthy` → 状态栏显示红色 "❌ 服务异常"
@@ -486,7 +493,7 @@ class VoiceIntegrationController:
 | 约定 | 说明 |
 |------|------|
 | **线程安全** | TTS 播报和 ASR 录音在独立线程中运行，信号跨线程传递必须使用 `Qt.QueuedConnection` |
-| **优雅降级** | ASR/TTS 不可用时不影响核心文字指引功能，B 自动隐藏麦克风按钮和喇叭图标 |
+| **优雅降级** | ASR/TTS 不可用时不影响核心文字指引；麦克风按钮置灰但仍可见，设置页显示 C 健康与排错提示 |
 | **离线优先** | `server_reachable = false` 时，审计数据全部缓存本地，联网后自动批量补传 |
 | **信号超时** | ASR 录音最长 60 秒自动停止；TTS 单条最长 120 秒超时跳过 |
 | **耦合极低** | B 与 C 仅通过 9 个信号/方法交互，任一方可独立 Mock 测试 |
@@ -507,17 +514,17 @@ class VoiceIntegrationController:
 
 ### B 自检
 
-- [ ] 麦克风按钮 `pressed` / `released` 信号正确发射
+- [ ] 麦克风按钮 `clicked` → 首次 `asr_start`、录音中再次点击 `asr_stop`
 - [ ] TTS 触发信号在步骤切换时正确发射（含步骤描述文本）
 - [ ] 审计数据提交信号在任务结束时正确发射（含完整 `AuditRecord`）
 - [ ] 设置面板 Toggle/slider 绑定到 `voice_settings` 共享状态
-- [ ] 能接收并处理 `asr_result` → 填入输入框
+- [ ] 能接收并处理 `asr_result` → 填入输入框（**不自动发送**）
 - [ ] 能接收并处理 `tts_status` → 更新喇叭图标动画
 - [ ] 能接收 `config_updated` → 热加载路由规则
 
 ### 联调共同检查
 
-- [ ] 按下麦克风按钮 → C 开始录音 → 松开 → C 返回文字 → B 输入框显示文字
+- [ ] 点击麦克风 → C 开始录音 → 静音 5s 或再次点击 → C 返回文字 → B 输入框显示（手动发送）
 - [ ] 步骤切换 → C 播放 TTS → 播报完成 → B 喇叭动画停止
 - [ ] 关闭 TTS 开关 → 步骤切换时不再触发 `tts_enqueue`
 - [ ] 任务完成 → B 提交审计数据 → C 脱敏后进入 SQLite 队列

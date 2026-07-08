@@ -65,7 +65,12 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "pipeline_enabled": True,
     },
     "voice": dict(DEFAULT_VOICE_SETTINGS),
+    "proxy_enabled": False,
+    "http_proxy": "http://127.0.0.1:7890",
+    "https_proxy": "http://127.0.0.1:7890",
 }
+
+_LOCAL_NO_PROXY = "127.0.0.1,localhost,::1"
 
 
 def _settings_path() -> str:
@@ -93,6 +98,11 @@ def _merge_core_settings(out: dict, data: dict) -> None:
                 out[key] = val[:1]
     for key in ("a_end_url", "demo_key"):
         if data.get(key):
+            out[key] = str(data[key]).strip()
+    if "proxy_enabled" in data:
+        out["proxy_enabled"] = bool(data["proxy_enabled"])
+    for key in ("http_proxy", "https_proxy"):
+        if key in data and data[key] is not None:
             out[key] = str(data[key]).strip()
     llm = data.get("llm") or {}
     if isinstance(llm, dict):
@@ -126,9 +136,31 @@ def _merge_voice_settings(out: dict, data: dict) -> None:
             out["tts_speed"] = max(0.5, min(1.5, float(data["tts_speed"])))
         except (TypeError, ValueError):
             pass
-    for key in ("tts_engine", "asr_engine", "asr_language"):
+    for key in ("tts_engine", "asr_engine", "asr_language", "vosk_model_path"):
         if data.get(key):
             out[key] = str(data[key]).strip()
+    if out.get("asr_engine") == "baidu":
+        out["asr_engine"] = "vosk"
+    if "microphone_index" in data:
+        raw = data["microphone_index"]
+        if raw is None or raw == "":
+            out["microphone_index"] = None
+        else:
+            try:
+                idx = int(raw)
+                out["microphone_index"] = idx if idx >= 0 else None
+            except (TypeError, ValueError):
+                pass
+    for key in ("asr_silence_sec", "asr_start_timeout_sec"):
+        if key in data:
+            try:
+                val = float(data[key])
+                if key == "asr_silence_sec":
+                    out[key] = max(1.0, min(15.0, val))
+                else:
+                    out[key] = max(3.0, min(30.0, val))
+            except (TypeError, ValueError):
+                pass
     if "config_pull_interval_min" in data:
         try:
             out["config_pull_interval_min"] = max(
@@ -327,6 +359,31 @@ def save_user_settings(data: dict) -> dict:
     return merged
 
 
+def _apply_proxy_environ(settings: dict) -> None:
+    """仅影响当前 B 进程：启用时写 HTTP(S)_PROXY，并强制本机 NO_PROXY。"""
+    if settings.get("proxy_enabled"):
+        http_p = (settings.get("http_proxy") or "").strip()
+        https_p = (settings.get("https_proxy") or "").strip() or http_p
+        if http_p:
+            os.environ["HTTP_PROXY"] = http_p
+            os.environ["http_proxy"] = http_p
+        if https_p:
+            os.environ["HTTPS_PROXY"] = https_p
+            os.environ["https_proxy"] = https_p
+        os.environ["NO_PROXY"] = _LOCAL_NO_PROXY
+        os.environ["no_proxy"] = _LOCAL_NO_PROXY
+    else:
+        for key in (
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "NO_PROXY",
+            "no_proxy",
+        ):
+            os.environ.pop(key, None)
+
+
 def apply_user_settings(data: dict | None = None) -> dict:
     """写入 os.environ 并刷新 config / api_client 模块变量。"""
     settings = _merge_defaults(data) if data is not None else load_user_settings()
@@ -365,6 +422,8 @@ def apply_user_settings(data: dict | None = None) -> dict:
         os.environ.pop("OMNIPARSER_GPU_URL", None)
 
     os.environ.setdefault("DETECTOR_BACKEND", "auto")
+
+    _apply_proxy_environ(settings)
 
     routing_mode = (settings.get("routing_mode") or "").lower()
     if routing_mode == "l5":

@@ -71,15 +71,34 @@ def _check_c_bind_optional() -> None:
         print(f"[verify_bc_signals] SKIP C bind — import failed: {exc}")
         return
 
+    app = QApplication.instance() or QApplication(sys.argv)
     bus = BCIntegrationSignals()
     shared = {"voice_settings": {"tts_enabled": True, "asr_enabled": True}}
     ctrl = VoiceIntegrationController(server_url="http://127.0.0.1:8010")
     ctrl.start()
     ctrl.bind_to(bus, shared)
+
+    # 方法调用健康检查
     health = ctrl.health_check()
     assert hasattr(health, "overall")
+
+    # 信号往返：health_check_request → health_result（修复 _has_pyqt_signals 后必须通）
+    received = []
+
+    def _on_health(h):
+        received.append(h)
+
+    bus.health_result.connect(_on_health)
+    bus.health_check_request.emit()
+    app.processEvents()
+    assert received, "health_result not emitted after health_check_request (signals not bound?)"
+    h = received[0]
+    asr_ok = h.asr_available if hasattr(h, "asr_available") else h.get("asr_available")
+    assert asr_ok, f"expected asr_available=True, got {h!r}"
+
     ctrl.shutdown()
-    print("[verify_bc_signals] C bind_to OK")
+    print("[verify_bc_signals] C bind_to OK (health signal roundtrip OK)")
+    assert app is not None
 
 
 def main() -> int:

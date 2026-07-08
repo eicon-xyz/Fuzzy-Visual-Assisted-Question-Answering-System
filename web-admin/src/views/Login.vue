@@ -9,7 +9,7 @@
         </div>
       </template>
 
-      <el-form ref="formRef" :model="form" :rules="rules" @keyup.enter="login">
+      <el-form ref="formRef" :model="form" :rules="rules" @keyup.enter="submitLogin">
         <el-form-item prop="username">
           <el-input v-model="form.username" placeholder="管理员账号" :prefix-icon="User" />
         </el-form-item>
@@ -17,14 +17,15 @@
           <el-input v-model="form.password" type="password" placeholder="密码" show-password :prefix-icon="Lock" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" style="width: 100%" :loading="loading" @click="login">
+          <el-button type="primary" style="width: 100%" :loading="loading" @click="submitLogin">
             {{ loading ? '登录中...' : '登 录' }}
           </el-button>
         </el-form-item>
       </el-form>
 
-      <div style="text-align: center; color: #c0c4cc; font-size: 12px">
-        Demo 阶段 · 默认账号 admin@hajimi.local
+      <div style="text-align: center; color: #c0c4cc; font-size: 12px; line-height: 1.5">
+        演示账号：admin / demo123（需 A 端 :8010 运行）<br>
+        Dashboard 数据仍使用 Demo Key，不影响 B 端桌面助手
       </div>
     </el-card>
   </div>
@@ -35,13 +36,15 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { User, Lock } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import { login, extractErrorMessage } from '../auth'
 
 const router = useRouter()
 const loading = ref(false)
+const formRef = ref(null)
 
 const form = reactive({
-  username: 'admin@hajimi.local',
-  password: '',
+  username: 'admin',
+  password: 'demo123',
 })
 
 const rules = {
@@ -49,20 +52,21 @@ const rules = {
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
 }
 
-async function login() {
+async function submitLogin() {
+  if (!formRef.value) return
+  try {
+    await formRef.value.validate()
+  } catch {
+    return
+  }
+
   loading.value = true
   try {
-    // Demo 阶段：接受任意非空密码，签发 mock JWT
-    if (form.password.length > 0) {
-      const mockToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.' +
-        btoa(JSON.stringify({ sub: form.username, exp: Date.now() + 7200000 })) +
-        '.mock-signature'
-      localStorage.setItem('hajimi_token', mockToken)
-      ElMessage.success('登录成功')
-      router.replace('/dashboard')
-    } else {
-      ElMessage.error('请输入密码')
-    }
+    await login(form.username, form.password)
+    ElMessage.success('登录成功')
+    router.replace('/dashboard')
+  } catch (err) {
+    ElMessage.error(extractErrorMessage(err))
   } finally {
     loading.value = false
   }
