@@ -2,28 +2,44 @@
 
 > 5 分钟内跑通 **UI 窗口**；完整 AI 联调见下文可选步骤。
 
-## 从仓库根目录（无需 cd HAJIMI_UI）
+## 首次推荐（clone 后直接双击）
 
-在 clone 后的 **repo 根** 直接运行：
+在仓库 **根目录** 双击：
 
 | 命令 | 说明 |
 |------|------|
-| `start_gpu_one_click.bat` | 校园 GPU 一键（隧道 + 8010 + 8011 + UI） |
-| `start_all.bat` | 本机 / gpu_api 全栈 |
-| `start_ui.bat` | 仅 B 端 UI（后端已开好） |
-| `start_mock.bat` | Mock 演示（无 OmniParser） |
-| `stop_all.bat` | 停止 8010 / 8011 / OmniParser 等 |
+| **`启动HAJIMI.bat`** | 校园 GPU 一键：自动配环境 + 远程启服 + 隧道 + 8010 + 8011 + UI |
+| `stop_all.bat` | 停止 8010 / 8011 / 隧道等 |
 
-等价于进入 `HAJIMI_UI\` 后执行同名或 `scripts\` 下脚本。
+首次运行会自动安装 8010 / 8011 / B UI 依赖（约 1–3 分钟），控制台会提示进度。
+
+**开发者/高级入口** 见 [`launchers/`](../launchers/README.txt)（`start_all`、`start_ui`、`start_mock` 等）。
+
+---
+
+## 从仓库根目录
+
+| 命令 | 说明 |
+|------|------|
+| **`启动HAJIMI.bat`** | 校园 GPU 一键（推荐；GPU 未连也会开 UI） |
+| `stop_all.bat` | 停止服务 |
+| `launchers\check_deploy.bat` | **只检查**环境/链路，不启动 GPU |
+| `launchers\start_all.bat` | 本机 / gpu_api 全栈（需已开 :9800 隧道） |
+| `launchers\start_ui.bat` | 仅 B 端 UI（后端已开好） |
+| `launchers\start_mock.bat` | Mock 演示（无 OmniParser） |
+| `launchers\test_click_fixed.bat` | **固定坐标点击** Tier1（直接 clicker，无需 GPU） |
+| `launchers\test_click_http.bat` | **固定坐标点击** Tier2（8011 HTTP，需 Sidecar） |
+
+等价于进入 `HAJIMI_UI\` 后执行 `scripts\` 下同名脚本。
 
 ## 我该用哪个脚本？（在 HAJIMI_UI 目录内）
 
 | 你想做什么 | 命令 |
 |------------|------|
-| **校园 GPU 一键**（远程启服 + 隧道 + 8010 + 8011 + UI） | `scripts\start_gpu_one_click.bat` |
+| **校园 GPU 一键**（远程启服 + 隧道 + 8010 + 8011 + UI） | 根目录 `启动HAJIMI.bat` 或 `scripts\start_gpu_one_click.bat` |
 | **只看 UI**（不连后端） | `set HAJIMI_MOCK_ONLY=1` + `scripts\start_client.bat` |
 | **后端已开好，只开界面** | `scripts\start_client.bat` |
-| **本机 CPU 全栈**（OmniParser :8002 + 8010 + 8011 + UI） | `scripts\start_all.bat`（`deployment_mode=local`） |
+| **本机 CPU 全栈**（OmniParser :8002 + 8010 + 8011 + UI） | `launchers\start_all.bat`（`deployment_mode=local`） |
 | **L4 专项**（8010 + UI，不等 OmniParser） | `scripts\start_l4_demo.bat` |
 | **分步单服务** | `start_server` / `start_l5_sidecar` / `start_omniparser` |
 
@@ -31,24 +47,123 @@
 
 ---
 
-## 1. 克隆与依赖
+## 只检查环境（不启动 GPU）
+
+```powershell
+launchers\check_deploy.bat
+# 或 cd HAJIMI_UI && scripts\check_deploy.bat
+```
+
+自动 ensure venv 后输出 PASS/FAIL 表：8010/8011/UI venv、`.env`、`:9800` 隧道、A-end、L5。  
+退出码：`0` 全 OK · `2` 环境 OK 但链路未连 · `1` 环境缺失。
+
+---
+
+## GPU 未连时的行为（降级启动）
+
+- 默认 **`HAJIMI_DEGRADED_START=1`**：`启动HAJIMI.bat` 在远程 GPU / 隧道 / A-end 未就绪时 **仍会打开 UI**
+- 控制台会打印 WARN 并在结束时 **pause**（不会闪退看不到报错）
+- UI 状态栏显示「未连接」；**每 10s 自动重试**，连上后改为每 60s 保活
+- 重试仅 localhost HTTP 探测，**几乎不耗 GPU/CPU**（未连时每次约 2–5s 超时）
+
+### 典型耗时
+
+| 阶段 | 典型 |
+|------|------|
+| 首次 ensure（pip） | 1–3 分钟/venv |
+| 远程 GPU + 隧道 | 10–60s |
+| A-end omniparser_ready | 隧道 OK 后 2–10s |
+| UI 后台单次探测 | 0.1–5s（后台线程，不卡界面） |
+
+严格模式（隧道失败即退出）：`set HAJIMI_DEGRADED_START=0` 后再运行。
+
+---
+
+## L5 UI 执行时间线
+
+L5 自动执行时默认进入 **步骤列表** 侧栏，展示：
+
+- 上层：规划步骤（来自 `/execute` plan）
+- 下层：**执行时间线**（当前步自动展开）— log、截屏缩略图、step_done/failed
+
+设置 → **L5 自动执行** → 「L5 桌面标注」可开关桌面高亮（Phase 1 占位，需 Sidecar 回传 bbox）。
+
+工具级明细（`tool_called` / `tool_result`）需：
+
+```bat
+set HAJIMI_L5_TOOL_SSE=1
+```
+
+并重启 8011 Sidecar。详见 [`L5-SSE-契约扩展.md`](L5-SSE-契约扩展.md)。
+
+Compact 小窗 L5 时显示一行状态 + 停止按钮。
+
+---
+
+## 固定坐标点击冒烟（验证 8011 键鼠层）
+
+**不需要** OmniParser / LLM / B 端 UI。用于确认 pyautogui 能否在本机动鼠标。
+
+### Tier 1 — 直接脚本（最快）
+
+```powershell
+launchers\test_click_fixed.bat
+```
+
+3 秒后鼠标移到屏幕中心 `(960, 540)` 并单击。自定义坐标：
+
+```powershell
+cd HAJIMI_UI
+..\..\new_JIMI\HAJIMI_UI\server\.venv\Scripts\python.exe scripts\test_click_fixed.py --x 80 --y 80 --delay 3
+```
+
+### Tier 2 — HTTP（验证 A 端路由）
+
+先开 8011 Sidecar，再：
+
+```powershell
+scripts\start_l5_sidecar.bat
+REM 新窗口
+launchers\test_click_http.bat
+```
+
+调用 `POST /api/demo/debug/click`（需 `X-Demo-Key`）。Sidecar 重启后才会加载新路由。
+
+**预期**：命令行 `success: true`；肉眼看到鼠标移动/点击。  
+**注意**：pyautogui `FAILSAFE` — 鼠标甩到屏幕左上角会中断。
+
+---
+
+## L5 完整流程验证（链路就绪时）
+
+前置：`:8010` A-end + `:9800` Omni + `:8011` L5 Sidecar + B 端 UI；设置 → **L5 自动执行**。
+
+| 测试指令 | 依赖 Omni | 预期 |
+|----------|-----------|------|
+| `打开记事本` | 否（launch_app） | 记事本弹出 |
+| `打开计算器` | 否 | calc.exe 启动 |
+| `双击桌面回收站` | **是** | 回收站窗口打开 |
+
+操作注意：
+
+1. 发指令前 **最小化 HAJIMI**，露出桌面（回收站测试必须）
+2. 同意 L5 自动执行授权弹窗
+3. 观察 8011 Sidecar 窗口：`launch_app` / `double_click` / `step_done`
+
+---
+
+## 1. 克隆与依赖（可选 / 开发者）
+
+一键脚本会自动配置环境。仅离线或高级场景需手动：
 
 ```powershell
 git clone <仓库地址>
 cd HAJIMI_UI
-scripts\setup.bat
+scripts\setup.bat          # B 端 UI
+scripts\setup_server_env.bat   # 8010 A-end
+cd ..\new_JIMI\HAJIMI_UI
+scripts\setup_server_env.bat   # 8011 L5（与 8010 是两套独立 venv）
 ```
-
-或手动：
-
-```powershell
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-python scripts/check_ui_env.py
-```
-
-若 `check_ui_env.py` 报错，按提示安装缺失包后重试。
 
 ## 2. 只看 UI（推荐首次验证）
 
@@ -60,7 +175,7 @@ python main.py
 或：
 
 ```powershell
-scripts\start_ui.bat
+launchers\start_ui.bat
 ```
 
 **说明**：此模式不连接 A 端 / OmniParser，用于确认 PyQt 界面能正常显示。首条提示为灰色 system 消息「UI 演示模式」，属正常现象。
@@ -73,7 +188,7 @@ scripts\start_ui.bat
 copy server\.env.example server\.env
 # 编辑 server\.env：LLM_API_KEY、OMNIPARSER_URL 等
 scripts\setup_server_env.bat
-scripts\start_all.bat
+launchers\start_all.bat
 ```
 
 或分步：
@@ -90,7 +205,7 @@ scripts\start_all.bat
 ## 4. 校园 GPU（可选）
 
 1. 连接校园网 / VPN  
-2. 建立 SSH 隧道（见 [`校园GPU-B端联调清单_v2.md`](校园GPU-B端联调清单_v2.md)）  
+2. 双击根目录 **`启动HAJIMI.bat`**（自动远程启服 + 隧道 + 全栈）  
 3. 系统设置 → **内网 API** → A 端地址 `http://127.0.0.1:8010` → 保存  
 
 ## 平台说明
@@ -103,8 +218,12 @@ scripts\start_all.bat
 
 | 现象 | 处理 |
 |------|------|
-| 一键脚本 `TIMEOUT: A-end not ready` | 看 `HAJIMI-A-end-GPU-API` 窗口 traceback；确认 `:9800` 隧道 OK；**重启 A-end**（旧进程可能因 IE 代理导致 `omniparser_ready=false`） |
+| 双击 bat 窗口闪退 | 请用根目录 **`启动HAJIMI.bat`**（失败会 pause）；或 `launchers\check_deploy.bat` 只看检查 |
+| GPU 未连但想先看 UI | 直接 `启动HAJIMI.bat`（降级模式默认开启）；界面每 10s 重试 |
+| `Missing server deps`（L5 窗口） | 8011 用 **new_JIMI\HAJIMI_UI\server\.venv**；一键会自动配 |
+| 一键脚本 `TIMEOUT: A-end not ready` | 看 `HAJIMI-A-end-GPU-API` 窗口 traceback；确认 `:9800` 隧道 OK；**重启 A-end** |
 | 一键脚本卡住后无 UI | 看是否打印 `TIMEOUT`；看 `HAJIMI-B-end` 是否 PyQt5 报错；手动试 `scripts\start_client.bat` |
+| pip 安装失败 | 关 Clash/V2Ray 或检查 IE 代理；重跑 `启动HAJIMI.bat` |
 | `start_client.bat` 找不到 Python | 先 `activate` videorag，或 `set VIDEO_RAG_PY=...` |
 | 满屏「A 端未启动」红色 | 使用 `HAJIMI_MOCK_ONLY=1` 只看 UI，或 `start_server.bat` |
 | 「内网 A 端不可达」 | 检查 VPN + SSH 隧道，或改回「本地启动」 |
@@ -120,6 +239,7 @@ scripts\start_all.bat
 | `HAJIMI_API_URL` | B 端连接的 A 端地址 |
 | `VIDEO_RAG_PY` / `OMNI_PY` | 可选，指定 Python 路径 |
 | `OMNI_ROOT` | OmniParser 安装目录 |
+| `HAJIMI_L5_ROOT` | L5 Sidecar 路径（默认 `new_JIMI/HAJIMI_UI`） |
 
 ## 相关文档
 

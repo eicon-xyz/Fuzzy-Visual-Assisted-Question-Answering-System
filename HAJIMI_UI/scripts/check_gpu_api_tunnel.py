@@ -36,7 +36,7 @@ def main() -> int:
     print(f"[check] {detail}", file=sys.stderr)
     print(
         "\n请先:\n"
-        "  一键: scripts\\start_gpu_one_click.bat\n"
+        "  一键: 根目录 启动HAJIMI.bat\n"
         "  或:\n"
         "  1. 终端1: scripts\\start_tunnel_9800.bat  (paramiko 免输密码)\n"
         "  2. 远程: python scripts\\gpu_group2_remote.py start-9800\n",

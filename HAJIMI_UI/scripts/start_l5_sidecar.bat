@@ -29,6 +29,12 @@ if not exist "%L5_ROOT%\scripts\start_server.bat" (
     exit /b 1
 )
 
+call "%~dp0ensure_l5_sidecar_env.bat"
+if errorlevel 1 (
+    endlocal
+    exit /b 1
+)
+
 echo [HAJIMI] Starting L5 Sidecar on http://%HAJIMI_HOST%:%HAJIMI_PORT% ...
 echo [HAJIMI] Root: %L5_ROOT%
 

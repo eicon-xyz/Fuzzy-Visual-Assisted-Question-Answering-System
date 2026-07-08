@@ -253,6 +253,46 @@ class GuidanceRouteGroup(QFrame):
 SpeedModeGroup = GuidanceRouteGroup
 
 
+class L5ExecutionGroup(QFrame):
+    """L5 自动执行：桌面标注与快捷键。"""
+
+    def __init__(self, parent=None, *, embedded: bool = False):
+        super().__init__(parent)
+        if not embedded:
+            self.setObjectName("Card")
+        layout = QVBoxLayout(self)
+        margins = (0, 0, 0, 0) if embedded else (16, 16, 16, 16)
+        layout.setContentsMargins(*margins)
+        layout.setSpacing(8)
+
+        title = QLabel("L5 自动执行")
+        title.setObjectName("SectionTitle")
+        layout.addWidget(title)
+
+        from PyQt5.QtWidgets import QCheckBox
+
+        self._desktop_overlay = QCheckBox("L5 桌面标注（Agent 点击时在屏幕显示高亮）")
+        self._desktop_overlay.setObjectName("SettingsCheck")
+        self._desktop_overlay.setChecked(True)
+        layout.addWidget(self._desktop_overlay)
+
+        hint = QLabel(
+            "关闭后仅在步骤面板内查看执行时间线与 SoM 缩略图。"
+            "暂停/继续需 Sidecar 升级后可用。"
+        )
+        hint.setObjectName("HintTextSmall")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+    def set_values(self, data: dict) -> None:
+        self._desktop_overlay.setChecked(bool(data.get("l5_desktop_overlay", True)))
+
+    def get_values(self) -> dict:
+        return {
+            "l5_desktop_overlay": self._desktop_overlay.isChecked(),
+        }
+
+
 class L4VisionGroup(QFrame):
     """L4 Vision 快路径：Planner / Locator 模型与 Pipeline 开关。"""
 
@@ -346,6 +386,9 @@ class ModelSettingsGroup(QFrame):
 
         self.guidance = GuidanceRouteGroup(embedded=True)
         layout.addWidget(self.guidance)
+
+        self.l5_exec = L5ExecutionGroup(embedded=True)
+        layout.addWidget(self.l5_exec)
 
         api_title = QLabel("模型 API")
         api_title.setObjectName("SectionTitle")

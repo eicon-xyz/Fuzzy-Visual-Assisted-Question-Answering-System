@@ -45,11 +45,15 @@ echo [HAJIMI] Checking A-end server dependencies...
 "%PYTHON%" -c "import fastapi, uvicorn, sqlalchemy, psutil" 2>nul
 
 if errorlevel 1 (
-
-    echo [HAJIMI] Missing server deps — run scripts\setup_server_env.bat
-
-    exit /b 1
-
+    echo [HAJIMI] Missing server deps — running ensure_server_env.bat ...
+    call "%~dp0ensure_server_env.bat"
+    if errorlevel 1 exit /b 1
+    if exist server\.venv\Scripts\python.exe set PYTHON=server\.venv\Scripts\python
+    "%PYTHON%" -c "import fastapi, uvicorn, sqlalchemy, psutil" 2>nul
+    if errorlevel 1 (
+        echo [HAJIMI] Missing server deps — run scripts\setup_server_env.bat
+        exit /b 1
+    )
 )
 
 

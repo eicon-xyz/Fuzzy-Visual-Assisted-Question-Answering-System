@@ -9,10 +9,10 @@ PyQt5 原生 UI + FastAPI 后端。默认运行 **Native UI**（`ui/native/`）�
 | 模式 | 命令 | 需要 |
 |------|------|------|
 | **UI 壳演示** | `set HAJIMI_MOCK_ONLY=1` 后 `python main.py` | 仅 [`requirements.txt`](requirements.txt) |
-| **本地联调** | `scripts\start_all.bat` 或分步启动 A/OmniParser | `server/.env` + OmniParser 权重 |
-| **校园 GPU** | SSH 隧道 + 系统设置「内网 API」 | VPN，见 [`docs/校园GPU-B端联调清单_v2.md`](docs/校园GPU-B端联调清单_v2.md) |
+| **本地联调** | `launchers\start_all.bat` 或分步启动 A/OmniParser | `server/.env` + OmniParser 权重 |
+| **校园 GPU** | 根目录 **`启动HAJIMI.bat`**（首次自动配环境） | VPN，见 [`docs/校园GPU-B端联调清单_v2.md`](docs/校园GPU-B端联调清单_v2.md) |
 
-组员首次 clone 请阅读 [`docs/B端-组员快速启动.md`](docs/B端-组员快速启动.md)（或运行 `scripts\setup.bat` 一键初始化）。
+组员首次 clone：**双击仓库根目录 `启动HAJIMI.bat`**。开发者入口见 [`launchers/README.txt`](../launchers/README.txt)。
 
 ## 快速启动（UI 壳）
 
@@ -30,7 +30,7 @@ python main.py
 copy server\.env.example server\.env
 # 编辑 server\.env 填入 LLM_API_KEY 等
 scripts\setup_server_env.bat
-scripts\start_all.bat
+launchers\start_all.bat
 ```
 
 默认 A 端端口：**8010**（`HAJIMI_PORT` / `config.py`）。

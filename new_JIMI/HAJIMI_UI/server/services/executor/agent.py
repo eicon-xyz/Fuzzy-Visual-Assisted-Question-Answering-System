@@ -825,6 +825,7 @@ class ExecutionAgent:
         previous_steps: list[dict],
         cancel_event: Optional[threading.Event] = None,
         on_screenshot: Optional[callable] = None,
+        on_tool_event: Optional[callable] = None,
     ) -> ExecutedStep:
         """Run the agent loop for a single step.
 
@@ -959,7 +960,31 @@ class ExecutionAgent:
                 consecutive_empty = 0
 
             # Dispatch tool
+            t0 = time.perf_counter()
+            if on_tool_event:
+                try:
+                    on_tool_event(
+                        "tool_called",
+                        {"tool": tool_name, "args": tool_args or {}},
+                    )
+                except Exception:
+                    pass
             result = self.dispatch_tool(tool_name, tool_args)
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            if on_tool_event:
+                try:
+                    on_tool_event(
+                        "tool_result",
+                        {
+                            "tool": tool_name,
+                            "success": bool(result.get("success")),
+                            "action_summary": result.get("action_summary"),
+                            "duration_ms": duration_ms,
+                            "error": result.get("error"),
+                        },
+                    )
+                except Exception:
+                    pass
             logger.info(
                 f"Round {round_num}: {tool_name}({tool_args}) → success={result.get('success')}"
             )

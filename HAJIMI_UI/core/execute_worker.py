@@ -30,9 +30,17 @@ class ExecuteWorkerThread(QThread):
     def task_id(self) -> str | None:
         return self._task_id
 
-    def request_execute(self, query: str) -> bool:
+    def request_execute(self, query: str, *, force: bool = False) -> bool:
         if self.isRunning():
-            return False
+            if not force:
+                return False
+            self.stop_sse()
+            if self._task_id:
+                try:
+                    api_cancel_task(self._task_id)
+                except Exception:
+                    pass
+            self.wait(5000)
         self.query = query
         self._task_id = None
         self._running_sse = True
@@ -114,7 +122,9 @@ class ExecuteWorkerThread(QThread):
                             "task_cancelled",
                         ):
                             break
-        except urllib.error.URLError:
-            pass
-        except Exception:
-            pass
+        except urllib.error.URLError as exc:
+            if self._running_sse:
+                self.sig_execute_error.emit(f"L5 连接中断: {exc.reason}")
+        except Exception as exc:
+            if self._running_sse:
+                self.sig_execute_error.emit(f"L5 SSE 异常: {exc}")

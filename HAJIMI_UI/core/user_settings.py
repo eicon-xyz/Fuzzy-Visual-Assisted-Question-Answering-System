@@ -53,8 +53,10 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "llm_speed_mode": "fast",
     "routing_mode": "l5",
     "l5_consent_accepted": False,
+    "l5_desktop_overlay": True,
     "shortcut_l5_approve": "H",
     "shortcut_l5_stop": "J",
+    "shortcut_l5_pause": "P",
     "l4": {
         "planner_model": "gpt-5.5",
         "locator_model": "gpt-5.5",
@@ -82,7 +84,9 @@ def _merge_core_settings(out: dict, data: dict) -> None:
         out["routing_mode"] = data["routing_mode"]
     if "l5_consent_accepted" in data:
         out["l5_consent_accepted"] = bool(data["l5_consent_accepted"])
-    for key in ("shortcut_l5_approve", "shortcut_l5_stop"):
+    if "l5_desktop_overlay" in data:
+        out["l5_desktop_overlay"] = bool(data["l5_desktop_overlay"])
+    for key in ("shortcut_l5_approve", "shortcut_l5_stop", "shortcut_l5_pause"):
         if data.get(key):
             val = str(data[key]).strip().upper()
             if val:

@@ -4,6 +4,7 @@ HAJIMI 自动操作助手 — Demo API 路由
 OmniParser 元素检测 + LLM 执行计划 + SSE 推送 + 自动执行。
 """
 
+import asyncio
 import json
 import threading
 import time
@@ -14,7 +15,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from server.config import settings
 from server.database.repository import RedlineRepository, TaskRepository
-from server.models.schemas import CancelRequest, HealthResponse, ProcessRequest
+from server.models.schemas import (
+    CancelRequest,
+    DebugClickRequest,
+    HealthResponse,
+    ProcessRequest,
+)
+from server.services.executor.clicker import click_at
 from server.storage.memory import task_store
 
 router = APIRouter(prefix="/api/demo", tags=["Demo Core"])
@@ -252,6 +259,26 @@ async def cancel_task(
         "message": "任务已取消" if ok else "任务不存在或已结束",
         "task_id": request.task_id,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 调试：固定坐标点击（localhost Sidecar 专用，勿对生产 GPU 暴露）
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.post("/debug/click", summary="[调试] 固定坐标点击")
+async def debug_click(
+    request: DebugClickRequest,
+    demo_key: str = Depends(verify_demo_key),
+):
+    """在指定屏幕坐标执行 click_at，用于验证 8011 键鼠层，无需 OmniParser / LLM。"""
+    result = await asyncio.to_thread(
+        click_at,
+        [request.x, request.y],
+        button=request.button,
+        clicks=request.clicks,
+    )
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════

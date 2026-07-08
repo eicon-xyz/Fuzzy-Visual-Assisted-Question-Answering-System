@@ -180,6 +180,19 @@ class CancelRequest(BaseModel):
     task_id: str = Field(..., description="任务 ID")
 
 
+class DebugClickRequest(BaseModel):
+    """调试：固定坐标点击（localhost Sidecar 专用）"""
+
+    x: int = Field(..., ge=0, le=7680, description="屏幕 X 坐标")
+    y: int = Field(..., ge=0, le=4320, description="屏幕 Y 坐标")
+    clicks: int = Field(1, ge=1, le=3, description="点击次数")
+    button: str = Field(
+        "left",
+        pattern="^(left|right|middle)$",
+        description="鼠标按键",
+    )
+
+
 class StepRequest(BaseModel):
     """推进蓝图请求"""
 

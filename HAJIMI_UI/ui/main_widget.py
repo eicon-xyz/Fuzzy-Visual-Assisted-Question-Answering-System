@@ -26,8 +26,8 @@ from config import (
     USE_MOCK_ONLY,
     STOP_SERVICES_ON_EXIT,
     STARTUP_HEALTH_DELAY_MS,
-    STARTUP_HEALTH_RETRY_MS,
-    STARTUP_HEALTH_MAX_RETRIES,
+    BACKEND_POLL_DISCONNECTED_MS,
+    BACKEND_POLL_CONNECTED_MS,
     API_BASE_URL,
     DEMO_KEY,
 )
@@ -61,6 +61,7 @@ from ui.native.compact_bar import CompactBar
 from ui.native.suspension_dialog import SuspensionDialog
 from core.inspect_worker import InspectWorkerThread
 from core.chain_diagnostic_worker import ChainDiagnosticWorker
+from core.backend_health_worker import BackendHealthWorker
 from core.relocate_worker import RelocateWorkerThread
 from ui.native.prepare_step_dialog import PrepareStepDialog
 from ui.native.resize_grip import WindowResizeHandler
@@ -116,7 +117,12 @@ class MainWidget(QWidget):
         self.step_worker = StepAdvanceWorkerThread(self)
         self.inspect_worker = InspectWorkerThread(self)
         self.chain_diag_worker = ChainDiagnosticWorker(include_parse=True)
+        self.backend_health_worker = BackendHealthWorker(self)
         self.relocate_worker = RelocateWorkerThread(self)
+        self._backend_poll_timer = QTimer(self)
+        self._backend_poll_timer.setSingleShot(True)
+        self._last_backend_status_key = ""
+        self._backend_connected = False
 
         if USE_NATIVE_UI:
             self._init_native_ui()
@@ -234,6 +240,7 @@ class MainWidget(QWidget):
         self._wire_native_widgets()
         self._wire_inspect_worker()
         self._wire_chain_diag_worker()
+        self._wire_backend_health_worker()
         self._wire_relocate_worker()
         self._setup_tray()
         self._check_api_on_startup()
@@ -583,6 +590,12 @@ class MainWidget(QWidget):
         w.sig_error.connect(self._on_chain_diag_error)
         w.finished.connect(self._on_chain_diag_finished)
 
+    def _wire_backend_health_worker(self):
+        w = self.backend_health_worker
+        w.sig_ready.connect(self._on_backend_health_ready)
+        w.finished.connect(self._schedule_backend_health_poll)
+        self._backend_poll_timer.timeout.connect(self._trigger_backend_health_poll)
+
     def _wire_controller(self):
         c = self.controller
         c.message_added.connect(self.medium_panel.append_message)
@@ -653,6 +666,8 @@ class MainWidget(QWidget):
         p.next_clicked.connect(self.controller.advance_step)
         p.prev_clicked.connect(self.controller.prev_step)
         p.stop_clicked.connect(self.controller.stop_l5_execution)
+        b.stop_clicked.connect(self.controller.stop_l5_execution)
+        c.l5_compact_status_updated.connect(self._on_l5_compact_status)
         p.compact_requested.connect(self.switch_to_compact)
         p.drag_requested.connect(self.controller.begin_window_drag)
         p.inspect_requested.connect(self._on_inspect_requested)
@@ -832,27 +847,59 @@ class MainWidget(QWidget):
             return
         for hint in self._startup_hints:
             self.controller.message_added.emit(hint, "system")
-        self._startup_health_attempt = 0
-        QTimer.singleShot(STARTUP_HEALTH_DELAY_MS, self._run_startup_health_check)
+        self._last_backend_status_key = ""
+        self._backend_connected = False
+        QTimer.singleShot(STARTUP_HEALTH_DELAY_MS, self._trigger_backend_health_poll)
 
-    def _run_startup_health_check(self):
-        if not hasattr(self, "controller"):
-            return
+    def _trigger_backend_health_poll(self):
         if USE_MOCK_ONLY:
             return
-        text, msg_type = get_api_status_message()
+        if self.backend_health_worker.isRunning():
+            self._schedule_backend_health_poll()
+            return
+        self.backend_health_worker.start()
+
+    def _schedule_backend_health_poll(self):
+        if USE_MOCK_ONLY:
+            return
+        interval = (
+            BACKEND_POLL_CONNECTED_MS
+            if self._backend_connected
+            else BACKEND_POLL_DISCONNECTED_MS
+        )
+        self._backend_poll_timer.start(interval)
+
+    def _on_backend_health_ready(self, text: str, msg_type: str, connected: bool):
+        if not hasattr(self, "controller"):
+            return
         is_error = "danger" in msg_type
         if hasattr(self, "medium_panel"):
             self.medium_panel.set_service_status(text)
             self.medium_panel.set_connection_error(is_error, text if is_error else "")
-        if not is_error or self._startup_health_attempt >= STARTUP_HEALTH_MAX_RETRIES:
-            self.controller.message_added.emit(text, msg_type)
-            return
-        self._startup_health_attempt += 1
-        QTimer.singleShot(STARTUP_HEALTH_RETRY_MS, self._run_startup_health_check)
+
+        prev_connected = self._backend_connected
+        self._backend_connected = connected
+        status_key = f"{connected}|{text}"
+
+        if status_key != self._last_backend_status_key:
+            self._last_backend_status_key = status_key
+            if not prev_connected and connected:
+                self.controller.message_added.emit(
+                    "后端已连接，可以开始任务。",
+                    "system",
+                )
+            elif not connected:
+                chat_type = msg_type if is_error else "system danger"
+                self.controller.message_added.emit(text, chat_type)
+            elif connected and prev_connected:
+                self.controller.message_added.emit(text, msg_type)
 
     def _on_submit_query(self, text: str):
         self.controller.submit_query(text)
+
+    def _on_l5_compact_status(self, text: str, active: bool) -> None:
+        if hasattr(self, "compact_bar"):
+            self.compact_bar.set_l5_status(text, active)
 
     def _on_inspect_requested(self):
         if self.inspect_worker.isRunning():

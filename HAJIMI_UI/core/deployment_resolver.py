@@ -68,7 +68,7 @@ def get_startup_hints(settings: dict) -> List[str]:
         if not gpu or not gpu.get("ready"):
             hints.append(
                 "GPU API 模式：:9800 隧道未就绪（inspect 会失败，不是本地 CPU 2–4 分钟问题）。"
-                "请运行 scripts\\start_gpu_one_click.bat 或 scripts\\start_tunnel_9800.bat"
+                "请运行根目录 启动HAJIMI.bat"
             )
         elif gpu.get("device") == "cuda":
             hints.append(f"GPU OmniParser 已就绪 ({omni_url}, cuda)。")

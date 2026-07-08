@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QSizePolicy,
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QSize
@@ -18,6 +19,7 @@ class CompactBar(QWidget):
     submit_query = pyqtSignal(str)
     expand_requested = pyqtSignal()
     drag_requested = pyqtSignal()
+    stop_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -25,6 +27,7 @@ class CompactBar(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setFixedHeight(COMPACT_HEIGHT)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._l5_active = False
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 6, 8, 6)
@@ -37,15 +40,41 @@ class CompactBar(QWidget):
         self._mark = mark
         layout.addWidget(mark)
 
+        self._l5_status = QLabel("")
+        self._l5_status.setObjectName("CompactL5Status")
+        self._l5_status.hide()
+        layout.addWidget(self._l5_status, 1)
+
         self.input = QLineEdit()
         self.input.setObjectName("CompactInput")
         self.input.setPlaceholderText("Ask HAJIMI…")
         self.input.returnPressed.connect(self._on_enter)
         layout.addWidget(self.input, 1)
 
+        self._stop_btn = QPushButton("停止")
+        self._stop_btn.setObjectName("StepBtn")
+        self._stop_btn.hide()
+        self._stop_btn.clicked.connect(self.stop_clicked.emit)
+        layout.addWidget(self._stop_btn)
+
         hint = QLabel("↵")
         hint.setObjectName("CompactHint")
+        self._enter_hint = hint
         layout.addWidget(hint)
+
+    def set_l5_status(self, text: str, active: bool) -> None:
+        self._l5_active = bool(active)
+        if active and text:
+            self._l5_status.setText(text)
+            self._l5_status.show()
+            self.input.hide()
+            self._enter_hint.hide()
+            self._stop_btn.show()
+        else:
+            self._l5_status.hide()
+            self.input.show()
+            self._enter_hint.show()
+            self._stop_btn.hide()
 
     def preferred_size(self) -> QSize:
         return QSize(self.width() or COMPACT_WIDTH, COMPACT_HEIGHT)
@@ -63,12 +92,15 @@ class CompactBar(QWidget):
         if text:
             self.input.clear()
             self.submit_query.emit(text)
-            self.expand_requested.emit()
+            if not self._l5_active:
+                self.expand_requested.emit()
 
     def set_input_enabled(self, enabled: bool):
         self.input.setEnabled(enabled)
 
     def focus_input(self):
+        if self._l5_active:
+            return
         self.input.setFocus()
 
     def apply_orange_cat_theme(self, enabled: bool) -> None:

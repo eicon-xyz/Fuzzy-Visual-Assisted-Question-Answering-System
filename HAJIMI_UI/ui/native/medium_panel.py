@@ -25,6 +25,7 @@ from core.defaults import DEFAULT_OMNI_GPU_API_URL, DEFAULT_OMNI_LOCAL_URL
 from core.user_settings import load_user_settings
 from ui.native.window_state import clamp_size, _screen_max
 from ui.chat_bubble import ChatBubble
+from ui.native.l5_timeline import L5StepTimelineWidget
 from ui.step_list import StepListWidget
 from ui.native.layout_tokens import (
     DRAWER_WIDTH,
@@ -456,13 +457,9 @@ class MediumPanel(QWidget):
         cl.addLayout(header)
         self._steps_list = StepListWidget()
         cl.addWidget(self._steps_list)
-        self._l5_log = QPlainTextEdit()
-        self._l5_log.setObjectName("L5LogOutput")
-        self._l5_log.setReadOnly(True)
-        self._l5_log.setMaximumBlockCount(500)
-        self._l5_log.setFixedHeight(120)
-        self._l5_log.hide()
-        cl.addWidget(self._l5_log)
+        self._l5_timeline = L5StepTimelineWidget()
+        self._l5_timeline.hide()
+        cl.addWidget(self._l5_timeline, 1)
         layout.addWidget(card)
         layout.addStretch()
         self._l5_execution_mode = False
@@ -569,6 +566,7 @@ class MediumPanel(QWidget):
         self._model_group.guidance.mode_changed.connect(self._apply_guidance_route_ui)
         self._deployment_mode = self._model_group.deployment
         self._guidance_route = self._model_group.guidance
+        self._l5_exec_group = self._model_group.l5_exec
         self._l4_group = self._model_group.l4
         self._field_a_url = self._model_group.field_a_url
         self._field_demo_key = self._model_group.field_demo_key
@@ -716,6 +714,8 @@ class MediumPanel(QWidget):
         self._field_llm_model.set_text(llm.get("model", ""))
         route = data.get("routing_mode") or data.get("llm_speed_mode", "fast")
         self._guidance_route.set_mode(route)
+        if hasattr(self, "_l5_exec_group"):
+            self._l5_exec_group.set_values(data)
         self._l4_group.set_values(merge_l4_for_display(data.get("l4")))
         omni = data.get("omniparser") or {}
         self._field_omni_url.set_text(omni.get("url", ""))
@@ -743,7 +743,7 @@ class MediumPanel(QWidget):
             "balanced": "balanced",
             "precision": "precision",
         }
-        return {
+        payload = {
             "deployment_mode": mode,
             "a_end_url": a_url or "http://127.0.0.1:8010",
             "demo_key": self._field_demo_key.text() or "hajimi-demo-2026",
@@ -760,6 +760,9 @@ class MediumPanel(QWidget):
                 "gpu_url": self._field_omni_gpu.text(),
             },
         }
+        if hasattr(self, "_l5_exec_group"):
+            payload.update(self._l5_exec_group.get_values())
+        return payload
 
     def _collect_appearance_settings(self) -> dict:
         return self._appearance_group.current_appearance()
@@ -1061,10 +1064,16 @@ class MediumPanel(QWidget):
         stop_btn = QPushButton("停止")
         stop_btn.setObjectName("StepBtn")
         stop_btn.clicked.connect(self.stop_clicked.emit)
+        pause_btn = QPushButton("暂停")
+        pause_btn.setObjectName("StepBtn")
+        pause_btn.setEnabled(False)
+        pause_btn.setToolTip("Sidecar 升级 pause API 后可用；当前请用停止 (J)")
         self._step_prev_btn = prev_btn
         self._step_next_btn = next_btn
         self._step_stop_btn = stop_btn
+        self._step_pause_btn = pause_btn
         layout.addWidget(prev_btn)
+        layout.addWidget(pause_btn)
         layout.addWidget(next_btn)
         layout.addWidget(stop_btn)
         return bar
@@ -1430,6 +1439,10 @@ class MediumPanel(QWidget):
         if not self._l5_execution_mode:
             self._guide_steps.set_steps(descriptions, active_index)
         self._steps_list.set_steps(descriptions, active_index)
+        if self._l5_execution_mode:
+            self.reset_l5_timeline(
+                [{"instruction": d} for d in descriptions]
+            )
         total = len(descriptions)
         if total > 0 and active_index < total:
             self._step_controls.show()
@@ -1438,27 +1451,75 @@ class MediumPanel(QWidget):
             self._step_controls.hide()
 
     def set_l5_execution_mode(self, enabled: bool) -> None:
+        from core.user_settings import load_user_settings
+
         self._l5_execution_mode = bool(enabled)
+        settings = load_user_settings()
+        approve = (settings.get("shortcut_l5_approve") or "H").upper()
+        stop = (settings.get("shortcut_l5_stop") or "J").upper()
+        pause = (settings.get("shortcut_l5_pause") or "P").upper()
         if enabled:
             self._steps_title.setText("自动执行")
             self._steps_l5_badge.setText("L5")
             self._steps_l5_badge.show()
-            self._l5_log.clear()
-            self._l5_log.show()
-            self._step_next_btn.setText("批准 (H)")
+            self._l5_timeline.show()
+            self._step_prev_btn.hide()
+            self._step_pause_btn.show()
+            self._step_next_btn.setText(f"批准 ({approve})")
+            self._step_stop_btn.setText(f"停止 ({stop})")
+            self._step_pause_btn.setText(f"暂停 ({pause})")
             self._step_stop_btn.show()
             self._switch_panel("steps")
         else:
             self._steps_title.setText("Step Tracking")
             self._steps_l5_badge.hide()
-            self._l5_log.hide()
+            self._l5_timeline.hide()
+            self._step_prev_btn.show()
+            self._step_pause_btn.hide()
             self._step_next_btn.setText("下一步")
+            self._step_stop_btn.setText("停止")
             self._step_stop_btn.hide()
+
+    def reset_l5_timeline(self, steps: list) -> None:
+        self._l5_timeline.reset_plan(steps)
+
+    def handle_l5_sse(self, event_type: str, data: dict) -> None:
+        self._l5_timeline.handle_sse(event_type, data)
+        idx = int(data.get("step_index", 1)) - 1
+        if event_type == "step_start":
+            self.set_l5_step_status(idx, "active")
+        elif event_type == "step_done":
+            self.set_l5_step_status(idx, "done")
+        elif event_type == "step_failed":
+            self.set_l5_step_status(idx, "failed")
+        elif event_type == "step_blocked":
+            self.set_l5_step_status(idx, "blocked")
 
     def append_l5_log(self, text: str) -> None:
         if not text:
             return
-        self._l5_log.appendPlainText(text)
+        idx = max(0, self._l5_timeline.active_index)
+        level = "info"
+        if text.startswith("[step_failed]") or "error" in text.lower():
+            level = "error"
+        elif text.startswith("[warn") or "blocked" in text.lower():
+            level = "warn"
+        self._l5_timeline.handle_sse(
+            "log",
+            {"step_index": idx + 1, "level": level, "message": text},
+        )
+
+    def l5_progress_label(self) -> str:
+        total = self._l5_timeline.total_steps
+        cur = max(0, self._l5_timeline.active_index) + 1
+        if total <= 0:
+            return "L5 执行中"
+        inst = ""
+        idx = self._l5_timeline.active_index
+        if 0 <= idx < len(self._steps_list.items):
+            inst = self._steps_list.items[idx].desc_label.text()
+        short = (inst[:24] + "…") if len(inst) > 24 else inst
+        return f"L5 {cur}/{total} · {short}" if short else f"L5 {cur}/{total}"
 
     def set_l5_step_status(self, index: int, status: str) -> None:
         self._steps_list.set_step_status(index, status)

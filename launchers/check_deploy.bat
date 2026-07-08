@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-cd /d %~dp0HAJIMI_UI
-call start_mock.bat
+cd /d %~dp0..\HAJIMI_UI
+call scripts\check_deploy.bat
 endlocal
 exit /b %ERRORLEVEL%

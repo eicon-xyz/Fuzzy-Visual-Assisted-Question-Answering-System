@@ -193,6 +193,13 @@ def run_plan_agent_loop(
             status="executing",
         )
 
+        def _on_tool(event_name: str, payload: dict) -> None:
+            _push_event(
+                task_id,
+                event_name,
+                {"step_index": step_idx, **payload},
+            )
+
         # Run agent loop for this step
         try:
             result = agent.execute_step(
@@ -205,6 +212,7 @@ def run_plan_agent_loop(
                     "screenshot_updated",
                     {"step_index": step_idx, "annotated_image": b64},
                 ),
+                on_tool_event=_on_tool,
             )
         except Exception as e:
             logger.exception(f"Step {step_idx} execution crashed")
@@ -258,6 +266,12 @@ def run_plan_agent_loop(
                         goal=goal,
                         previous_steps=previous_steps,
                         cancel_event=cancel_event,
+                        on_screenshot=lambda b64: _push_event(
+                            task_id,
+                            "screenshot_updated",
+                            {"step_index": step_idx, "annotated_image": b64},
+                        ),
+                        on_tool_event=_on_tool,
                     )
                     if retry_result.status == "done":
                         _push_event(

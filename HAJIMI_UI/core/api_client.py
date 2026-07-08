@@ -187,7 +187,7 @@ def _a_end_unreachable_message() -> str:
         )
     if DEPLOYMENT_MODE == "gpu_api":
         return (
-            "A 端未启动。请点击设置「启动 A 端」或运行 scripts\\start_gpu_one_click.bat"
+            "A 端未启动。请点击设置「启动 A 端」或运行根目录 启动HAJIMI.bat"
         )
     return f"A 端未启动。请点击设置「启动 A 端」或运行: {SERVER_START_HINT}"
 
@@ -267,7 +267,7 @@ def _check_omniparser_preflight(health: dict) -> tuple[bool, str]:
                 False,
                 f"GPU OmniParser 隧道未就绪 ({omni_url})。"
                 "inspect 需走 GPU API（约 2–5 秒），不是本地 CPU 2–4 分钟。"
-                "请运行设置页「一键 GPU」或 scripts\\start_gpu_one_click.bat",
+                "请运行设置页「一键 GPU」或根目录 启动HAJIMI.bat",
             )
         if not gpu.get("ready"):
             return False, "GPU OmniParser 模型仍在加载，请稍候再试。"
@@ -429,11 +429,11 @@ def get_api_status_message() -> tuple[str, str]:
         msg = _format_connection_label(health)
         if DEPLOYMENT_MODE == "gpu_api":
             omni_url = health.get("omniparser_url") or "http://127.0.0.1:9800"
-            gpu = _probe_omni_api(omni_url)
+            gpu = _probe_omni_api(omni_url, timeout=3.0)
             if not gpu or not gpu.get("ready"):
                 return (
                     f"{msg}，但 :9800 隧道未就绪 — 请设置页「一键 GPU」"
-                    "或 scripts\\start_tunnel_9800.bat",
+                    "或根目录 启动HAJIMI.bat",
                     "system danger",
                 )
             if health.get("omniparser_ready") is False:
@@ -474,7 +474,8 @@ def get_api_status_message() -> tuple[str, str]:
         )
     if DEPLOYMENT_MODE == "gpu_api":
         return (
-            f"A 端未连接。请运行 scripts\\start_gpu_one_click.bat 或设置页「启动 A 端」。",
+            f"A 端未连接。请运行根目录 启动HAJIMI.bat 或设置页「启动 A 端」。"
+            " UI 将每 10s 自动重试连接。",
             "system",
         )
     if ALLOW_MOCK_FALLBACK:
@@ -487,6 +488,18 @@ def get_api_status_message() -> tuple[str, str]:
         " 仅看界面可设置 HAJIMI_MOCK_ONLY=1",
         "system",
     )
+
+
+def get_api_status_with_connection() -> tuple[str, str, bool]:
+    """返回 (消息, 类型, 是否视为已连接) 供后台轮询使用。"""
+    text, msg_type = get_api_status_message()
+    connected = (
+        "danger" not in msg_type
+        and "已连接" in text
+        and "未连接" not in text
+        and "不可达" not in text
+    )
+    return text, msg_type, connected
 
 
 def _is_timeout_error(exc: BaseException) -> bool:

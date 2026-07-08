@@ -9,13 +9,16 @@ if not defined HAJIMI_HOST set HAJIMI_HOST=127.0.0.1
 set "PYTHON=server\.venv\Scripts\python.exe"
 
 if not exist "%PYTHON%" (
-    echo [HAJIMI] ERROR: server\.venv not found. Run scripts\setup_server_env.bat
+    echo [HAJIMI] ERROR: L5 ^(8011^) server\.venv not found at:
+    echo   %CD%\server\.venv
+    echo This is NOT HAJIMI_UI\server\.venv — run: scripts\setup_server_env.bat
     exit /b 1
 )
 
 "%PYTHON%" -c "import fastapi, uvicorn, sqlalchemy, psutil" 2>nul
 if errorlevel 1 (
-    echo [HAJIMI] Missing server deps — run scripts\setup_server_env.bat
+    echo [HAJIMI] Missing L5 ^(8011^) server deps at %CD%\server\.venv
+    echo Run in this folder ^(new_JIMI\HAJIMI_UI^): scripts\setup_server_env.bat
     exit /b 1
 )
 

@@ -34,6 +34,7 @@ class AppController(QObject):
     step_action_finished = pyqtSignal()
     mode_medium_requested = pyqtSignal()
     mode_compact_requested = pyqtSignal()
+    l5_compact_status_updated = pyqtSignal(str, bool)
 
     def __init__(
         self,
@@ -157,6 +158,11 @@ class AppController(QObject):
                 self.message_added.emit("已取消 L5 自动执行", "system")
                 self.status_updated.emit("idle", "准备就绪")
                 return
+            if self._l5_mode and self.execute_worker and self.execute_worker.isRunning():
+                self.message_added.emit("已取消上一 L5 任务，开始新任务", "system")
+                self.execute_worker.request_cancel()
+                self.execute_worker.stop_sse()
+                self.execute_worker.wait(5000)
             self._l5_mode = True
             self._task_route = "l5"
             if panel:
@@ -166,10 +172,13 @@ class AppController(QObject):
                 "L5 自动执行已启动；审计 route 将按 L3 上报（契约兼容）。",
                 "system",
             )
+            self.overlay_cleared.emit()
             if self.execute_worker:
-                if not self.execute_worker.request_execute(text):
-                    self.message_added.emit("请等待当前任务完成", "system")
-                    self.status_updated.emit("processing", "处理中...")
+                force = bool(self.execute_worker.isRunning())
+                if not self.execute_worker.request_execute(text, force=force):
+                    if not force:
+                        self.message_added.emit("请等待当前任务完成", "system")
+                        self.status_updated.emit("processing", "处理中...")
                 return
             self.message_added.emit("错误：L5 执行线程未初始化", "system danger")
             self.status_updated.emit("idle", "准备就绪")
@@ -197,9 +206,27 @@ class AppController(QObject):
     def _reset_l5_state(self) -> None:
         self._l5_mode = False
         self._l5_blocked_pending = False
+        self.l5_compact_status_updated.emit("", False)
         panel = self._medium_panel()
         if panel:
             panel.set_l5_execution_mode(False)
+
+    def _update_l5_compact_status(self) -> None:
+        panel = self._medium_panel()
+        if not panel or not self._l5_mode:
+            self.l5_compact_status_updated.emit("", False)
+            return
+        self.l5_compact_status_updated.emit(panel.l5_progress_label(), True)
+
+    def _maybe_l5_desktop_overlay(self, summary: str) -> None:
+        """Phase 1 占位：桌面标注需 Sidecar 回传 bbox 后启用。"""
+        from core.user_settings import load_user_settings
+
+        if not load_user_settings().get("l5_desktop_overlay", True):
+            return
+        if not summary or "click" not in summary.lower():
+            return
+        # Reserved: map bbox from future tool_result payload → overlay_updated
 
     def handle_l5_hotkey(self, key: str) -> bool:
         from core.user_settings import load_user_settings
@@ -563,6 +590,8 @@ class AppController(QObject):
         panel = self._medium_panel()
         if panel:
             panel.notify_l5_audit_compat("")
+            panel.reset_l5_timeline(self.steps)
+        self._update_l5_compact_status()
 
     def on_execute_error(self, error_msg: str) -> None:
         self._emit_audit("fail")
@@ -572,45 +601,26 @@ class AppController(QObject):
 
     def on_l5_sse_event(self, event_type: str, data: dict) -> None:
         panel = self._medium_panel()
+        if panel:
+            panel.handle_l5_sse(event_type, data)
         if event_type == "step_start":
             idx = int(data.get("step_index", 1)) - 1
             self.current_step_index = max(0, idx)
-            if panel:
-                panel.set_l5_step_status(idx, "active")
-                panel.append_l5_log(
-                    f"[step_start] {data.get('instruction', '')}"
-                )
             self.steps_updated.emit(self.steps, self.current_step_index)
         elif event_type == "step_done":
             idx = int(data.get("step_index", 1)) - 1
             summary = data.get("action_summary") or ""
-            if panel:
-                panel.set_l5_step_status(idx, "done")
-                panel.append_l5_log(f"[step_done] {summary}")
+            self._maybe_l5_desktop_overlay(summary)
             if idx < len(self.steps):
                 desc = self.steps[idx].get("description") or summary
                 self._maybe_enqueue_tts(desc, priority=1)
-        elif event_type == "step_failed":
-            idx = int(data.get("step_index", 1)) - 1
-            if panel:
-                panel.set_l5_step_status(idx, "failed")
-                panel.append_l5_log(
-                    f"[step_failed] {data.get('reason', '')}"
-                )
         elif event_type == "step_blocked":
             self._l5_blocked_pending = True
-            if panel:
-                idx = int(data.get("step_index", 1)) - 1
-                panel.set_l5_step_status(idx, "blocked")
             self.message_added.emit(
                 data.get("message")
                 or "检测到高风险步骤，按 H 批准继续或 J 停止",
                 "system danger",
             )
-        elif event_type == "log":
-            if panel:
-                level = data.get("level", "info")
-                panel.append_l5_log(f"[{level}] {data.get('message', '')}")
         elif event_type == "task_done":
             self.current_step_index = len(self.steps)
             self._emit_audit("success")
@@ -627,6 +637,7 @@ class AppController(QObject):
             self.message_added.emit(f"L5 {label}", "system danger")
             self.status_updated.emit("idle", "准备就绪")
             self._reset_l5_state()
+        self._update_l5_compact_status()
 
     def on_process_success(self, response, fingerprint):
         self.task_id = response.get("task_id")

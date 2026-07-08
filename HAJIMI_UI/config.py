@@ -47,6 +47,11 @@ AUTO_LAUNCH_L5 = os.environ.get("HAJIMI_AUTO_LAUNCH_L5", "1").lower() not in (
 L5_START_HINT = (
     f"scripts\\start_l5_sidecar.bat  (new_JIMI L5 Sidecar default :{DEFAULT_L5_PORT})"
 )
+L5_TOOL_SSE = os.environ.get("HAJIMI_L5_TOOL_SSE", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 DEMO_KEY = os.environ.get("HAJIMI_DEMO_KEY", DEFAULT_DEMO_KEY)
 USE_MOCK_ONLY = os.environ.get("HAJIMI_MOCK_ONLY", "").lower() in ("1", "true", "yes")
@@ -68,9 +73,15 @@ COMPACT_HEIGHT = 52
 MODE_PILLS_MIN_WIDTH = 700
 
 # 启动时 A 端 health 探测：避免 A 端/OmniParser 仍在初始化就报「未启动」
-STARTUP_HEALTH_DELAY_MS = int(os.environ.get("HAJIMI_STARTUP_HEALTH_DELAY_MS", "12000"))
+STARTUP_HEALTH_DELAY_MS = int(os.environ.get("HAJIMI_STARTUP_HEALTH_DELAY_MS", "3000"))
 STARTUP_HEALTH_RETRY_MS = int(os.environ.get("HAJIMI_STARTUP_HEALTH_RETRY_MS", "4000"))
 STARTUP_HEALTH_MAX_RETRIES = int(os.environ.get("HAJIMI_STARTUP_HEALTH_MAX_RETRIES", "6"))
+
+# 运行中后台重连：未连接 10s / 已连接 60s 保活（HAJIMI_BACKEND_POLL_MS 覆盖未连接间隔）
+BACKEND_POLL_DISCONNECTED_MS = int(
+    os.environ.get("HAJIMI_BACKEND_POLL_MS", os.environ.get("HAJIMI_BACKEND_POLL_DISCONNECTED_MS", "10000"))
+)
+BACKEND_POLL_CONNECTED_MS = int(os.environ.get("HAJIMI_BACKEND_POLL_CONNECTED_MS", "60000"))
 
 SERVER_DEFAULT_PORT = int(_DEFAULT_PORT)
 SERVER_START_HINT = (
@@ -114,7 +125,7 @@ INSPECT_MAX_SIDE = int(os.environ.get("HAJIMI_INSPECT_MAX_SIDE", "960"))
 def reload_from_env() -> None:
     """从 os.environ 刷新模块级配置（user_settings.apply 后调用）。"""
     global API_BASE_URL, L5_API_URL, L5_DEFAULT_PORT, HAJIMI_L5_ROOT
-    global AUTO_LAUNCH_A_END, AUTO_LAUNCH_L5, L5_START_HINT
+    global AUTO_LAUNCH_A_END, AUTO_LAUNCH_L5, L5_START_HINT, L5_TOOL_SSE
     global DEMO_KEY, USE_MOCK_ONLY, ALLOW_MOCK_FALLBACK
     global API_TIMEOUT, INSPECT_TIMEOUT, PROCESS_TIMEOUT, HEALTH_TIMEOUT
     global DEPLOYMENT_MODE, SERVER_DEFAULT_PORT, SERVER_START_HINT, L4_START_HINT
@@ -141,6 +152,11 @@ def reload_from_env() -> None:
     )
     L5_START_HINT = (
         f"scripts\\start_l5_sidecar.bat  (new_JIMI L5 Sidecar default :{L5_DEFAULT_PORT})"
+    )
+    L5_TOOL_SSE = os.environ.get("HAJIMI_L5_TOOL_SSE", "0").lower() in (
+        "1",
+        "true",
+        "yes",
     )
     DEMO_KEY = os.environ.get("HAJIMI_DEMO_KEY", DEFAULT_DEMO_KEY)
     USE_MOCK_ONLY = os.environ.get("HAJIMI_MOCK_ONLY", "").lower() in ("1", "true", "yes")

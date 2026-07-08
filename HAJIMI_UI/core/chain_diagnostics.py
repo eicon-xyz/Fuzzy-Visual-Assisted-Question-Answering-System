@@ -308,7 +308,7 @@ def _analyze_issues(
     for check in report.checks:
         if check.name.startswith("gpu_health [expected]") and not check.ok:
             issues.append(f"GPU OmniParser 不可达: {check.detail}")
-            recs.append("运行 scripts\\start_gpu_one_click.bat 或 scripts\\start_tunnel_9800.bat")
+            recs.append("运行根目录 启动HAJIMI.bat 或 scripts\\start_tunnel_9800.bat")
         if check.name == "A-end /health/live" and not check.ok:
             issues.append(f"A 端 event loop 阻塞或崩溃: {check.detail}")
             recs.append("重启 A 端 scripts\\start_server.bat；避免并发多次检测")
@@ -364,7 +364,7 @@ def _analyze_issues(
             f"({probe_check.latency_ms}ms)，GPU 对真实桌面截图异常"
         )
         recs.append(
-            "重启 GPU 隧道 start_gpu_one_click.bat；L2 模板问题可跳过 parse；"
+            "重启 GPU 隧道（启动HAJIMI.bat）；L2 模板问题可跳过 parse；"
             "L3 将走 parse 超时后纯文本降级"
         )
     l2_check = next(
