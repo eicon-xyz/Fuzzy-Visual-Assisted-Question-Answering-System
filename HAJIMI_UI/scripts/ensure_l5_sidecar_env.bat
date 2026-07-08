@@ -2,16 +2,12 @@
 setlocal EnableExtensions
 cd /d %~dp0..
 
-if defined HAJIMI_L5_ROOT (
-    set "L5_ROOT=%HAJIMI_L5_ROOT%"
-) else (
-    set "L5_ROOT=%~dp0..\..\new_JIMI\HAJIMI_UI"
-)
+call "%~dp0_resolve_l5_root.bat"
 
 if not exist "%L5_ROOT%\scripts\start_server.bat" (
-    echo [HAJIMI] ERROR: L5 Sidecar not found at:
-    echo   %L5_ROOT%
-    echo Set HAJIMI_L5_ROOT to new_JIMI\HAJIMI_UI if using a custom path.
+    echo [HAJIMI] ERROR: L5 Sidecar not found.
+    echo   Tried: %L5_ROOT%
+    echo   Fix: clone server_A next to HAJIMI_UI, or set HAJIMI_L5_ROOT
     endlocal
     exit /b 1
 )
@@ -55,7 +51,7 @@ if not exist "%L5_VENV%" (
 "%L5_VENV%" -c "import fastapi, uvicorn, sqlalchemy, psutil" >nul 2>&1
 if errorlevel 1 (
     echo [HAJIMI] ERROR: 8011 L5 deps verification failed at %L5_ROOT%\server\.venv
-    echo [HAJIMI] This is NOT HAJIMI_UI\server\.venv — run setup in new_JIMI\HAJIMI_UI
+    echo [HAJIMI] Run setup in server_A ^(not HAJIMI_UI\server\.venv^)
     endlocal
     exit /b 1
 )

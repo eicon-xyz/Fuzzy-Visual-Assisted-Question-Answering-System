@@ -11,11 +11,11 @@ from pathlib import Path
 
 
 def _resolve_l5_root() -> Path:
-    env_root = os.environ.get("HAJIMI_L5_ROOT", "").strip()
-    if env_root:
-        return Path(env_root).resolve()
-    # HAJIMI_UI/scripts -> repo/new_JIMI/HAJIMI_UI
-    return (Path(__file__).resolve().parent.parent.parent / "new_JIMI" / "HAJIMI_UI").resolve()
+    root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(root))
+    from core.paths import resolve_l5_root
+
+    return resolve_l5_root()
 
 
 def main() -> int:
@@ -45,7 +45,7 @@ def main() -> int:
     l5_root = _resolve_l5_root()
     if not (l5_root / "server" / "services" / "executor" / "clicker.py").is_file():
         print(f"ERROR: L5 Sidecar not found at {l5_root}")
-        print("Set HAJIMI_L5_ROOT to new_JIMI\\HAJIMI_UI if using a custom path.")
+        print("Set HAJIMI_L5_ROOT to server_A if using a custom path.")
         return 1
 
     sys.path.insert(0, str(l5_root))

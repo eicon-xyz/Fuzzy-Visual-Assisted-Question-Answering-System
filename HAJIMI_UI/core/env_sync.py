@@ -16,6 +16,23 @@ ROOT = Path(__file__).resolve().parent.parent
 ENV_PATH = ROOT / "server" / ".env"
 EXAMPLE_PATH = ROOT / "server" / ".env.example"
 
+_L5_SIDECAR_SYNC_KEYS = (
+    "DEEPSEEK_API_KEY",
+    "DEEPSEEK_BASE_URL",
+    "DEEPSEEK_MODEL",
+    "LLM_PROVIDER",
+    "OMNIPARSER_URL",
+    "OMNIPARSER_LOCAL_URL",
+    "OMNIPARSER_TIMEOUT",
+    "HAJIMI_DEMO_KEY",
+)
+
+_CANONICAL_MIRROR_KEYS = _L5_SIDECAR_SYNC_KEYS + (
+    "LLM_API_KEY",
+    "LLM_BASE_URL",
+    "LLM_MODEL",
+)
+
 
 def _parse_env_lines(text: str) -> list[str]:
     return text.splitlines()
@@ -39,6 +56,101 @@ def _upsert_env_lines(lines: list[str], updates: Dict[str, str]) -> list[str]:
                 new_lines.append("")
             new_lines.append(f"{key}={val}")
     return new_lines
+
+
+def _parse_env_dict(text: str) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    pattern = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        m = pattern.match(stripped)
+        if m:
+            out[m.group(1)] = m.group(2)
+    return out
+
+
+def resolve_l5_root() -> Path | None:
+    """Resolve L5 Sidecar root (same priority as scripts/_resolve_l5_root.bat)."""
+    custom = os.environ.get("HAJIMI_L5_ROOT", "").strip()
+    if custom:
+        root = Path(custom)
+        if (root / "scripts" / "start_server.bat").is_file():
+            return root
+
+    repo = ROOT.parent
+    for candidate in (
+        repo / "server_A",
+        repo / "server_A" / "server_A",
+        repo / "new_JIMI" / "HAJIMI_UI",
+    ):
+        if (candidate / "scripts" / "start_server.bat").is_file():
+            return candidate
+    return None
+
+
+def resolve_l5_env_path() -> Path | None:
+    root = resolve_l5_root()
+    if not root:
+        return None
+    return root / "server" / ".env"
+
+
+def _l5_sidecar_env_updates(data: dict | None) -> Dict[str, str]:
+    """Build Sidecar .env updates from user settings + canonical 8010 server/.env."""
+    updates: Dict[str, str] = {}
+    if data:
+        from_settings = _settings_to_env_updates(data)
+        for key in _L5_SIDECAR_SYNC_KEYS:
+            val = from_settings.get(key, "").strip()
+            if val:
+                updates[key] = val
+
+    if ENV_PATH.is_file():
+        canonical = _parse_env_dict(ENV_PATH.read_text(encoding="utf-8"))
+        for key in _CANONICAL_MIRROR_KEYS:
+            val = (canonical.get(key) or "").strip()
+            if val and key in _L5_SIDECAR_SYNC_KEYS:
+                updates[key] = val
+
+    if "LLM_PROVIDER" not in updates and ENV_PATH.is_file():
+        provider = (_parse_env_dict(ENV_PATH.read_text(encoding="utf-8")).get("LLM_PROVIDER") or "").strip()
+        if provider:
+            updates["LLM_PROVIDER"] = provider
+    if "LLM_PROVIDER" not in updates:
+        updates["LLM_PROVIDER"] = "deepseek"
+
+    return updates
+
+
+def sync_l5_sidecar_env(data: dict | None = None) -> Path | None:
+    """Mirror LLM/Omni/Demo keys from 8010 config into L5 Sidecar server/.env."""
+    env_path = resolve_l5_env_path()
+    if env_path is None:
+        return None
+
+    updates = _l5_sidecar_env_updates(data)
+    if not updates:
+        return None
+
+    example_path = env_path.parent / ".env.example"
+    if env_path.is_file():
+        text = env_path.read_text(encoding="utf-8")
+    elif example_path.is_file():
+        text = example_path.read_text(encoding="utf-8")
+    else:
+        text = ""
+
+    lines = _parse_env_lines(text)
+    merged = _upsert_env_lines(lines, updates)
+    content = "\n".join(merged).rstrip() + "\n"
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = env_path.with_suffix(".env.l5sync.tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, env_path)
+    print(f"[L5] synced Sidecar env -> {env_path}")
+    return env_path
 
 
 def _default_omni_url(data: dict) -> str:

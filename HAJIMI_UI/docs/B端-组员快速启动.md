@@ -8,12 +8,13 @@
 
 | 命令 | 说明 |
 |------|------|
-| **`启动HAJIMI.bat`** | 校园 GPU 一键：自动配环境 + 远程启服 + 隧道 + 8010 + 8011 + UI |
+| **`启动本地.bat`** | **本机 A+B** + **远程 GPU Omni**（SSH 隧道 `:9800` → 本机 8010 + 8011 + UI） |
+| **`联调启动.bat`** | **本机 B** + **队友 A**（`:8010`）+ 远程 OP（由队友 A 连 GPU；B 只开 UI） |
 | `stop_all.bat` | 停止 8010 / 8011 / 隧道等 |
 
 首次运行会自动安装 8010 / 8011 / B UI 依赖（约 1–3 分钟），控制台会提示进度。
 
-**开发者/高级入口** 见 [`launchers/`](../launchers/README.txt)（`start_all`、`start_ui`、`start_mock` 等）。
+**开发者/高级入口** 见 [`scripts/dev/README.txt`](../scripts/dev/README.txt)（CPU 降级、Mock、check_deploy 等）。旧 `launchers/` 已重定向到 dev。
 
 ---
 
@@ -21,25 +22,49 @@
 
 | 命令 | 说明 |
 |------|------|
-| **`启动HAJIMI.bat`** | 校园 GPU 一键（推荐；GPU 未连也会开 UI） |
+| **`启动本地.bat`** | 本机全栈 + 远程 GPU Omni（默认；GPU 未连也会 degraded 开 UI） |
+| **`联调启动.bat`** | 热点/局域网：写内网 API + 远程 8010 L5 + 只开 UI |
 | `stop_all.bat` | 停止服务 |
-| `launchers\check_deploy.bat` | **只检查**环境/链路，不启动 GPU |
-| `launchers\start_all.bat` | 本机 / gpu_api 全栈（需已开 :9800 隧道） |
-| `launchers\start_ui.bat` | 仅 B 端 UI（后端已开好） |
-| `launchers\start_mock.bat` | Mock 演示（无 OmniParser） |
-| `launchers\test_click_fixed.bat` | **固定坐标点击** Tier1（直接 clicker，无需 GPU） |
-| `launchers\test_click_http.bat` | **固定坐标点击** Tier2（8011 HTTP，需 Sidecar） |
+| `HAJIMI_UI\scripts\dev\check_deploy.bat` | **只检查**环境/链路 |
+| `HAJIMI_UI\scripts\dev\start_local_cpu.bat` | **CPU 降级**（本机 `:8002`，无校园网时用） |
 
-等价于进入 `HAJIMI_UI\` 后执行 `scripts\` 下同名脚本。
+---
+
+## 热点 / 局域网联调（连队友 8010）
+
+队友开热点并在其电脑起 **8010**（`HAJIMI_HOST=0.0.0.0`）后，你只需：
+
+```bat
+联调启动.bat
+```
+
+脚本会：提示后端 IP（默认 `192.168.137.1`，回车即用）→ 预检 `/api/demo/health`（含 `omniparser_ready`）→ 写入内网 API + L5 路由 → 启动 UI。  
+**无需**本机 8011 / Sidecar / GPU 隧道；L5 与 A 端同址 `http://<IP>:8010`。队友 A 端需自行连远程 OP（`OMNIPARSER_URL` 指向 GPU）。
+
+仅检查连通、不写设置：
+
+```bat
+cd HAJIMI_UI
+python scripts\setup_lan_client.py --no-prompt --check-only
+```
+
+指定 IP 非交互：
+
+```bat
+python scripts\setup_lan_client.py --host 192.168.137.1 --no-prompt
+```
+
+---
 
 ## 我该用哪个脚本？（在 HAJIMI_UI 目录内）
 
 | 你想做什么 | 命令 |
 |------------|------|
-| **校园 GPU 一键**（远程启服 + 隧道 + 8010 + 8011 + UI） | 根目录 `启动HAJIMI.bat` 或 `scripts\start_gpu_one_click.bat` |
+| **本机 A+B + 远程 GPU Omni**（默认） | 根目录 `启动本地.bat` |
+| **热点 / 局域网 L5 联调**（本机 B + 队友 A） | 根目录 `联调启动.bat` |
+| **CPU 降级全栈**（无校园网，`:8002`） | `scripts\dev\start_local_cpu.bat` |
 | **只看 UI**（不连后端） | `set HAJIMI_MOCK_ONLY=1` + `scripts\start_client.bat` |
 | **后端已开好，只开界面** | `scripts\start_client.bat` |
-| **本机 CPU 全栈**（OmniParser :8002 + 8010 + 8011 + UI） | `launchers\start_all.bat`（`deployment_mode=local`） |
 | **L4 专项**（8010 + UI，不等 OmniParser） | `scripts\start_l4_demo.bat` |
 | **分步单服务** | `start_server` / `start_l5_sidecar` / `start_omniparser` |
 
@@ -50,7 +75,7 @@
 ## 只检查环境（不启动 GPU）
 
 ```powershell
-launchers\check_deploy.bat
+HAJIMI_UI\scripts\dev\check_deploy.bat
 # 或 cd HAJIMI_UI && scripts\check_deploy.bat
 ```
 
@@ -61,7 +86,7 @@ launchers\check_deploy.bat
 
 ## GPU 未连时的行为（降级启动）
 
-- 默认 **`HAJIMI_DEGRADED_START=1`**：`启动HAJIMI.bat` 在远程 GPU / 隧道 / A-end 未就绪时 **仍会打开 UI**
+- 默认 **`HAJIMI_DEGRADED_START=1`**：`启动本地.bat` 在远程 GPU / 隧道 / A-end 未就绪时 **仍会打开 UI**
 - 控制台会打印 WARN 并在结束时 **pause**（不会闪退看不到报错）
 - UI 状态栏显示「未连接」；**每 10s 自动重试**，连上后改为每 60s 保活
 - 重试仅 localhost HTTP 探测，**几乎不耗 GPU/CPU**（未连时每次约 2–5s 超时）
@@ -107,14 +132,14 @@ Compact 小窗 L5 时显示一行状态 + 停止按钮。
 ### Tier 1 — 直接脚本（最快）
 
 ```powershell
-launchers\test_click_fixed.bat
+scripts\dev\test_click_fixed.bat
 ```
 
 3 秒后鼠标移到屏幕中心 `(960, 540)` 并单击。自定义坐标：
 
 ```powershell
 cd HAJIMI_UI
-..\..\new_JIMI\HAJIMI_UI\server\.venv\Scripts\python.exe scripts\test_click_fixed.py --x 80 --y 80 --delay 3
+..\..\server_A\server\.venv\Scripts\python.exe scripts\test_click_fixed.py --x 80 --y 80 --delay 3
 ```
 
 ### Tier 2 — HTTP（验证 A 端路由）
@@ -124,7 +149,7 @@ cd HAJIMI_UI
 ```powershell
 scripts\start_l5_sidecar.bat
 REM 新窗口
-launchers\test_click_http.bat
+scripts\dev\test_click_http.bat
 ```
 
 调用 `POST /api/demo/debug/click`（需 `X-Demo-Key`）。Sidecar 重启后才会加载新路由。
@@ -161,7 +186,7 @@ git clone <仓库地址>
 cd HAJIMI_UI
 scripts\setup.bat          # B 端 UI
 scripts\setup_server_env.bat   # 8010 A-end
-cd ..\new_JIMI\HAJIMI_UI
+cd ..\server_A
 scripts\setup_server_env.bat   # 8011 L5（与 8010 是两套独立 venv）
 ```
 
@@ -175,7 +200,7 @@ python main.py
 或：
 
 ```powershell
-launchers\start_ui.bat
+scripts\dev\start_ui.bat
 ```
 
 **说明**：此模式不连接 A 端 / OmniParser，用于确认 PyQt 界面能正常显示。首条提示为灰色 system 消息「UI 演示模式」，属正常现象。
@@ -188,7 +213,7 @@ launchers\start_ui.bat
 copy server\.env.example server\.env
 # 编辑 server\.env：LLM_API_KEY、OMNIPARSER_URL 等
 scripts\setup_server_env.bat
-launchers\start_all.bat
+scripts\dev\start_all.bat
 ```
 
 或分步：
@@ -205,7 +230,7 @@ launchers\start_all.bat
 ## 4. 校园 GPU（可选）
 
 1. 连接校园网 / VPN  
-2. 双击根目录 **`启动HAJIMI.bat`**（自动远程启服 + 隧道 + 全栈）  
+2. 双击根目录 **`启动本地.bat`**（自动远程启服 + 隧道 + 本机全栈）  
 3. 系统设置 → **内网 API** → A 端地址 `http://127.0.0.1:8010` → 保存  
 
 ## 平台说明
@@ -218,12 +243,12 @@ launchers\start_all.bat
 
 | 现象 | 处理 |
 |------|------|
-| 双击 bat 窗口闪退 | 请用根目录 **`启动HAJIMI.bat`**（失败会 pause）；或 `launchers\check_deploy.bat` 只看检查 |
-| GPU 未连但想先看 UI | 直接 `启动HAJIMI.bat`（降级模式默认开启）；界面每 10s 重试 |
-| `Missing server deps`（L5 窗口） | 8011 用 **new_JIMI\HAJIMI_UI\server\.venv**；一键会自动配 |
+| 双击 bat 窗口闪退 | 请用根目录 **`启动本地.bat`** / **`联调启动.bat`**（失败会 pause）；或 `scripts\dev\check_deploy.bat` |
+| GPU 未连但想先看 UI | 直接 `启动本地.bat`（降级模式默认开启）；界面每 10s 重试 |
+| `Missing server deps`（L5 窗口） | 8011 用 **server_A\server\.venv**；一键会自动配 |
 | 一键脚本 `TIMEOUT: A-end not ready` | 看 `HAJIMI-A-end-GPU-API` 窗口 traceback；确认 `:9800` 隧道 OK；**重启 A-end** |
 | 一键脚本卡住后无 UI | 看是否打印 `TIMEOUT`；看 `HAJIMI-B-end` 是否 PyQt5 报错；手动试 `scripts\start_client.bat` |
-| pip 安装失败 | 关 Clash/V2Ray 或检查 IE 代理；重跑 `启动HAJIMI.bat` |
+| pip 安装失败 | 关 Clash/V2Ray 或检查 IE 代理；重跑 `启动本地.bat` |
 | `start_client.bat` 找不到 Python | 先 `activate` videorag，或 `set VIDEO_RAG_PY=...` |
 | 满屏「A 端未启动」红色 | 使用 `HAJIMI_MOCK_ONLY=1` 只看 UI，或 `start_server.bat` |
 | 「内网 A 端不可达」 | 检查 VPN + SSH 隧道，或改回「本地启动」 |
@@ -239,7 +264,7 @@ launchers\start_all.bat
 | `HAJIMI_API_URL` | B 端连接的 A 端地址 |
 | `VIDEO_RAG_PY` / `OMNI_PY` | 可选，指定 Python 路径 |
 | `OMNI_ROOT` | OmniParser 安装目录 |
-| `HAJIMI_L5_ROOT` | L5 Sidecar 路径（默认 `new_JIMI/HAJIMI_UI`） |
+| `HAJIMI_L5_ROOT` | L5 Sidecar 路径（默认 `server_A/`，fallback `new_JIMI/HAJIMI_UI`） |
 
 ## 相关文档
 

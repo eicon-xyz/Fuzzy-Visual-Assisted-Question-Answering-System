@@ -73,7 +73,7 @@ set /a WAIT_L5=0
 set /a WAIT_L5+=1
 if %WAIT_L5% GTR 45 (
     echo [HAJIMI] WARN: L5 Sidecar not ready — continuing with L3/L4 only.
-    echo [HAJIMI] Check HAJIMI-L5-Sidecar window; ensure new_JIMI\HAJIMI_UI\server\.venv and .env exist.
+    echo [HAJIMI] Check HAJIMI-L5-Sidecar window; ensure server_A\server_A\server\.venv and .env exist.
     goto start_ui
 )
 "%PYTHON%" scripts\check_l5_sidecar_live.py --port %L5_API_PORT% 2>nul
@@ -93,4 +93,4 @@ start "HAJIMI-B-end" cmd /k "set PYTHON=&& set HAJIMI_PORT=%HAJIMI_PORT%&& set H
 echo [HAJIMI] Launched. UI uses local mode + OMNIPARSER_URL=http://127.0.0.1:9800
 endlocal
 exit /b 0
-
+

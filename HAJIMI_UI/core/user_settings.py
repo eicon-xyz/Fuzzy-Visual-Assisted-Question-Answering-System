@@ -366,6 +366,13 @@ def apply_user_settings(data: dict | None = None) -> dict:
 
     os.environ.setdefault("DETECTOR_BACKEND", "auto")
 
+    routing_mode = (settings.get("routing_mode") or "").lower()
+    if routing_mode == "l5":
+        os.environ["ROUTING_MODE"] = "l5"
+    if "L5_API_URL" not in os.environ:
+        if settings.get("deployment_mode") == "intranet" and routing_mode == "l5":
+            os.environ["L5_API_URL"] = settings["a_end_url"]
+
     try:
         from core.routing_config import _read_env_file
 

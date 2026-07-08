@@ -45,7 +45,7 @@ from core.user_settings import (
     load_voice_settings,
     save_settings_fragment,
 )
-from core.env_sync import sync_server_env
+from core.env_sync import sync_l5_sidecar_env, sync_server_env
 from core.service_manager import (
     restart_local_a_end,
     run_gpu_one_click_bat,
@@ -624,6 +624,7 @@ class MainWidget(QWidget):
         self.execute_worker.sig_progress.connect(self._on_task_progress)
         c.step_action_started.connect(self._on_step_action_started)
         c.step_action_finished.connect(self._on_step_action_finished)
+        c.l5_compact_status_updated.connect(self._on_l5_compact_status)
         self.step_worker.sig_progress.connect(self._on_step_progress)
 
         if self._bc_signals:
@@ -667,7 +668,6 @@ class MainWidget(QWidget):
         p.prev_clicked.connect(self.controller.prev_step)
         p.stop_clicked.connect(self.controller.stop_l5_execution)
         b.stop_clicked.connect(self.controller.stop_l5_execution)
-        b.l5_compact_status_updated.connect(self._on_l5_compact_status)
         p.compact_requested.connect(self.switch_to_compact)
         p.drag_requested.connect(self.controller.begin_window_drag)
         p.inspect_requested.connect(self._on_inspect_requested)
@@ -990,6 +990,7 @@ class MainWidget(QWidget):
             apply_user_settings(merged)
             if merged.get("deployment_mode") in ("local", "gpu_api"):
                 sync_server_env(merged)
+                sync_l5_sidecar_env(merged)
                 restart_local_a_end()
             if is_intranet_mode():
                 mode_label = "内网 API"
@@ -1060,6 +1061,7 @@ class MainWidget(QWidget):
 
             settings = load_user_settings()
             sync_server_env(settings)
+            sync_l5_sidecar_env(settings)
             if is_gpu_api_mode():
                 start_gpu_api_services()
                 from core.routing_config import routing_needs_omniparser

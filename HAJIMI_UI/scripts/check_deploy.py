@@ -15,10 +15,9 @@ SCRIPTS = ROOT / "scripts"
 
 
 def _l5_root() -> Path:
-    env = os.environ.get("HAJIMI_L5_ROOT", "").strip()
-    if env:
-        return Path(env).resolve()
-    return (ROOT.parent / "new_JIMI" / "HAJIMI_UI").resolve()
+    from core.paths import resolve_l5_root
+
+    return resolve_l5_root()
 
 
 def _venv_import_ok(venv_py: Path) -> tuple[bool, str]:

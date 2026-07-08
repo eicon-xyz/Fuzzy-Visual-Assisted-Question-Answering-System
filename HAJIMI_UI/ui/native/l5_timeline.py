@@ -70,6 +70,7 @@ class L5StepTimelineWidget(QWidget):
         self._step_items: list[QTreeWidgetItem] = []
         self._active_index = -1
         self._total_steps = 0
+        self._planning = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 8, 0, 0)
@@ -87,11 +88,35 @@ class L5StepTimelineWidget(QWidget):
         self._tree.setAnimated(True)
         layout.addWidget(self._tree, 1)
 
+    def show_planning_placeholder(self) -> None:
+        """规划等待期占位，避免空白步骤区。"""
+        self._planning = True
+        self._tree.clear()
+        self._step_items.clear()
+        self._active_index = -1
+        self._total_steps = 0
+        item = QTreeWidgetItem(["◌ 规划步骤生成中…"])
+        self._tree.addTopLevelItem(item)
+        self._tree.expandAll()
+
+    @property
+    def is_planning(self) -> bool:
+        return self._planning
+
+    @property
+    def is_tree_empty(self) -> bool:
+        return self._tree.topLevelItemCount() == 0
+
     def reset_plan(self, steps: list) -> None:
+        self._planning = False
         self._tree.clear()
         self._step_items.clear()
         self._active_index = -1
         self._total_steps = len(steps)
+        if not steps:
+            item = QTreeWidgetItem(["○ 暂无步骤（规划未返回）"])
+            self._tree.addTopLevelItem(item)
+            return
         for i, step in enumerate(steps):
             if isinstance(step, dict):
                 text = (
@@ -122,7 +147,45 @@ class L5StepTimelineWidget(QWidget):
             rest = label.lstrip("○●✓✗⊘ ").lstrip("0123456789. ")
         item.setText(0, f"{dot} {index + 1}. {rest}")
 
+    def sync_active_index(self, active_index: int) -> None:
+        """Update step status dots without clearing SSE child nodes."""
+        if not self._step_items:
+            return
+        for i in range(len(self._step_items)):
+            if active_index >= len(self._step_items):
+                self.set_step_status(i, "done")
+            elif i < active_index:
+                self.set_step_status(i, "done")
+            elif i == active_index:
+                self.set_step_status(i, "active")
+                self._set_active_step(i)
+            else:
+                self.set_step_status(i, "pending")
+
+    def step_instruction(self, index: int) -> str:
+        if index < 0 or index >= len(self._step_items):
+            return ""
+        label = self._step_items[index].text(0)
+        if ". " in label:
+            return label.split(". ", 1)[1]
+        return label.lstrip("○●✓✗⊘ ").lstrip("0123456789. ")
+
+    def show_initial_screenshot(self, step_index: int, b64: str) -> None:
+        if b64:
+            self._append_screenshot(step_index, b64)
+
+    @staticmethod
+    def _extract_screenshot_b64(data: dict) -> str:
+        return (
+            data.get("annotated_image")
+            or data.get("image_base64")
+            or data.get("screenshot_base64")
+            or ""
+        )
+
     def handle_sse(self, event_type: str, data: dict) -> None:
+        if event_type == "screenshot_update":
+            event_type = "screenshot_updated"
         step_index = int(data.get("step_index", 1)) - 1
         if event_type == "step_start":
             self._set_active_step(step_index)
@@ -138,7 +201,7 @@ class L5StepTimelineWidget(QWidget):
             if msg:
                 self._append_line(step_index, msg, kind=level)
         elif event_type == "screenshot_updated":
-            b64 = data.get("annotated_image") or data.get("image_base64") or ""
+            b64 = self._extract_screenshot_b64(data)
             if b64:
                 self._append_screenshot(step_index, b64)
         elif event_type == "step_done":
@@ -232,6 +295,16 @@ class L5StepTimelineWidget(QWidget):
         label.mousePressEvent = _on_click  # type: ignore[method-assign]
         self._tree.setItemWidget(child, 0, label)
         self._tree.scrollToItem(child)
+
+    def mark_completed(self, outcome: str = "done") -> None:
+        """任务结束：展开全部步骤供回看，补全未标记的步骤状态。"""
+        self._planning = False
+        if outcome == "done":
+            for i in range(len(self._step_items)):
+                label = self._step_items[i].text(0)
+                if label.startswith("○") or label.startswith("●"):
+                    self.set_step_status(i, "done")
+        self._tree.expandAll()
 
     @property
     def total_steps(self) -> int:

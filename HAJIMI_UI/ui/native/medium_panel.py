@@ -463,6 +463,7 @@ class MediumPanel(QWidget):
         layout.addWidget(card)
         layout.addStretch()
         self._l5_execution_mode = False
+        self._l5_completed = False
         return page
 
     def _build_blueprint_page(self) -> QWidget:
@@ -1209,6 +1210,15 @@ class MediumPanel(QWidget):
                 self._settings_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
             self.panel_restore_size.emit()
 
+        if panel == "steps" and self._l5_execution_mode:
+            self._apply_l5_steps_layout()
+            if (
+                self._l5_timeline.total_steps == 0
+                and not self._l5_timeline.is_planning
+                and self._l5_timeline.is_tree_empty
+            ):
+                self._l5_timeline.show_planning_placeholder()
+
     def current_panel(self) -> str:
         return self._current_panel
 
@@ -1436,19 +1446,100 @@ class MediumPanel(QWidget):
             s.get("desc") or s.get("description") or s.get("instruction") or s.get("action", "")
             for s in steps
         ]
-        if not self._l5_execution_mode:
-            self._guide_steps.set_steps(descriptions, active_index)
+        if self._l5_execution_mode and not self.is_l5_completed:
+            plan_steps = [{"instruction": d} for d in descriptions]
+            if (
+                self._l5_timeline.total_steps == 0
+                or len(descriptions) != self._l5_timeline.total_steps
+                or self._l5_timeline.is_planning
+            ):
+                self.reset_l5_timeline(plan_steps)
+            else:
+                self._l5_timeline.sync_active_index(active_index)
+            total = len(descriptions)
+            if total > 0:
+                self._step_controls.show()
+                cur = min(active_index + 1, total)
+                self._step_progress_label.setText(f"L5 {cur} / {total}")
+            elif self._l5_timeline.is_planning:
+                self._step_controls.show()
+                self._step_progress_label.setText("L5 规划中…")
+            else:
+                self._step_controls.hide()
+            return
+        self._guide_steps.set_steps(descriptions, active_index)
         self._steps_list.set_steps(descriptions, active_index)
-        if self._l5_execution_mode:
-            self.reset_l5_timeline(
-                [{"instruction": d} for d in descriptions]
-            )
         total = len(descriptions)
         if total > 0 and active_index < total:
             self._step_controls.show()
             self._step_progress_label.setText(f"步骤 {active_index + 1} / {total}")
         else:
             self._step_controls.hide()
+
+    def _apply_l5_steps_layout(self) -> None:
+        self._steps_list.hide()
+        self._l5_timeline.show()
+
+    @property
+    def is_l5_completed(self) -> bool:
+        return bool(getattr(self, "_l5_completed", False))
+
+    def begin_l5_planning(self) -> None:
+        """进入 L5：切步骤页、显示规划占位与停止/批准底栏。"""
+        if self.is_l5_completed:
+            self.finish_l5_execution()
+        self.set_l5_execution_mode(True)
+        self._l5_timeline.show_planning_placeholder()
+        self._step_controls.show()
+        self._step_progress_label.setText("L5 规划中…")
+
+    def complete_l5_execution(self, *, outcome: str = "done") -> None:
+        """L5 任务结束：保留时间线与步骤，底栏改为只读完成态。"""
+        self._l5_completed = True
+        self._l5_timeline.mark_completed(outcome)
+        self._l5_execution_mode = True
+        self._steps_title.setText("自动执行")
+        self._steps_l5_badge.setText("L5")
+        self._steps_l5_badge.show()
+        self._apply_l5_steps_layout()
+        self._switch_panel("steps")
+        self._step_pause_btn.hide()
+        self._step_stop_btn.hide()
+        self._step_prev_btn.hide()
+        self._step_next_btn.setText("关闭")
+        self._step_next_btn.show()
+        self._step_controls.show()
+        labels = {
+            "done": ("L5 已完成", "L5 执行完成 · 步骤保留供回看"),
+            "failed": ("L5 失败", "L5 执行失败 · 步骤保留供排查"),
+            "cancelled": ("L5 已取消", "L5 已取消 · 步骤保留供回看"),
+            "error": ("L5 错误", "L5 启动失败 · 已保留当前界面"),
+        }
+        prog, hint = labels.get(outcome, labels["done"])
+        self._step_progress_label.setText(prog)
+        self.set_stage_hint(hint)
+
+    def finish_l5_execution(self) -> None:
+        """硬重置 L5：恢复指引步骤 UI 并隐藏时间线。"""
+        self._l5_completed = False
+        self.set_l5_execution_mode(False)
+        self._step_controls.hide()
+        self.set_stage_hint("")
+
+    def mirror_l5_steps_to_guide(self, steps: list) -> None:
+        """L5 完成后同步步骤到指引列表，便于切换面板回看。"""
+        descriptions = [
+            s.get("desc")
+            or s.get("description")
+            or s.get("instruction")
+            or ""
+            for s in steps
+        ]
+        if not descriptions:
+            return
+        last_idx = max(0, len(descriptions) - 1)
+        self._guide_steps.set_steps(descriptions, last_idx)
+        self._steps_list.set_steps(descriptions, last_idx)
 
     def set_l5_execution_mode(self, enabled: bool) -> None:
         from core.user_settings import load_user_settings
@@ -1462,7 +1553,7 @@ class MediumPanel(QWidget):
             self._steps_title.setText("自动执行")
             self._steps_l5_badge.setText("L5")
             self._steps_l5_badge.show()
-            self._l5_timeline.show()
+            self._apply_l5_steps_layout()
             self._step_prev_btn.hide()
             self._step_pause_btn.show()
             self._step_next_btn.setText(f"批准 ({approve})")
@@ -1474,14 +1565,19 @@ class MediumPanel(QWidget):
             self._steps_title.setText("Step Tracking")
             self._steps_l5_badge.hide()
             self._l5_timeline.hide()
+            self._steps_list.show()
             self._step_prev_btn.show()
             self._step_pause_btn.hide()
             self._step_next_btn.setText("下一步")
             self._step_stop_btn.setText("停止")
             self._step_stop_btn.hide()
+            self._step_controls.hide()
 
     def reset_l5_timeline(self, steps: list) -> None:
         self._l5_timeline.reset_plan(steps)
+
+    def show_l5_initial_screenshot(self, step_index: int, b64: str) -> None:
+        self._l5_timeline.show_initial_screenshot(step_index, b64)
 
     def handle_l5_sse(self, event_type: str, data: dict) -> None:
         self._l5_timeline.handle_sse(event_type, data)
@@ -1516,13 +1612,13 @@ class MediumPanel(QWidget):
             return "L5 执行中"
         inst = ""
         idx = self._l5_timeline.active_index
-        if 0 <= idx < len(self._steps_list.items):
-            inst = self._steps_list.items[idx].desc_label.text()
+        if idx >= 0:
+            inst = self._l5_timeline.step_instruction(idx)
         short = (inst[:24] + "…") if len(inst) > 24 else inst
         return f"L5 {cur}/{total} · {short}" if short else f"L5 {cur}/{total}"
 
     def set_l5_step_status(self, index: int, status: str) -> None:
-        self._steps_list.set_step_status(index, status)
+        self._l5_timeline.set_step_status(index, status)
 
     def notify_l5_audit_compat(self, message: str) -> None:
         self.set_stage_hint("L5 自动执行中 · 审计按 L3 上报")

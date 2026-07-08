@@ -1,4 +1,4 @@
-"""L5 Sidecar (new_JIMI :8011) auto-launch orchestrator."""
+"""L5 Sidecar (server_A :8011) auto-launch orchestrator."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def _poll_l5_health_until_ready(timeout_seconds: float = 15.0) -> bool:
 def ensure_l5_sidecar_running(
     progress_callback: Optional[Callable[[str], None]] = None,
 ) -> tuple[bool, str]:
-    """Ensure new_JIMI L5 Sidecar on :8011 is reachable; auto-start if configured."""
+    """Ensure server_A L5 Sidecar on :8011 is reachable; auto-start if configured."""
     if check_l5_health():
         return True, ""
 
@@ -61,8 +61,8 @@ def ensure_l5_sidecar_running(
     l5_root = resolve_l5_root()
     if not l5_root.is_dir():
         return False, (
-            f"找不到 new_JIMI Sidecar 目录: {l5_root}\n"
-            "请设置 HAJIMI_L5_ROOT 或确认仓库含 new_JIMI/HAJIMI_UI"
+            f"找不到 server_A Sidecar 目录: {l5_root}\n"
+            "请设置 HAJIMI_L5_ROOT 或确认仓库含 server_A"
         )
 
     if progress_callback:
@@ -99,7 +99,7 @@ def ensure_l5_sidecar_running(
     return (
         False,
         "L5 Sidecar 启动超时。请检查 HAJIMI-L5-Sidecar 终端是否有报错，"
-        f"或手动在 new_JIMI 目录运行 start_server.bat（端口 {_l5_port()}）。",
+        f"或手动在 server_A 目录运行 start_server.bat（端口 {_l5_port()}）。",
     )
 
 

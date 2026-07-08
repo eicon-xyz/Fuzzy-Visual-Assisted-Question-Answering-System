@@ -94,7 +94,7 @@ if not "%DEMO_ERR%"=="0" set "HAJIMI_START_WARN=1"
 if defined HAJIMI_START_WARN (
     echo.
     echo [HAJIMI] Startup completed with warnings — UI may show backend not connected.
-    echo [HAJIMI] UI will retry every 10s. Connect campus GPU and wait, or re-run 启动HAJIMI.bat
+    echo [HAJIMI] UI will retry every 10s. Connect campus GPU and wait, or re-run 启动本地.bat
     endlocal
     exit /b 2
 )
@@ -107,4 +107,4 @@ echo [HAJIMI] Startup failed — see messages above.
 pause
 endlocal
 exit /b 1
-
+

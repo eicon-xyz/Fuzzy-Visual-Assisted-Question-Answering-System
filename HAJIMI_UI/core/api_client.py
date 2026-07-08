@@ -912,8 +912,22 @@ def execute_task(
     if not ok:
         raise ApiError(reason or f"L5 Sidecar 未就绪，请先运行: {L5_START_HINT}")
 
+    try:
+        from core.env_sync import sync_l5_sidecar_env
+        from core.user_settings import load_user_settings
+
+        sync_l5_sidecar_env(load_user_settings())
+    except Exception as exc:
+        print(f"[L5] sync_l5_sidecar_env skipped: {exc}")
+
+    from core.l5_query_normalize import normalize_l5_execute_query
+
+    normalized_query = normalize_l5_execute_query(query)
+    if normalized_query != query.strip():
+        print(f"[L5] query normalized: {query!r} -> {normalized_query!r}")
+
     payload: dict = {
-        "query": query,
+        "query": normalized_query,
         "image": image_data_uri,
         "context": [],
         "screen_width": screen_width,

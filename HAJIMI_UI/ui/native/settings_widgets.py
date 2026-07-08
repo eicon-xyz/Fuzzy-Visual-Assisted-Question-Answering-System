@@ -182,9 +182,9 @@ class GuidanceRouteGroup(QFrame):
     mode_changed = pyqtSignal(str)
 
     _MODES = (
-        ("l5", "L5 自动执行（默认）", "A 端 Agent Loop 自动操作鼠标键盘；需首次知情确认"),
+        ("l5", "L5 自动执行（默认）", "Agent 自动操作本机鼠标键盘；步骤保留在时间线，完成后可切 balanced/fast 做纯指引"),
         ("fast", "L4 Vision 快路径", "跳过 OmniParser，Planner+Locator Vision，仅需 A 端+LLM"),
-        ("balanced", "L3 逐步 Vision", "先文本规划，每步 Vision 定位，不需 OmniParser"),
+        ("balanced", "L3 逐步 Vision", "先文本规划，每步 Vision 定位，屏幕红框指引，不需 OmniParser"),
         ("precision", "L3 OmniParser 精准", "全屏 UI 检测 + 元素绑定，需 GPU/CPU 检测服务"),
         ("auto", "自动选择（不含 L5）", "有截图时优先 L4，模板/浏览器等自动分流"),
     )
@@ -203,8 +203,8 @@ class GuidanceRouteGroup(QFrame):
         layout.addWidget(title)
 
         hint = QLabel(
-            "选择任务处理路径。默认 L5 为自动执行（会操作本机鼠标键盘）；"
-            "仅需屏幕红框指引时选 L4/L3。"
+            "选择任务处理路径。默认 L5 为自动执行（会操作本机鼠标键盘），"
+            "步骤保留在时间线供回看；仅需屏幕红框指引时选 L4/L3。"
         )
         hint.setObjectName("HintTextSmall")
         hint.setWordWrap(True)

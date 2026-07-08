@@ -1,4 +1,6 @@
 @echo off
-cd /d %~dp0..\HAJIMI_UI\scripts\dev
+setlocal EnableExtensions
+cd /d %~dp0\..
 call start_all.bat
+endlocal
 exit /b %ERRORLEVEL%
