@@ -7,7 +7,7 @@
 | 脚本 | 目标 | 需A端 | 说明 |
 |------|------|-------|------|
 | `test_client_modules.py` | A+B+C 客户端模块 | ❌ | ASR/TTS/审计/配置/BC集成/AuditBuilder |
-| `test_new_jimi.py` | A端独立服务器 27端点 | ✅ | new_JIMI/HAJIMI_UI/server/ |
+| `test_new_jimi.py` | A端 Server 27端点 | ✅ | HAJIMI_UI/server/ |
 | `test_hajimi_ui.py` | B端嵌入式服务器 31端点 | ✅ | HAJIMI_UI/server/ |
 | `test_data_connectivity.py` | **C<->A<->B 数据连通性** | ✅ | 审计回路/配置回路/BC审计链/Web认证/12页面数据可读 |
 
@@ -24,8 +24,8 @@ Web 面板已加入 `autoDetectServer()`：页面加载时自动探测 `:8010/ap
 python 项目文档/测试文档/test_client_modules.py
 
 # 2. 启动A端
-cd new_JIMI/HAJIMI_UI
-python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
+cd HAJIMI_UI
+python -m uvicorn server.main:app --host 0.0.0.0 --port 8010
 
 # 3. A端端点测试
 python 项目文档/测试文档/test_new_jimi.py

@@ -40,7 +40,7 @@ def test_connectivity():
         return False
 
 def test_demo_b_specific():
-    """Test B-end specific demo endpoints (not in new_JIMI)"""
+    """Test B-end specific demo endpoints (not in standalone A端)"""
     print("\n========= 2. B-end 专属 Demo 端点 =========")
     tid = f"bui-{uuid.uuid4().hex[:8]}"
 
@@ -82,7 +82,7 @@ def test_demo_b_specific():
     ok(f"POST report → {r.status_code} (B端专属)", True)
 
 def test_demo_common():
-    """Test common demo endpoints shared with new_JIMI"""
+    """Test common demo endpoints shared with standalone A端"""
     print("\n========= 3. 通用 Demo 端点 =========")
     r = httpx.post(f"{SERVER}/api/demo/execute", headers=DH, timeout=30,
                    json={"query": "测试", "image": "data:image/png;base64,iVBORw0KGgo="})
@@ -100,7 +100,7 @@ def test_demo_common():
     ok(f"GET stream → {r.status_code}", True)
 
 def test_admin_common():
-    """Test admin endpoints (same as new_JIMI minus session/metrics)"""
+    """Test admin endpoints (same as standalone A端 minus session/metrics)"""
     print("\n========= 4. Admin 端点 =========")
     for path in ["stats/overview","stats/top-tasks","stats/trend","stats/redline",
                  "stats/feedback","failures/list","config/current"]:
