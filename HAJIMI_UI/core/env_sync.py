@@ -8,6 +8,8 @@ from typing import Dict
 
 from core.defaults import (
     DEFAULT_DEMO_KEY,
+    DEFAULT_L5_HOST,
+    DEFAULT_L5_PORT,
     DEFAULT_OMNI_GPU_API_URL,
     DEFAULT_OMNI_LOCAL_URL,
 )
@@ -21,17 +23,22 @@ _L5_SIDECAR_SYNC_KEYS = (
     "DEEPSEEK_BASE_URL",
     "DEEPSEEK_MODEL",
     "LLM_PROVIDER",
-    "OMNIPARSER_URL",
-    "OMNIPARSER_LOCAL_URL",
-    "OMNIPARSER_TIMEOUT",
-    "HAJIMI_DEMO_KEY",
-)
-
-_CANONICAL_MIRROR_KEYS = _L5_SIDECAR_SYNC_KEYS + (
     "LLM_API_KEY",
     "LLM_BASE_URL",
     "LLM_MODEL",
+    "OMNIPARSER_URL",
+    "OMNIPARSER_LOCAL_URL",
+    "OMNIPARSER_TIMEOUT",
+    "OMNIPARSER_LOCAL_TIMEOUT",
+    "OMNIPARSER_RETRY",
+    "HAJIMI_DEMO_KEY",
+    "HAJIMI_HOST",
+    "HAJIMI_PORT",
+    "ROUTING_MODE",
+    "LLM_SPEED_MODE",
 )
+
+_CANONICAL_MIRROR_KEYS = _L5_SIDECAR_SYNC_KEYS
 
 
 def _parse_env_lines(text: str) -> list[str]:
@@ -98,34 +105,46 @@ def resolve_l5_env_path() -> Path | None:
 
 
 def _l5_sidecar_env_updates(data: dict | None) -> Dict[str, str]:
-    """Build Sidecar .env updates from user settings + canonical 8010 server/.env."""
-    updates: Dict[str, str] = {}
-    if data:
-        from_settings = _settings_to_env_updates(data)
-        for key in _L5_SIDECAR_SYNC_KEYS:
-            val = from_settings.get(key, "").strip()
-            if val:
-                updates[key] = val
+    """Build server_A/server/.env updates — user settings are authoritative."""
+    if not data:
+        return {}
 
-    if ENV_PATH.is_file():
-        canonical = _parse_env_dict(ENV_PATH.read_text(encoding="utf-8"))
+    updates = _settings_to_env_updates(data)
+    # L5 Sidecar (server_A) always binds :8011 locally; a_end_url is for 8010 / intranet.
+    updates["HAJIMI_HOST"] = DEFAULT_L5_HOST
+    updates["HAJIMI_PORT"] = str(DEFAULT_L5_PORT)
+
+    env_path = resolve_l5_env_path()
+    if env_path and env_path.is_file():
+        existing = _parse_env_dict(env_path.read_text(encoding="utf-8"))
         for key in _CANONICAL_MIRROR_KEYS:
-            val = (canonical.get(key) or "").strip()
-            if val and key in _L5_SIDECAR_SYNC_KEYS:
-                updates[key] = val
+            if key not in updates or not str(updates.get(key, "")).strip():
+                val = (existing.get(key) or "").strip()
+                if val:
+                    updates[key] = val
 
-    if "LLM_PROVIDER" not in updates and ENV_PATH.is_file():
-        provider = (_parse_env_dict(ENV_PATH.read_text(encoding="utf-8")).get("LLM_PROVIDER") or "").strip()
-        if provider:
-            updates["LLM_PROVIDER"] = provider
-    if "LLM_PROVIDER" not in updates:
+    if not updates.get("LLM_PROVIDER"):
         updates["LLM_PROVIDER"] = "deepseek"
-
     return updates
 
 
+def routing_needs_legacy_a_end(data: dict | None) -> bool:
+    """True when L3/L4 still uses HAJIMI_UI/server on :8010."""
+    if not data:
+        return False
+    routing = (data.get("routing_mode") or data.get("llm_speed_mode") or "l5").lower()
+    return routing in ("auto", "fast", "balanced", "precision")
+
+
+def sync_backend_env(data: dict) -> tuple[Path | None, Path | None]:
+    """Primary: server_A L5 .env; optional legacy: HAJIMI_UI/server/.env for L4."""
+    l5_path = sync_l5_sidecar_env(data)
+    legacy_path = sync_server_env(data) if routing_needs_legacy_a_end(data) else None
+    return l5_path, legacy_path
+
+
 def sync_l5_sidecar_env(data: dict | None = None) -> Path | None:
-    """Mirror LLM/Omni/Demo keys from 8010 config into L5 Sidecar server/.env."""
+    """Write user model/API settings into server_A/server/.env (L5 Sidecar)."""
     env_path = resolve_l5_env_path()
     if env_path is None:
         return None

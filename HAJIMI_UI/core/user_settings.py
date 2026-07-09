@@ -10,6 +10,7 @@ from core.defaults import (
     DEFAULT_A_URL,
     DEFAULT_DEMO_KEY,
     DEFAULT_DEPLOYMENT_MODE,
+    DEFAULT_L5_URL,
     DEFAULT_LLM_BASE_URL,
     DEFAULT_LLM_MODEL,
     DEFAULT_OMNI_GPU_API_URL,
@@ -428,9 +429,21 @@ def apply_user_settings(data: dict | None = None) -> dict:
     routing_mode = (settings.get("routing_mode") or "").lower()
     if routing_mode == "l5":
         os.environ["ROUTING_MODE"] = "l5"
-    if "L5_API_URL" not in os.environ:
-        if settings.get("deployment_mode") == "intranet" and routing_mode == "l5":
-            os.environ["L5_API_URL"] = settings["a_end_url"]
+
+    try:
+        from core.paths import resolve_l5_root
+
+        l5_root = resolve_l5_root()
+        if l5_root.is_dir():
+            os.environ["HAJIMI_L5_ROOT"] = str(l5_root)
+    except Exception:
+        pass
+
+    deployment = settings.get("deployment_mode", DEFAULT_DEPLOYMENT_MODE)
+    if deployment == "intranet" and routing_mode == "l5":
+        os.environ["L5_API_URL"] = settings["a_end_url"]
+    elif deployment != "intranet":
+        os.environ["L5_API_URL"] = DEFAULT_L5_URL
 
     try:
         from core.routing_config import _read_env_file

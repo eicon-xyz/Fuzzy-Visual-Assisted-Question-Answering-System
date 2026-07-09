@@ -624,8 +624,8 @@ class AppController(QObject):
         if "401" not in text and "llm error" not in text:
             return
         self.message_added.emit(
-            "8011 Sidecar 的 LLM Key 无效或未从 8010 同步。"
-            "请在设置中保存模型配置，或检查 L5 server/.env 后重启 Sidecar（scripts\\start_l5_sidecar.bat）。",
+            "8011 Sidecar 的 LLM Key 无效或未同步。"
+            "请在设置中保存模型配置（写入 server_A/server/.env），或重启 L5 Sidecar。",
             "system",
         )
 

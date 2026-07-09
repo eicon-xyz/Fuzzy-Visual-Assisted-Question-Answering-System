@@ -248,6 +248,12 @@ def restart_local_a_end() -> None:
     start_a_end_window()
 
 
+def restart_l5_sidecar() -> None:
+    """Stop and restart server_A L5 Sidecar (:8011) to load new server/.env."""
+    stop_port(_DEFAULT_L5_PORT)
+    start_l5_sidecar_window()
+
+
 def start_gpu_api_services() -> None:
     """GPU API mode: local A-end only; OmniParser runs on GPU via :9800 tunnel."""
     stop_port(_DEFAULT_A_PORT)
