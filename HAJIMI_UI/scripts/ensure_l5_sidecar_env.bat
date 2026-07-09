@@ -14,18 +14,27 @@ if not exist "%L5_ROOT%\scripts\start_server.bat" (
 
 set "L5_VENV=%L5_ROOT%\server\.venv\Scripts\python.exe"
 set "NEED_SETUP=0"
+set "RECREATE_VENV=0"
 
 if not exist "%L5_VENV%" (
     set "NEED_SETUP=1"
 ) else (
     "%L5_VENV%" -c "from fastapi import FastAPI; import uvicorn, sqlalchemy, psutil" >nul 2>&1
-    if errorlevel 1 set "NEED_SETUP=1"
+    if errorlevel 1 (
+        set "NEED_SETUP=1"
+        set "RECREATE_VENV=1"
+    )
 )
 
 if "%NEED_SETUP%"=="1" (
-    echo [HAJIMI] First run: configuring 8011 L5 Sidecar environment ^(about 1-3 min^) ...
+    if "%RECREATE_VENV%"=="1" (
+        echo [HAJIMI] Broken L5 venv detected — full recreate ^(fastapi/_compat layout conflict^) ...
+    ) else (
+        echo [HAJIMI] First run: configuring 8011 L5 Sidecar environment ^(about 1-3 min^) ...
+    )
     echo [HAJIMI] L5 venv path: %L5_ROOT%\server\.venv
     pushd "%L5_ROOT%"
+    if "%RECREATE_VENV%"=="1" set HAJIMI_RECREATE_VENV=1
     call scripts\setup_server_env.bat
     set "SETUP_ERR=%ERRORLEVEL%"
     popd
