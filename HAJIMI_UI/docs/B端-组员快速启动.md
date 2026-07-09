@@ -260,6 +260,7 @@ scripts\dev\start_all.bat
 | 双击 bat 窗口闪退 | 请用根目录 **`启动本地.bat`** / **`联调启动.bat`**（失败会 pause）；或 `scripts\dev\check_deploy.bat` |
 | GPU 未连但想先看 UI | 直接 `启动本地.bat`（降级模式默认开启）；界面每 10s 重试 |
 | `Missing server deps`（L5 窗口） | 8011 用 **server_A\server\.venv**；一键会自动配 |
+| `cannot import name 'PYDANTIC_V2' from 'fastapi._compat'` / L5 venv verification failed | `cd server_A` → `scripts\repair_l5_venv.bat`；或 `set HAJIMI_RECREATE_VENV=1` 后重跑 `scripts\setup_server_env.bat` |
 | 一键脚本 `TIMEOUT: A-end not ready` | 看 `HAJIMI-A-end-GPU-API` 窗口 traceback；确认 `:9800` 隧道 OK；**重启 A-end** |
 | 一键脚本卡住后无 UI | 看是否打印 `TIMEOUT`；看 `HAJIMI-B-end` 是否 PyQt5 报错；手动试 `scripts\start_client.bat` |
 | pip 安装失败 | 关 Clash/V2Ray 或检查 IE 代理；重跑 `启动本地.bat` |

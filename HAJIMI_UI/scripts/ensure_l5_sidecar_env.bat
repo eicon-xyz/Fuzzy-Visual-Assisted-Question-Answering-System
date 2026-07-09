@@ -18,7 +18,7 @@ set "NEED_SETUP=0"
 if not exist "%L5_VENV%" (
     set "NEED_SETUP=1"
 ) else (
-    "%L5_VENV%" -c "import fastapi, uvicorn, sqlalchemy, psutil" >nul 2>&1
+    "%L5_VENV%" -c "from fastapi import FastAPI; import uvicorn, sqlalchemy, psutil" >nul 2>&1
     if errorlevel 1 set "NEED_SETUP=1"
 )
 
@@ -48,10 +48,11 @@ if not exist "%L5_VENV%" (
     exit /b 1
 )
 
-"%L5_VENV%" -c "import fastapi, uvicorn, sqlalchemy, psutil" >nul 2>&1
+"%L5_VENV%" -c "from fastapi import FastAPI; import uvicorn, sqlalchemy, psutil" >nul 2>&1
 if errorlevel 1 (
     echo [HAJIMI] ERROR: 8011 L5 deps verification failed at %L5_ROOT%\server\.venv
-    echo [HAJIMI] Run setup in server_A ^(not HAJIMI_UI\server\.venv^)
+    echo [HAJIMI] Run: cd %L5_ROOT% ^&^& scripts\repair_l5_venv.bat
+    echo [HAJIMI] Or:  set HAJIMI_RECREATE_VENV=1 ^&^& scripts\setup_server_env.bat
     endlocal
     exit /b 1
 )

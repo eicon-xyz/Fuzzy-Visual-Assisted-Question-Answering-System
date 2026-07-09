@@ -38,6 +38,12 @@ set https_proxy=
 set ALL_PROXY=
 set all_proxy=
 "%VENV_PY%" -m pip install --upgrade pip
+echo [HAJIMI-L5] Aligning FastAPI core stack (fastapi/starlette/pydantic)...
+"%VENV_PY%" -m pip install --force-reinstall "fastapi==0.115.0" "starlette==0.38.6" "pydantic==2.9.2" "pydantic-settings==2.6.1" "typing-extensions>=4.8.0"
+if errorlevel 1 (
+    echo [HAJIMI-L5] ERROR: FastAPI core stack install failed
+    exit /b 1
+)
 "%VENV_PY%" -m pip install -r server\requirements.txt
 set "_PIP_ERR=%ERRORLEVEL%"
 if /I "%_HAJIMI_PROXY_ENABLE%"=="0x1" (
@@ -53,9 +59,11 @@ echo [HAJIMI-L5] If browser tools fail, install/update Edge or Chrome, or run:
 echo [HAJIMI-L5]   "%VENV_PY%" -m playwright install chromium
 
 echo [HAJIMI-L5] Verifying installation...
-"%VENV_PY%" -c "import fastapi, uvicorn, pydantic, sqlalchemy, psutil; print('fastapi', fastapi.__version__, 'sqlalchemy', sqlalchemy.__version__, 'psutil', psutil.__version__)"
+"%VENV_PY%" -c "from fastapi import FastAPI; import fastapi, uvicorn, pydantic, sqlalchemy, psutil; print('ok fastapi', fastapi.__version__)"
 if errorlevel 1 (
     echo [HAJIMI-L5] ERROR: venv verification failed
+    echo [HAJIMI-L5] Try: set HAJIMI_RECREATE_VENV=1 ^&^& scripts\setup_server_env.bat
+    echo [HAJIMI-L5] Or:  scripts\repair_l5_venv.bat
     exit /b 1
 )
 
