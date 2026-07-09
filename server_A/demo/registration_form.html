@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>星辰科技 — 2026年度员工AI技能培训报名</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+  }
+  .container {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    width: 100%;
+    max-width: 560px;
+    overflow: hidden;
+  }
+  .header {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    color: #fff;
+    padding: 28px 32px;
+  }
+  .header h1 {
+    font-size: 22px;
+    margin-bottom: 6px;
+  }
+  .header .subtitle {
+    font-size: 13px;
+    opacity: 0.7;
+  }
+  .form-body {
+    padding: 28px 32px;
+  }
+  .form-group {
+    margin-bottom: 18px;
+  }
+  .form-group label {
+    display: block;
+    font-size: 14px;
+    color: #333;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .form-group label .required {
+    color: #e74c3c;
+    margin-left: 2px;
+  }
+  .form-group input[type="text"],
+  .form-group input[type="tel"],
+  .form-group input[type="email"],
+  .form-group select,
+  .form-group textarea {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1.5px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    outline: none;
+  }
+  .form-group input:focus,
+  .form-group select:focus,
+  .form-group textarea:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102,126,234,0.15);
+  }
+  .form-group textarea {
+    resize: vertical;
+    min-height: 80px;
+  }
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .radio-group {
+    display: flex;
+    gap: 20px;
+    padding-top: 4px;
+  }
+  .radio-group label {
+    font-weight: 400;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+  .radio-group input[type="radio"] {
+    accent-color: #667eea;
+    width: 16px;
+    height: 16px;
+  }
+  .btn-submit {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: transform 0.1s, box-shadow 0.2s;
+  }
+  .btn-submit:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(102,126,234,0.4);
+  }
+  .btn-submit:active {
+    transform: translateY(0);
+  }
+  .success-msg {
+    display: none;
+    padding: 32px;
+    text-align: center;
+  }
+  .success-msg .icon {
+    font-size: 56px;
+    margin-bottom: 16px;
+  }
+  .success-msg h2 {
+    color: #27ae60;
+    margin-bottom: 8px;
+  }
+  .success-msg p {
+    color: #666;
+    line-height: 1.8;
+  }
+  .success-msg .info-row {
+    display: inline-block;
+    text-align: left;
+    color: #333;
+    margin-top: 12px;
+  }
+  .success-msg .info-row span {
+    color: #667eea;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+<div class="container" id="form-container">
+  <div class="header">
+    <h1>2026年度员工AI技能培训报名</h1>
+    <div class="subtitle">星辰科技 · 人力资源部  |  报名截止: 2026年7月30日</div>
+  </div>
+  <div class="form-body">
+    <form id="reg-form">
+      <div class="form-group">
+        <label for="name">姓名 <span class="required">*</span></label>
+        <input type="text" id="name" name="name" placeholder="请输入真实姓名" required>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="phone">手机号 <span class="required">*</span></label>
+          <input type="tel" id="phone" name="phone" placeholder="请输入手机号" required>
+        </div>
+        <div class="form-group">
+          <label for="email">企业邮箱 <span class="required">*</span></label>
+          <input type="email" id="email" name="email" placeholder="name@startech.com" required>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="dept">所在部门 <span class="required">*</span></label>
+          <input type="text" id="dept" name="dept" placeholder="如：研发中心、市场运营部" required list="dept-list">
+          <datalist id="dept-list">
+            <option value="研发中心">
+            <option value="产品设计部">
+            <option value="市场运营部">
+            <option value="人力资源部">
+            <option value="财务管理部">
+            <option value="行政管理部">
+          </datalist>
+        </div>
+        <div class="form-group">
+          <label for="title">职务</label>
+          <input type="text" id="title" name="title" placeholder="如：产品经理">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>培训课程 <span class="required">*</span></label>
+        <div class="radio-group">
+          <label><input type="radio" id="course-ai" name="course" value="AI自动化实战" required> AI自动化实战</label>
+          <label><input type="radio" id="course-prompt" name="course" value="AI提示词工程"> AI提示词工程</label>
+          <label><input type="radio" id="course-data" name="course" value="数据智能分析"> 数据智能分析</label>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="note">备注（如有特殊需求请说明）</label>
+        <textarea id="note" name="note" placeholder="选填"></textarea>
+      </div>
+
+      <button type="submit" id="submit" class="btn-submit">提交报名</button>
+    </form>
+  </div>
+</div>
+
+<!-- Success page -->
+<div class="success-msg" id="success-msg" style="display:none;">
+  <div class="icon">✅</div>
+  <h2>报名提交成功！</h2>
+  <p>您的报名信息已收到，人力资源部将在3个工作日内<br>通过企业邮箱发送培训安排。</p>
+  <div class="info-row">
+    <div>姓名：<span id="confirm-name">—</span></div>
+    <div>手机：<span id="confirm-phone">—</span></div>
+    <div>邮箱：<span id="confirm-email">—</span></div>
+    <div>部门：<span id="confirm-dept">—</span></div>
+    <div>职务：<span id="confirm-title">—</span></div>
+    <div>课程：<span id="confirm-course">—</span></div>
+    <div>提交时间：<span id="confirm-time">—</span></div>
+  </div>
+</div>
+
+<script>
+document.getElementById('reg-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var fd = new FormData(e.target);
+
+  // Fill confirmation details
+  document.getElementById('confirm-name').textContent = fd.get('name');
+  document.getElementById('confirm-phone').textContent = fd.get('phone');
+  document.getElementById('confirm-email').textContent = fd.get('email');
+  document.getElementById('confirm-dept').textContent = fd.get('dept');
+  document.getElementById('confirm-title').textContent = fd.get('title') || '未填写';
+  document.getElementById('confirm-course').textContent = fd.get('course');
+  document.getElementById('confirm-time').textContent = new Date().toLocaleString('zh-CN');
+
+  // Hide form, show success
+  document.getElementById('form-container').querySelector('.form-body').style.display = 'none';
+  document.getElementById('form-container').querySelector('.header').style.display = 'none';
+  document.getElementById('success-msg').style.display = 'block';
+});
+</script>
+</body>
+</html>
