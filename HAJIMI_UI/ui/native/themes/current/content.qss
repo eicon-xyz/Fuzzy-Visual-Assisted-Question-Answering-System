@@ -328,26 +328,43 @@ QLabel#HintTextSmall {
     font-size: 10px;
 }
 
-QTreeWidget#L5TimelineTree {
+QScrollArea#L5StepScroll {
     background: transparent;
     border: none;
-    font-size: 12px;
-    color: #e2e8f0;
-    outline: none;
 }
 
-QTreeWidget#L5TimelineTree::item {
-    padding: 4px 2px;
+QWidget#L5StepList {
+    background: transparent;
+}
+
+QFrame#L5ShotStrip {
+    background: transparent;
     border: none;
 }
 
-QTreeWidget#L5TimelineTree::item:selected {
-    background: rgba(124, 143, 212, 0.15);
-    color: #e2e8f0;
+QScrollArea#L5ShotScroll {
+    background: transparent;
+    border: none;
 }
 
-QTreeWidget#L5TimelineTree::item:hover {
-    background: rgba(255, 255, 255, 0.04);
+QLabel#L5ShotThumb {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    padding: 2px;
+}
+
+QFrame#L5StepLog {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+}
+
+QPlainTextEdit#L5StepLogText {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 11px;
+    font-family: Consolas, "Courier New", monospace;
 }
 
 QPushButton#SendBtnAccent:disabled,

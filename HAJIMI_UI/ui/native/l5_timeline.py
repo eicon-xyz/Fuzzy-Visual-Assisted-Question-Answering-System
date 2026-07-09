@@ -1,34 +1,21 @@
 # -*- coding: utf-8 -*-
-"""L5 自动执行 — 规划步骤 + 可折叠执行时间线。"""
+"""L5 自动执行 — StepCard 步骤列表 + 每步截图/日志。"""
 from __future__ import annotations
 
-import base64
 import os
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QDialog,
-    QHBoxLayout,
     QLabel,
     QScrollArea,
-    QTreeWidget,
-    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-THUMB_W = 160
-THUMB_H = 90
-
-_STATUS_DOT = {
-    "pending": "○",
-    "active": "●",
-    "done": "✓",
-    "failed": "✗",
-    "blocked": "⊘",
-}
+from ui.native.l5_step_row import L5StepRow
 
 _LEVEL_DOT = {
     "info": "·",
@@ -62,42 +49,91 @@ class _ScreenshotPreviewDialog(QDialog):
         self.resize(min(960, pixmap.width() + 40), min(720, pixmap.height() + 40))
 
 
+def _step_instruction(step, index: int) -> str:
+    if isinstance(step, dict):
+        return (
+            step.get("instruction")
+            or step.get("description")
+            or step.get("desc")
+            or step.get("action")
+            or f"步骤 {index + 1}"
+        )
+    return str(step)
+
+
 class L5StepTimelineWidget(QWidget):
-    """双层结构：规划步骤（顶层）+ 每步执行时间线（子节点）。"""
+    """规划步骤列表（StepCard）+ 每步 SSE 截图/日志。"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._step_items: list[QTreeWidgetItem] = []
+        self._rows: list[L5StepRow] = []
         self._active_index = -1
         self._total_steps = 0
         self._planning = False
+        self._pending_sse: list[tuple[str, dict]] = []
+        self._plan_fingerprint: tuple[str, ...] = ()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(4)
 
-        hint = QLabel("执行时间线（当前步自动展开）")
+        hint = QLabel("执行步骤（当前步自动展开详情）")
         hint.setObjectName("HintTextSmall")
         layout.addWidget(hint)
 
-        self._tree = QTreeWidget()
-        self._tree.setObjectName("L5TimelineTree")
-        self._tree.setHeaderHidden(True)
-        self._tree.setIndentation(16)
-        self._tree.setRootIsDecorated(True)
-        self._tree.setAnimated(True)
-        layout.addWidget(self._tree, 1)
+        self._scroll = QScrollArea()
+        self._scroll.setObjectName("L5StepScroll")
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.setFrameShape(QScrollArea.NoFrame)
+
+        self._container = QWidget()
+        self._container.setObjectName("L5StepList")
+        self._list_layout = QVBoxLayout(self._container)
+        self._list_layout.setContentsMargins(0, 0, 0, 0)
+        self._list_layout.setSpacing(8)
+        self._list_layout.addStretch(1)
+
+        self._placeholder = QLabel("◌ 规划步骤生成中…")
+        self._placeholder.setObjectName("HintTextSmall")
+        self._list_layout.insertWidget(0, self._placeholder)
+
+        self._scroll.setWidget(self._container)
+        layout.addWidget(self._scroll, 1)
+
+    def _preview_pixmap(self, pixmap: QPixmap) -> None:
+        dlg = _ScreenshotPreviewDialog(pixmap, self.window())
+        dlg.exec_()
+
+    def _clear_rows(self) -> None:
+        for row in self._rows:
+            row.deleteLater()
+        self._rows.clear()
+
+    def _remove_placeholder(self) -> None:
+        if self._placeholder.parent():
+            self._list_layout.removeWidget(self._placeholder)
+            self._placeholder.hide()
+
+    def _show_placeholder(self, text: str) -> None:
+        self._clear_rows()
+        self._placeholder.setText(text)
+        if self._placeholder not in [
+            self._list_layout.itemAt(i).widget()
+            for i in range(self._list_layout.count())
+            if self._list_layout.itemAt(i) and self._list_layout.itemAt(i).widget()
+        ]:
+            self._list_layout.insertWidget(0, self._placeholder)
+        self._placeholder.show()
 
     def show_planning_placeholder(self) -> None:
         """规划等待期占位，避免空白步骤区。"""
         self._planning = True
-        self._tree.clear()
-        self._step_items.clear()
         self._active_index = -1
         self._total_steps = 0
-        item = QTreeWidgetItem(["◌ 规划步骤生成中…"])
-        self._tree.addTopLevelItem(item)
-        self._tree.expandAll()
+        self._plan_fingerprint = ()
+        self._pending_sse.clear()
+        self._show_placeholder("◌ 规划步骤生成中…")
 
     @property
     def is_planning(self) -> bool:
@@ -105,54 +141,62 @@ class L5StepTimelineWidget(QWidget):
 
     @property
     def is_tree_empty(self) -> bool:
-        return self._tree.topLevelItemCount() == 0
+        return len(self._rows) == 0 and not self._placeholder.isVisible()
+
+    @staticmethod
+    def plan_fingerprint(steps: list) -> tuple[str, ...]:
+        return tuple(_step_instruction(s, i) for i, s in enumerate(steps))
 
     def reset_plan(self, steps: list) -> None:
         self._planning = False
-        self._tree.clear()
-        self._step_items.clear()
+        fingerprint = self.plan_fingerprint(steps)
+        if fingerprint == self._plan_fingerprint and self._rows:
+            return
+
+        self._plan_fingerprint = fingerprint
+        self._clear_rows()
+        self._remove_placeholder()
         self._active_index = -1
         self._total_steps = len(steps)
+
         if not steps:
-            item = QTreeWidgetItem(["○ 暂无步骤（规划未返回）"])
-            self._tree.addTopLevelItem(item)
+            self._show_placeholder("○ 暂无步骤（规划未返回）")
+            self._plan_fingerprint = ()
             return
+
+        stretch_idx = self._list_layout.count() - 1
         for i, step in enumerate(steps):
-            if isinstance(step, dict):
-                text = (
-                    step.get("instruction")
-                    or step.get("description")
-                    or step.get("desc")
-                    or f"步骤 {i + 1}"
-                )
-            else:
-                text = str(step)
-            item = QTreeWidgetItem([f"○ {i + 1}. {text}"])
-            item.setData(0, Qt.UserRole, i)
-            self._tree.addTopLevelItem(item)
-            self._step_items.append(item)
-        self._tree.expandAll()
-        for item in self._step_items:
-            item.setExpanded(False)
+            text = _step_instruction(step, i)
+            row = L5StepRow(
+                i,
+                text,
+                preview_factory=self._preview_pixmap,
+                parent=self._container,
+            )
+            self._list_layout.insertWidget(stretch_idx + i, row)
+            self._rows.append(row)
+
+        self.flush_pending()
+
+    def flush_pending(self) -> None:
+        if not self._rows:
+            return
+        pending = list(self._pending_sse)
+        self._pending_sse.clear()
+        for event_type, data in pending:
+            self.handle_sse(event_type, data)
 
     def set_step_status(self, index: int, status: str) -> None:
-        if index < 0 or index >= len(self._step_items):
+        if index < 0 or index >= len(self._rows):
             return
-        item = self._step_items[index]
-        dot = _STATUS_DOT.get(status, "○")
-        label = item.text(0)
-        if ". " in label:
-            rest = label.split(". ", 1)[1]
-        else:
-            rest = label.lstrip("○●✓✗⊘ ").lstrip("0123456789. ")
-        item.setText(0, f"{dot} {index + 1}. {rest}")
+        self._rows[index].set_status(status)
 
     def sync_active_index(self, active_index: int) -> None:
-        """Update step status dots without clearing SSE child nodes."""
-        if not self._step_items:
+        """Update step status without clearing screenshots/logs."""
+        if not self._rows:
             return
-        for i in range(len(self._step_items)):
-            if active_index >= len(self._step_items):
+        for i in range(len(self._rows)):
+            if active_index >= len(self._rows):
                 self.set_step_status(i, "done")
             elif i < active_index:
                 self.set_step_status(i, "done")
@@ -163,12 +207,9 @@ class L5StepTimelineWidget(QWidget):
                 self.set_step_status(i, "pending")
 
     def step_instruction(self, index: int) -> str:
-        if index < 0 or index >= len(self._step_items):
+        if index < 0 or index >= len(self._rows):
             return ""
-        label = self._step_items[index].text(0)
-        if ". " in label:
-            return label.split(". ", 1)[1]
-        return label.lstrip("○●✓✗⊘ ").lstrip("0123456789. ")
+        return self._rows[index].instruction
 
     def show_initial_screenshot(self, step_index: int, b64: str) -> None:
         if b64:
@@ -187,14 +228,13 @@ class L5StepTimelineWidget(QWidget):
         if event_type == "screenshot_update":
             event_type = "screenshot_updated"
         step_index = int(data.get("step_index", 1)) - 1
+        if not self._rows and event_type not in ("heartbeat",):
+            self._pending_sse.append((event_type, data))
+            return
         if event_type == "step_start":
             self._set_active_step(step_index)
             self.set_step_status(step_index, "active")
-            self._append_line(
-                step_index,
-                f"● 开始执行",
-                kind="info",
-            )
+            self._append_line(step_index, "开始执行", kind="info")
         elif event_type == "log":
             level = str(data.get("level", "info"))
             msg = str(data.get("message", ""))
@@ -239,72 +279,48 @@ class L5StepTimelineWidget(QWidget):
 
     def _set_active_step(self, index: int) -> None:
         self._active_index = index
-        for i, item in enumerate(self._step_items):
-            item.setExpanded(i == index)
+        for i, row in enumerate(self._rows):
+            row.set_expanded(i == index)
 
-    def _step_item(self, index: int) -> Optional[QTreeWidgetItem]:
-        if index < 0 or index >= len(self._step_items):
-            if self._step_items and self._active_index >= 0:
-                return self._step_items[self._active_index]
-            return None
-        return self._step_items[index]
+    def _resolve_row(self, step_index: int) -> Optional[L5StepRow]:
+        if 0 <= step_index < len(self._rows):
+            return self._rows[step_index]
+        if self._rows and self._active_index >= 0:
+            return self._rows[self._active_index]
+        return None
 
     def _append_line(self, step_index: int, text: str, *, kind: str = "info") -> None:
-        parent = self._step_item(step_index)
-        if parent is None:
+        row = self._resolve_row(step_index)
+        if row is None:
+            if self._rows:
+                self._pending_sse.append(
+                    ("log", {"step_index": step_index + 1, "level": kind, "message": text})
+                )
             return
-        dot = _LEVEL_DOT.get(kind, "·")
-        child = QTreeWidgetItem([f"  {dot} {text}"])
-        parent.addChild(child)
-        parent.setExpanded(True)
-        self._tree.scrollToItem(child)
+        row.append_log(text, kind=kind)
+        if step_index == self._active_index:
+            row.set_expanded(True)
 
     def _append_screenshot(self, step_index: int, b64: str) -> None:
-        parent = self._step_item(step_index)
-        if parent is None:
-            return
-        try:
-            raw = b64.split(",", 1)[-1]
-            img_data = base64.b64decode(raw)
-            pix = QPixmap()
-            if not pix.loadFromData(img_data):
-                return
-            thumb = pix.scaled(
-                THUMB_W,
-                THUMB_H,
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation,
+        row = self._resolve_row(step_index)
+        if row is None:
+            self._pending_sse.append(
+                (
+                    "screenshot_updated",
+                    {"step_index": step_index + 1, "annotated_image": b64},
+                )
             )
-        except Exception:
             return
-
-        child = QTreeWidgetItem(["  📷 截屏"])
-        parent.addChild(child)
-        parent.setExpanded(True)
-
-        label = QLabel()
-        label.setPixmap(thumb)
-        label.setCursor(Qt.PointingHandCursor)
-        label.setToolTip("点击放大")
-        full_pix = pix
-
-        def _on_click(_ev, p=full_pix):
-            dlg = _ScreenshotPreviewDialog(p, self.window())
-            dlg.exec_()
-
-        label.mousePressEvent = _on_click  # type: ignore[method-assign]
-        self._tree.setItemWidget(child, 0, label)
-        self._tree.scrollToItem(child)
+        row.add_screenshot(b64)
 
     def mark_completed(self, outcome: str = "done") -> None:
         """任务结束：展开全部步骤供回看，补全未标记的步骤状态。"""
         self._planning = False
         if outcome == "done":
-            for i in range(len(self._step_items)):
-                label = self._step_items[i].text(0)
-                if label.startswith("○") or label.startswith("●"):
-                    self.set_step_status(i, "done")
-        self._tree.expandAll()
+            for row in self._rows:
+                row.mark_all_done_if_pending()
+        for row in self._rows:
+            row.set_expanded(True)
 
     @property
     def total_steps(self) -> int:

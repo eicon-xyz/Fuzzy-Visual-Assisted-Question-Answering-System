@@ -1477,13 +1477,12 @@ class MediumPanel(QWidget):
         ]
         if self._l5_execution_mode and not self.is_l5_completed:
             plan_steps = [{"instruction": d} for d in descriptions]
-            if (
-                self._l5_timeline.total_steps == 0
-                or len(descriptions) != self._l5_timeline.total_steps
-                or self._l5_timeline.is_planning
-            ):
+            if self._l5_timeline.is_planning:
+                if descriptions:
+                    self.reset_l5_timeline(plan_steps)
+            elif descriptions:
+                # reset_plan no-ops when instruction list unchanged (preserves SSE/logs)
                 self.reset_l5_timeline(plan_steps)
-            else:
                 self._l5_timeline.sync_active_index(active_index)
             total = len(descriptions)
             if total > 0:

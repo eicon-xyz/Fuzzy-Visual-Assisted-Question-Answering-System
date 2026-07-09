@@ -610,11 +610,11 @@ class AppController(QObject):
         panel = self._medium_panel()
         if panel:
             panel.notify_l5_audit_compat("")
-            panel.reset_l5_timeline(self.steps)
+        self.steps_updated.emit(self.steps, 0)
+        if panel:
             shot = response.get("screenshot_base64") or ""
             if shot:
                 panel.show_l5_initial_screenshot(0, shot)
-        self.steps_updated.emit(self.steps, 0)
         self.blueprint_updated.emit(self.steps, 0)
         self.status_updated.emit("executing", "L5 自动执行中")
         self._update_l5_compact_status()
