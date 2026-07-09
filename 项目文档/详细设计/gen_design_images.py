@@ -4,7 +4,7 @@ import os
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+from matplotlib.patches import FancyBboxPatch, FancyArrowPatch, Circle
 
 for name in ["Microsoft YaHei", "SimHei", "SimSun"]:
     try:
@@ -160,18 +160,52 @@ def fig_safety():
 
 # ---- 图: 蓝图状态机 ----
 def fig_state():
-    fig, ax = plt.subplots(figsize=(9.5, 3.6)); ax.set_xlim(0, 9.5); ax.set_ylim(0, 3.6); ax.axis("off")
-    ax.text(4.75, 3.4, "图  蓝图执行状态机", ha="center", color=INK, fontsize=12, fontweight="bold")
-    st = {"generated": (0.6, 1.7, BLUE), "executing": (3.0, 1.7, AMBER),
-          "completed": (6.2, 2.6, GREEN), "suspended": (6.2, 1.0, RED),
-          "terminated": (8.2, 1.0, GRAY)}
-    for k, (x, y, c) in st.items():
-        box(ax, x, y, 1.7, 0.7, k, c, fs=10)
-    arw(ax, 2.3, 2.05, 3.0, 2.05, LINE); ax.text(2.65, 2.2, "/execute", color=GRAY, fontsize=8, ha="center")
-    arw(ax, 4.7, 2.2, 6.2, 2.7, GREEN); ax.text(5.4, 2.65, "全部完成", color=GREEN, fontsize=8)
-    arw(ax, 4.7, 1.9, 6.2, 1.35, RED); ax.text(5.4, 1.75, "风险≥4/取消", color=RED, fontsize=8)
-    arw(ax, 6.2, 1.5, 4.7, 1.75, LINE); ax.text(5.4, 1.4, "确认继续", color=GRAY, fontsize=8)
-    arw(ax, 7.9, 1.35, 8.2, 1.35, GRAY)
+    fig, ax = plt.subplots(figsize=(11, 4.6)); ax.set_xlim(0, 11); ax.set_ylim(0, 4.6); ax.axis("off")
+    ax.text(5.5, 4.35, "图  蓝图执行状态机", ha="center", color=INK, fontsize=13, fontweight="bold")
+
+    bw, bh = 2.0, 0.8
+    # 主流程（上排）
+    y1 = 2.7
+    gen = (0.5, y1); exe = (4.0, y1); comp = (8.5, y1)
+    # 分支（下排）
+    y2 = 0.7
+    susp = (4.0, y2); term = (8.5, y2)
+    box(ax, *gen, bw, bh, "generated\n已生成", BLUE, fs=10.5)
+    box(ax, *exe, bw, bh, "executing\n执行中", AMBER, fs=10.5)
+    box(ax, *comp, bw, bh, "completed\n已完成", GREEN, fs=10.5)
+    box(ax, *susp, bw, bh, "suspended\n已挂起", RED, fs=10.5)
+    box(ax, *term, bw, bh, "terminated\n已终止", GRAY, fs=10.5)
+
+    def cx(b): return b[0] + bw / 2
+    def cy(b): return b[1] + bh / 2
+
+    # 起始点
+    ax.add_patch(Circle((0.2, cy(gen)), 0.08, color=INK))
+    arw(ax, 0.28, cy(gen), gen[0], cy(gen), INK, 1.6)
+    # generated -> executing
+    arw(ax, gen[0] + bw, cy(gen), exe[0], cy(gen), LINE, 1.8)
+    ax.text((gen[0] + bw + exe[0]) / 2, cy(gen) + 0.18, "SSE 开始", color=GRAY, fontsize=9, ha="center")
+    # executing -> completed
+    arw(ax, exe[0] + bw, cy(exe), comp[0], cy(comp), GREEN, 1.8)
+    ax.text((exe[0] + bw + comp[0]) / 2, cy(exe) + 0.18, "全部步骤完成", color=GREEN, fontsize=9, ha="center")
+    # executing -> suspended（下行，左侧箭头）
+    arw(ax, cx(exe) - 0.25, exe[1], cx(susp) - 0.25, susp[1] + bh, RED, 1.6)
+    ax.text(cx(exe) - 1.7, (exe[1] + susp[1] + bh) / 2, "风险≥4 / 用户取消", color=RED, fontsize=9, ha="center")
+    # suspended -> executing（上行，右侧箭头）
+    arw(ax, cx(susp) + 0.25, susp[1] + bh, cx(exe) + 0.25, exe[1], LINE, 1.6)
+    ax.text(cx(exe) + 1.3, (exe[1] + susp[1] + bh) / 2, "确认继续", color=GRAY, fontsize=9, ha="center")
+    # suspended -> terminated
+    arw(ax, susp[0] + bw, cy(susp), term[0], cy(term), GRAY, 1.6)
+    ax.text((susp[0] + bw + term[0]) / 2, cy(susp) + 0.18, "用户终止", color=GRAY, fontsize=9, ha="center")
+    # executing 自环：回退一步
+    ax.add_patch(FancyArrowPatch((cx(exe) - 0.4, exe[1] + bh), (cx(exe) + 0.4, exe[1] + bh),
+                 connectionstyle="arc3,rad=-1.4", arrowstyle="-|>", mutation_scale=13, color=PURPLE, lw=1.4))
+    ax.text(cx(exe), exe[1] + bh + 0.62, "回退/跳过一步", color=PURPLE, fontsize=9, ha="center")
+    # 终止点
+    for b, c in [(comp, GREEN), (term, GRAY)]:
+        ax.add_patch(Circle((b[0] + bw + 0.25, cy(b)), 0.13, fill=False, ec=c, lw=1.8))
+        ax.add_patch(Circle((b[0] + bw + 0.25, cy(b)), 0.06, color=c))
+        arw(ax, b[0] + bw, cy(b), b[0] + bw + 0.12, cy(b), c, 1.6)
     save(fig, "fig06_state.png")
 
 
@@ -223,35 +257,80 @@ def fig_service():
 
 # ---- 图: 数据库 ER ----
 def fig_er():
-    fig, ax = plt.subplots(figsize=(10, 6.2)); ax.set_xlim(0, 10); ax.set_ylim(0, 6.2); ax.axis("off")
-    ax.text(5, 6.0, "图  数据库 ER 结构（7 表）", ha="center", color=INK, fontsize=12, fontweight="bold")
+    fig, ax = plt.subplots(figsize=(12, 8)); ax.set_xlim(0, 12); ax.set_ylim(0, 8); ax.axis("off")
+    ax.text(6, 7.75, "图  数据库 ER 结构（7 表）", ha="center", color=INK, fontsize=13, fontweight="bold")
 
-    def tbl(x, y, name, cols, c):
-        h = 0.34 * (len(cols) + 1)
-        box(ax, x, y - h, 2.3, h, "", c, r=0.02)
-        ax.add_patch(FancyBboxPatch((x, y - 0.34), 2.3, 0.34,
-                     boxstyle="round,pad=0,rounding_size=0.02", fc=c, ec=c))
-        ax.text(x + 1.15, y - 0.17, name, ha="center", va="center", color="white",
-                fontsize=9, fontweight="bold")
+    RH = 0.32     # 行高
+    HH = 0.38     # 表头高
+    TW = 3.0      # 表宽
+    X1, X2, X3 = 0.5, 4.3, 8.1   # 三列 x
+
+    def table(x, y_top, name, cols, c):
+        """以左上角 (x, y_top) 绘制表，向下延伸。返回边界字典。"""
+        body_h = RH * len(cols)
+        # 表头
+        ax.add_patch(FancyBboxPatch((x, y_top - HH), TW, HH,
+                     boxstyle="round,pad=0.01,rounding_size=0.03", fc=c, ec=c, lw=0))
+        ax.text(x + TW / 2, y_top - HH / 2, name, ha="center", va="center",
+                color="white", fontsize=9.5, fontweight="bold")
+        # 表体
+        ax.add_patch(FancyBboxPatch((x, y_top - HH - body_h), TW, body_h,
+                     boxstyle="square,pad=0", fc="white", ec=c, lw=1.3))
         for i, col in enumerate(cols):
-            ax.text(x + 0.12, y - 0.5 - i * 0.34, col, ha="left", va="center",
-                    color=INK, fontsize=7.6)
-        return (x, y, x + 2.3, y - h)
+            ax.text(x + 0.16, y_top - HH - (i + 0.5) * RH, col, ha="left", va="center",
+                    color=INK, fontsize=8)
+        return {"l": x, "r": x + TW, "top": y_top, "bot": y_top - HH - body_h,
+                "cxx": x + TW / 2, "hmy": y_top - HH / 2}
 
-    u = tbl(0.3, 5.5, "t_users", ["user_id PK", "username UK", "role", "preferences"], BLUE)
-    t = tbl(3.7, 5.7, "t_transactions", ["task_id PK", "user_id FK", "intent_category",
-            "plan_type L2/L3", "result", "redline_triggered"], AMBER)
-    s = tbl(7.4, 5.7, "t_step_logs", ["log_id PK", "task_id FK", "action",
-            "target_bbox", "status", "fingerprint"], PURPLE)
-    fb = tbl(3.7, 2.3, "t_feedback", ["feedback_id PK", "task_id FK", "feedback_type"], GREEN)
-    fa = tbl(7.4, 2.5, "t_failures", ["failure_id PK", "task_id", "failure_type", "llm_snapshot"], RED)
-    cfg = tbl(0.3, 2.6, "t_system_configs", ["config_id PK", "config_key UK", "config_value"], CYAN)
-    rl = tbl(0.3, 1.1, "t_redline_logs", ["log_id PK", "category", "action"], GRAY)
-    # 关系连线
-    arw(ax, 2.6, 5.1, 3.7, 5.2, LINE, 1.2); ax.text(3.0, 5.35, "1..*", color=GRAY, fontsize=7)
-    arw(ax, 6.0, 5.3, 7.4, 5.3, LINE, 1.2); ax.text(6.6, 5.45, "1..*", color=GRAY, fontsize=7)
-    arw(ax, 4.8, 4.0, 4.8, 2.3, LINE, 1.2); ax.text(4.95, 3.1, "1..*", color=GRAY, fontsize=7)
-    arw(ax, 6.0, 4.3, 7.6, 3.0, LINE, 1.2); ax.text(6.9, 3.7, "1..*", color=GRAY, fontsize=7)
+    # 第一行：用户 / 事务 / 步骤
+    u = table(X1, 7.3, "t_users",
+              ["user_id PK", "username UK", "password_hash", "role", "preferences"], BLUE)
+    t = table(X2, 7.3, "t_transactions",
+              ["task_id PK", "user_id FK", "intent_category", "plan_type", "result", "redline_triggered"], AMBER)
+    s = table(X3, 7.3, "t_step_logs",
+              ["log_id PK", "task_id FK", "step_index", "action", "target_bbox", "status"], PURPLE)
+
+    # 第二行：配置 / 反馈 / 失败
+    cfg = table(X1, 4.5, "t_system_configs",
+                ["config_id PK", "config_key UK", "config_value", "description", "updated_by FK"], CYAN)
+    fb = table(X2, 4.5, "t_feedback",
+               ["feedback_id PK", "task_id FK", "user_id FK", "feedback_type", "comment"], GREEN)
+    fa = table(X3, 4.5, "t_failures",
+               ["failure_id PK", "task_id", "failure_type", "step_index", "llm_snapshot", "error_detail"], RED)
+
+    # 第三行：红线（独立表）
+    rl = table(X2, 2.35, "t_redline_logs",
+               ["log_id PK", "query", "category", "action", "message"], "#63666a")
+
+    # ----- 关系连线（短直线/垂直线，互不交叉） -----
+    def rel_h(a, b, label):  # 水平：a.right → b.left（表头中线）
+        ax.plot([a["r"], b["l"]], [a["hmy"], b["hmy"]], color=LINE, lw=1.5)
+        ax.text((a["r"] + b["l"]) / 2, a["hmy"] + 0.16, label, color=GRAY, fontsize=8, ha="center")
+
+    def rel_v(a, b, label, dx=0.0):  # 垂直：a.bot → b.top（同列）
+        x = a["cxx"] + dx
+        ax.plot([x, x], [a["bot"], b["top"]], color=LINE, lw=1.5)
+        ax.text(x + 0.1, (a["bot"] + b["top"]) / 2, label, color=GRAY, fontsize=8, va="center")
+
+    rel_h(u, t, "1 : *")        # 用户→事务
+    rel_h(t, s, "1 : *")        # 事务→步骤
+    rel_v(t, fb, "1 : *")       # 事务→反馈
+    rel_v(u, cfg, "updated_by") # 用户→配置
+    # 事务→失败（斜连，任务级关联）
+    ax.plot([t["r"] - 0.4, fa["cxx"]], [t["bot"], fa["top"]], color=LINE, lw=1.2, ls="--")
+    ax.text(fa["cxx"] + 0.15, (t["bot"] + fa["top"]) / 2, "任务级", color=GRAY, fontsize=7.5, va="center")
+
+    # 独立表标注
+    ax.text(rl["cxx"], rl["bot"] - 0.3, "独立表（无外键约束）", color=GRAY, fontsize=8, ha="center")
+
+    # 图例（四域分区）——置于右下空白区，竖排
+    ax.text(8.2, 2.05, "四域分区", color=INK, fontsize=9, fontweight="bold")
+    leg = [("业务域", AMBER), ("审计域", GREEN), ("管理域", CYAN), ("安全域", "#63666a")]
+    for i, (txt, col) in enumerate(leg):
+        yy = 1.65 - i * 0.34
+        ax.add_patch(FancyBboxPatch((8.2, yy - 0.11), 0.3, 0.22, boxstyle="square,pad=0", fc=col, ec=col))
+        ax.text(8.62, yy, txt, color=INK, fontsize=8, va="center")
+
     save(fig, "fig09_er.png")
 
 

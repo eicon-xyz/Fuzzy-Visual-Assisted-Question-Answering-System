@@ -256,9 +256,9 @@ def build_01():
             "操作进行必要的前端约束。")
     para(d, "在应用层，系统封装了真正“动手”的执行引擎（基于 pyautogui 完成点击、输入等系统级操作）、"
             "维护任务推进的步骤状态机，以及负责脱敏与批量上报的审计代理、负责下发变更的配置轮询等模块。")
-    para(d, "在服务层，A 端以 FastAPI 对外提供 30 余个接口，涵盖任务执行、实时进度推送、审计、"
-            "配置热部署、用户管理与 JWT 鉴权等；内部完成 LLM 操作规划、风险评分与红线检测等核心"
-            "业务逻辑，是连接前端与 AI 能力的中枢。")
+    para(d, "在服务层，A 端以 FastAPI 对外提供 31 个 HTTP 接口，涵盖任务执行、实时进度推送、审计、"
+            "配置热部署、用户管理与 JWT 鉴权等；此外还通过 9 个进程内信号与同进程的语音模块协作。"
+            "服务层内部完成 LLM 操作规划、风险评分与红线检测等核心业务逻辑，是连接前端与 AI 能力的中枢。")
     para(d, "在数据层，系统以 SQLite 持久化用户、任务、步骤、反馈、失败、配置与红线七类数据；"
             "屏幕解析能力由部署在远程 GPU 上的 OmniParser 提供，操作规划能力由云端多模态 LLM 提供。")
 
@@ -577,6 +577,140 @@ def build_03():
         ["用户与认证", "UserAuthService"],
     ])
 
+    # ── 六、系统对外接口设计（依据《HAJIMI API 接口文档 v2.2》） ──
+    h3(d, "六、系统对外接口设计")
+    para(d, "系统对外接口由三部分组成：A-B 接口（B 端桌面客户端与 A 端服务端之间的 HTTP REST，"
+            "共 12 个）、A-C 接口（C 端与 A 端之间的 HTTP REST，含审计、配置、认证与管理，共 19 个），"
+            "以及 B-C 进程内信号（B 端与 C 端在同一 PyQt5 进程内通过 Qt 信号/槽通信，共 9 个）。"
+            "全部 HTTP 接口以 http://127.0.0.1:8010 为基地址，鉴权约定如下表。")
+    table(d, [
+        ["接口前缀", "鉴权方式", "说明"],
+        ["/api/demo/*", "X-Demo-Key", "B 端自动操作相关接口"],
+        ["/api/audit/*、/api/config/*", "X-Demo-Key", "C 端审计与配置接口"],
+        ["/api/admin/*", "X-Admin-Key", "Web 管理面板接口"],
+        ["/api/auth/login", "公开", "登录接口本身，签发令牌"],
+        ["/api/demo/health", "公开", "健康检查，供探活"],
+    ])
+
+    h4(d, "1、A-B 接口（B 端 ↔ A 端）")
+    para(d, "B 端 PyQt5 通过 core/api_client.py 调用，用于提交任务、拉取进度与推进蓝图。")
+    table(d, [
+        ["方法", "路径", "鉴权", "说明"],
+        ["GET", "/api/demo/health", "公开", "健康检查 + OmniParser 探测"],
+        ["GET", "/api/demo/health/live", "公开", "轻量存活检查，不探测 OmniParser"],
+        ["POST", "/api/demo/execute", "Demo", "提交截图与指令，规划操作步骤（V2.2 核心）"],
+        ["GET", "/api/demo/stream/{task_id}", "公开", "SSE 实时进度推送（step/error/complete）"],
+        ["POST", "/api/demo/cancel", "Demo", "取消 / 暂停任务"],
+        ["POST", "/api/demo/process", "Demo", "兼容 V1：仅规划不执行（指引模式）"],
+        ["POST", "/api/demo/step", "Demo", "蓝图步骤推进 / 回退 / 跳过 / 终止"],
+        ["POST", "/api/demo/inspect", "Demo", "仅检测 UI 元素，返回全量元素与 SoM 图"],
+        ["POST", "/api/demo/relocate", "Demo", "手动完成一步后重新截图标注"],
+        ["POST", "/api/demo/locate", "Demo", "针对当前步骤在新截图中重新定位"],
+        ["POST", "/api/demo/clarify", "Demo", "置信度不足时的主动澄清应答"],
+        ["POST", "/api/demo/report", "Demo", "任务结果与反馈上报"],
+    ])
+
+    h4(d, "2、A-C 接口（C 端 ↔ A 端）")
+    para(d, "C 端通过 httpx 调用，覆盖审计上报、配置拉取与登录认证三类；其中审计与配置使用 "
+            "X-Demo-Key，登录接口公开。")
+    table(d, [
+        ["方法", "路径", "鉴权", "说明"],
+        ["POST", "/api/audit/report", "Demo", "批量审计上报（1–100 条），写入 t_transactions"],
+        ["POST", "/api/audit/feedback", "Demo", "单独用户反馈，写入 t_feedback"],
+        ["GET", "/api/config/pull", "Demo", "配置拉取，支持 ETag，304 表示无更新"],
+        ["POST", "/api/auth/login", "公开", "管理面板登录，签发 JWT（access + refresh）"],
+    ])
+    para(d, "管理类接口统一以 /api/admin 为前缀、使用 X-Admin-Key 鉴权，供 Web 管理面板调用，"
+            "覆盖统计、失败归因、配置、性能、数据流与监控等场景。")
+    table(d, [
+        ["方法", "路径", "说明"],
+        ["GET", "/api/admin/stats/overview", "仪表盘 KPI 总览"],
+        ["GET", "/api/admin/stats/top-tasks", "高频任务 TOP 10"],
+        ["GET", "/api/admin/stats/trend", "24 小时趋势（量 / 时延）"],
+        ["GET", "/api/admin/stats/redline", "红线拦截统计"],
+        ["GET", "/api/admin/stats/feedback", "反馈分布 + L2/L3 占比"],
+        ["GET", "/api/admin/failures/list", "失败详情列表（游标分页）"],
+        ["GET", "/api/admin/failures/detail/{task_id}", "单条失败详情（含 LLM 快照）"],
+        ["GET", "/api/admin/config/current", "获取全部系统配置"],
+        ["POST", "/api/admin/config/deploy", "热部署配置，写入 t_system_configs"],
+        ["GET", "/api/admin/metrics", "性能指标（P95 / P50 / 平均）"],
+        ["GET", "/api/admin/session/status", "编排器会话状态"],
+        ["GET", "/api/admin/flow/topology", "数据流拓扑"],
+        ["GET", "/api/admin/flow/metrics", "接口 QPS + 成功率"],
+        ["GET", "/api/admin/flow/versions", "客户端版本分布"],
+        ["GET", "/api/admin/monitor/health", "组件健康 + 资源指标"],
+        ["GET", "/api/admin/monitor/alerts", "告警列表"],
+        ["POST", "/api/admin/monitor/alerts/read-all", "全部告警标记已读"],
+    ])
+
+    h4(d, "3、B-C 进程内信号")
+    para(d, "B 端与 C 端运行于同一 PyQt5 进程，通过 Qt 信号/槽实现语音识别、语音合成、审计与配置"
+            "的低耦合协作，C 端由 bc_adapter.py 提供三行式接入。")
+    table(d, [
+        ["信号", "方向", "说明"],
+        ["asr_start / asr_stop", "B → C", "麦克风按下开始录音、松开停止并转写"],
+        ["asr_result", "C → B", "转写结果（文本、置信度、引擎、错误）"],
+        ["tts_enqueue", "B → C", "语音播报触发（文本、优先级、是否打断）"],
+        ["tts_status", "C → B", "播报状态回传（playing / completed / error）"],
+        ["voice_settings", "B ↔ C", "语音设置同步（语速、引擎、语言等）"],
+        ["audit_submit", "B → C", "任务结束提交审计记录，脱敏后入本地队列"],
+        ["audit_status", "C → B", "审计上报状态（成功 / 失败 / 排队）"],
+        ["config_updated", "C → B", "配置变更通知，触发 B 端热加载"],
+        ["health_check", "B → C", "健康检测，返回各子模块可用状态"],
+    ])
+
+    h4(d, "4、核心接口报文示例")
+    para(d, "以自动操作核心接口 POST /api/demo/execute 为例，其请求字段与响应结构如下。请求需携带"
+            "自然语言指令与屏幕截图；响应返回任务标识与包含动作、坐标、风险评分的步骤列表。")
+    table(d, [
+        ["字段", "类型", "必填", "说明"],
+        ["query", "string", "是", "用户自然语言指令，1–500 字符"],
+        ["image", "string", "是", "Base64 截图（data URI 前缀可选）"],
+    ])
+    para(d, "成功响应（HTTP 200）示例：")
+    table(d, [[
+        '{\n'
+        '  "task_id": "a1b2c3d4-...",\n'
+        '  "success": true,\n'
+        '  "plan": {\n'
+        '    "goal": "安装微信到D盘",\n'
+        '    "total_steps": 5,\n'
+        '    "steps": [{\n'
+        '      "step_index": 1, "action": "click",\n'
+        '      "description": "双击桌面浏览器图标",\n'
+        '      "target_element_id": "~3", "element_type": "icon",\n'
+        '      "bbox": [120,340,180,410], "bbox_center": [150,375],\n'
+        '      "risk_score": 1, "status": "pending"\n'
+        '    }]\n'
+        '  }\n'
+        '}'
+    ]], header=False)
+
+    h4(d, "5、统一错误码")
+    para(d, "所有接口的错误响应统一为 {\"error\": {\"code\", \"message\", \"details\"}} 结构，常见错误码如下。")
+    table(d, [
+        ["HTTP", "错误码", "说明"],
+        ["400", "MISSING_IMAGE", "截图缺失"],
+        ["401", "AUTH_FAILED", "鉴权 Key 无效"],
+        ["404", "NOT_FOUND", "task_id 不存在"],
+        ["422", "NO_ELEMENTS", "未检出 UI 元素"],
+        ["502", "DETECTOR_FAILED", "OmniParser 不可用"],
+    ])
+
+    h4(d, "6、自动操作动作类型")
+    para(d, "execute 响应中每个步骤的 action 字段取以下六种之一，B 端执行引擎据此调用相应的"
+            "自动化能力；每个动作在执行前均经过风险评分（1–5）、红线拦截与信任级别三重审核，"
+            "高风险操作（评分 ≥ 4）需用户确认。")
+    table(d, [
+        ["动作", "说明", "执行方式", "关键参数"],
+        ["click", "单击", "pyautogui.click", "bbox_center"],
+        ["double_click", "双击", "pyautogui.doubleClick", "bbox_center"],
+        ["type", "输入文本", "pyautogui.write", "params（内容）"],
+        ["hotkey", "组合键", "pyautogui.hotkey", "params（如 ctrl+c）"],
+        ["drag", "拖拽", "pyautogui.drag", "from → to bbox"],
+        ["scroll", "滚轮", "pyautogui.scroll", "params（方向 / 距离）"],
+    ])
+
     out = os.path.join(BASE, "03-详细设计-单元模块设计.docx")
     d.save(out)
     print("saved", os.path.basename(out))
@@ -725,16 +859,23 @@ def build_04():
         ["硬盘", "SSD 512GB 及以上"],
     ])
     h5(d, "1.2. 算法推理平台环境")
-    para(d, "算法推理平台环境是指承载 OmniParser 视觉解析模型的机器配置。该模型对显存与并行计算"
-            "能力有较高要求，通常部署于独立的 GPU 服务器，通过 SSH 隧道对外提供服务。具体配置如下表：")
+    para(d, "算法推理平台环境是指承载 OmniParser 视觉解析模型的 GPU 服务器配置。该模型融合 YOLO "
+            "图标检测、Florence-2 语义描述与 PaddleOCR 文本识别，对显存与并行算力要求较高，因此部署"
+            "于独立的 GPU 服务器，以 FastAPI + Uvicorn 提供 HTTP 服务并监听 9800 端口，本地开发端通过"
+            "SSH 隧道映射访问。本项目实际使用的推理平台配置如下表：")
     table(d, [
         ["配置名称", "配置信息"],
-        ["操作系统", "Ubuntu 20.04 / Windows Server"],
-        ["GPU", "NVIDIA RTX 3090 / 等效及以上"],
-        ["显存", "24GB 及以上"],
-        ["内存", "32GB RAM"],
-        ["依赖", "PyTorch + CUDA、OmniParser V2 权重"],
+        ["GPU", "NVIDIA A800-SXM4-80GB"],
+        ["显存", "80GB（约 79.3GB 可用）"],
+        ["显卡驱动 / CUDA", "Driver 535.309.01 / CUDA 12.2（运行时 cu118）"],
+        ["操作系统", "Ubuntu Linux（容器化部署）"],
+        ["Python", "3.10.12"],
+        ["深度学习框架", "PyTorch 2.7.1+cu118、torchvision 0.22.1"],
+        ["视觉模型", "icon_detect（YOLO）+ Florence-2-large + PaddleOCR"],
+        ["服务框架", "FastAPI + Uvicorn 0.49，监听 :9800"],
     ])
+    para(d, "该平台冷启动时模型加载约 10 秒，之后常驻显存提供推理；健康检查接口 /health 返回 device、"
+            "cuda_available、gpu_name、vram_gb、model_load_time_s 与 ocr_engine 等运行指标，便于监控。")
     h5(d, "1.3. 服务器部署环境")
     para(d, "服务器部署环境指 A 端服务端与 Web 管理面板正式上线所依赖的环境。A 端为轻量 FastAPI"
             "服务，可与桌面端同机部署或部署于云主机；LLM 推理经由云端 API 完成，无需本地大算力。"
@@ -762,7 +903,7 @@ def build_04():
     para(d, "运行环境是指软件实际运行时所需的软件与服务。主要包括：")
     bullet(d, "数据库：SQLite 3（文件型，随 A 端首次启动自动建表）")
     bullet(d, "服务端：Python 3.11 + FastAPI + Uvicorn，监听 8010 端口")
-    bullet(d, "视觉服务：OmniParser V2，监听 9800 端口，经 SSH 隧道访问")
+    bullet(d, "视觉服务：OmniParser V2（A800 GPU，PaddleOCR），FastAPI + Uvicorn 监听 9800，经 SSH 隧道访问")
     bullet(d, "Web 面板：Node.js 16 + Vite，开发态监听 5173 端口")
     bullet(d, "大模型：多模态 LLM 云端 API（Qwen / DeepSeek 等，OpenAI 兼容协议）")
 

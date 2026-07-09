@@ -1,0 +1,215 @@
+ 
+ HAJIMI v2.2 API 文档 (A-B / A-C / B-C) 
+ HAJIMI 自动操作助手 — 完整 API 文档 v2.2 
+ Base URL: http://127.0.0.1:8010 · 共 31 个 HTTP 接口 + 9 个 B-C 进程内信号 · 2026-07-06 
+ 图例:
+ GET 查询
+ POST 提交
+ PUT 更新
+ DELETE 删除
+ SIGNAL B-C 进程内信号
+ 第一部分：A-B 接口 (HTTP REST — B 端客户端 ↔ A 端服务端) 
+ B 端 PyQt5 通过 core/api_client.py 调用。Base: http://127.0.0.1:8010 · Auth: X-Demo-Key: hajimi-demo-2026 
+ GET 
+ /api/demo/health 
+ 健康检查 + OmniParser 探测 
+ 公开 
+ B 端启动时轮询探测（延迟 12s，间隔 4s，最多 6 次）。C 端心跳检测。 
+ RESPONSE 200 
+ {
+ "status" : "ok" ,
+ "version" : "2.0.0" ,
+ "detector_backend" : "local_omniparser" ,
+ "detector_active" : "local_omniparser" ,
+ "detector_device" : "cuda" ,
+ "omniparser_url" : "http://127.0.0.1:9800" ,
+ "omniparser_ready" : true 
+} 
+ RESPONSE 503 (OmniParser 不可达) 
+ {
+ "status" : "degraded" ,
+ "omniparser_ready" : false ,
+ "message" : "OmniParser 远程服务不可达" 
+} 
+ GET 
+ /api/demo/health/live 
+ 轻量存活检查 
+ 公开 
+ 仅返回 HTTP 200，不探测 OmniParser。B 端高频使用。 
+ POST 
+ /api/demo/execute 
+ 提交自动操作任务（V2.2 核心） 
+ X-Demo-Key 
+ 提交截图 + 自然语言指令，LLM 规划后返回操作步骤（含 click/type/dblclick 等 6 种动作及屏幕坐标）。 
+ REQUEST 
+ 字段 类型 必填 说明 
+ query string ✅ 用户自然语言指令，1–500 字符 
+ image string ✅ Base64 截图（data URI 前缀可选） 
+ curl -X POST :8010/api/demo/execute \
+ -H "X-Demo-Key: hajimi-demo-2026" \
+ -H "Content-Type: application/json" \
+ -d '{"query":"把微信安装到D盘","image":"data:image/png;base64,..."}' 
+ RESPONSE 200 
+ {
+ "task_id" : "a1b2c3d4-..." ,
+ "success" : true ,
+ "plan" : {
+ "goal" : "安装微信到D盘" ,
+ "total_steps" : 5 ,
+ "steps" : [{
+ "step_index" : 1 ,
+ "action" : "click" ,
+ "description" : "双击桌面浏览器图标" ,
+ "target_element_id" : "~3" ,
+ "element_type" : "icon" ,
+ "bbox" : [ 120 , 340 , 180 , 410 ],
+ "bbox_center" : [ 150 , 375 ],
+ "risk_score" : 1 ,
+ "status" : "pending" 
+ }]
+ }
+} 
+ GET 
+ /api/demo/stream/{task_id} 
+ SSE 实时进度推送 
+ 公开 
+ Server-Sent Events。事件类型: step, error, complete。B 端通过 EventSource 连接。 
+ POST 
+ /api/demo/cancel 
+ 取消/暂停任务 
+ X-Demo-Key 
+ Body: { "task_id": "..." } 
+ POST 
+ /api/demo/process 
+ [兼容 V1] 仅规划不执行（指引模式） 
+ X-Demo-Key 
+ 兼容 V1.x 指引模式：返回步骤 + 标注坐标，由 B 端覆盖层渲染（不自动点击）。 
+ POST 
+ /api/demo/step 
+ 蓝图步骤推进/回退/跳过 
+ X-Demo-Key 
+ Body: { task_id, action: advance|rollback|skip|terminate, step_index, fingerprint } 
+ POST 
+ /api/demo/inspect 
+ 仅检测 UI 元素（不生成任务） 
+ X-Demo-Key 
+ B 端 Settings "立即检测当前屏幕"。返回全量 ui_elements + SoM 图。超时 360s。 
+ POST 
+ /api/demo/relocate 
+ 重定位（手动完成一步后重新截图标注） 
+ X-Demo-Key 
+ 当前画面找不到目标元素时，用户手动完成操作后 B 端调用。 
+ POST 
+ /api/demo/locate 
+ 单步定位 
+ X-Demo-Key 
+ 针对当前步骤在新截图中重新定位目标元素。 
+ POST 
+ /api/demo/clarify 
+ 主动澄清应答 
+ X-Demo-Key 
+ 置信度 < 80% 时触发，用户回答后更新意图。 
+ POST 
+ /api/demo/report 
+ 任务结果与反馈上报 
+ X-Demo-Key 
+ 单个任务结束后上报。Demo 阶段由 C 端代报。 
+ 第二部分：A-C 接口 (HTTP REST — C 端客户端 ↔ A 端服务端) 
+ C 端通过 httpx 调用。Base: http://127.0.0.1:8010 · Auth: X-Demo-Key (审计/配置) / X-Admin-Key (管理) 
+ POST 
+ /api/audit/report 
+ 批量审计上报 
+ X-Demo-Key 
+ C 端审计代理批量上报脱敏日志，写入 t_transactions。 
+ 字段 类型 必填 说明 
+ client_id string ✅ 客户端唯一标识 
+ batch array ✅ 1–100 条审计记录 
+ batch[].task_id uuid ✅ 任务 ID 
+ batch[].query string ✅ 脱敏后用户提问 
+ batch[].intent_category string ✅ 九大意图域 
+ batch[].route string ✅ L2 / L3 
+ batch[].result string ✅ success / fail / cancel / redirect / rejected 
+ batch[].duration_ms int ✅ 耗时(毫秒) 
+ { "received" : 10 , "server_queue_depth" : 45 } 
+ POST 
+ /api/audit/feedback 
+ 单独用户反馈 
+ X-Demo-Key 
+ 与批量审计解耦。Body: { task_id, feedback_type: useful|useless|neutral, comment }。写入 t_feedback。 
+ { "received" : true } 
+ GET 
+ /api/config/pull 
+ 配置拉取 (ETag) 
+ X-Demo-Key 
+ C 端配置轮询器定时拉取。Headers: X-Client-Version, If-None-Match。304 = 无更新。 
+ POST 
+ /api/auth/login 
+ Web 管理面板登录 
+ 公开 
+ JWT 签发 (2h access)。Body: { username, password }。 
+ { "access_token" : "eyJ..." , "token_type" : "bearer" , "expires_in" : 7200 } 
+ GET /api/admin/stats/overview 仪表盘 KPI 总览 X-Admin-Key 事务量/在线数/成功率/失败率/API 费用。 
+ GET /api/admin/stats/top-tasks 高频任务 TOP 10 X-Admin-Key 参数: limit (默认 10)。 
+ GET /api/admin/stats/trend 24h 趋势 X-Admin-Key 参数: metric (volume|latency), range (1h|24h|7d)。 
+ GET /api/admin/stats/redline 红线拦截统计 X-Admin-Key 
+ GET /api/admin/stats/feedback 反馈分布 + L2/L3 占比 X-Admin-Key 
+ GET /api/admin/failures/list 失败详情列表 X-Admin-Key 游标分页。参数: cursor, limit, type。 
+ GET /api/admin/failures/detail/{task_id} 单条失败详情 X-Admin-Key 含 LLM 输入/输出快照。 
+ GET /api/admin/config/current 获取全部系统配置 X-Admin-Key 
+ POST /api/admin/config/deploy 热部署配置 X-Admin-Key Body: 任意 JSON 键值对。写入 t_system_configs。 
+ { "deployed" : true , "version" : "v2.2.1" , "affected_clients" : 42 } 
+ GET /api/admin/metrics 性能指标 (P95/P50/平均) X-Admin-Key 
+ GET /api/admin/session/status 会话状态 X-Admin-Key 
+ GET /api/admin/flow/topology 数据流拓扑 X-Admin-Key 
+ GET /api/admin/flow/metrics 接口 QPS + 成功率 X-Admin-Key 
+ GET /api/admin/flow/versions 客户端版本分布 X-Admin-Key 
+ GET /api/admin/monitor/health 组件健康 + 资源指标 X-Admin-Key 
+ GET /api/admin/monitor/alerts 告警列表 X-Admin-Key 参数: limit (默认 20), status (all|unread|read)。 
+ POST /api/admin/monitor/alerts/read-all 全部告警标记已读 X-Admin-Key 
+ 第三部分：B-C 进程内信号 (Qt Signals — 同一 PyQt5 进程) 
+ B 端与 C 端通过 PyQt5 信号/槽通信。C 端 bc_adapter.py 提供接入。 
+ → asr_start / asr_stop ASR 录音控制 (B→C) 
+ mic_button.pressed → C 开始录音；released → 停止录音并转写。 
+ ← asr_result ASR 转写结果 (C→B) 
+ 参数: (transcript: string, confidence: float, engine: string, error: string|null)。 
+ → tts_enqueue TTS 播报触发 (B→C) 
+ 参数: (text: string, priority: int=0, interrupt_current: bool=false)。步骤切换时触发。 
+ ← tts_status TTS 状态回传 (C→B) 
+ 参数: (status: playing|completed|error, text: string, queue_depth: int)。 
+ ⇄ voice_settings 语音设置同步 (B↔C 共享状态) 
+ dict: { tts_enabled, tts_speed(0.5~1.5), tts_engine, asr_enabled, asr_engine, asr_language }。 
+ → audit_submit 审计数据提交 (B→C) 
+ 任务结束 emit AuditRecord → C 审计代理脱敏后入本地 SQLite 队列。 
+ ← audit_status 审计上报状态 (C→B) 
+ 参数: (status: success|failed|queued, batch_size: int, queue_depth: int, error: string|null)。 
+ ← config_updated 配置变更通知 (C→B) 
+ 参数: (config_dict)。C 端 poller 检测到变更后通知 B 热加载。 
+ → health_check 健康检测 (B→C 方法调用) 
+ 返回 HealthStatus: { asr_available, tts_available, audit_db_ok, server_reachable, queue_depth, overall }。 
+ 附录 
+ AUTH 认证方式 
+ 接口前缀 Header Key 值 
+ /api/demo/* X-Demo-Key hajimi-demo-2026 
+ /api/audit/* X-Demo-Key hajimi-demo-2026 
+ /api/config/* X-Demo-Key hajimi-demo-2026 
+ /api/admin/* X-Admin-Key hajimi-demo-2026 
+ /api/auth/* — 登录接口本身 
+ /api/demo/health — 公开 
+ ERROR 统一错误码 
+ { "error" : { "code" : "AUTH_FAILED" , "message" : "..." , "details" : {} } } 
+ HTTP code 说明 
+ 400 MISSING_IMAGE 截图缺失 
+ 401 AUTH_FAILED Key 无效 
+ 404 NOT_FOUND task_id 不存在 
+ 422 NO_ELEMENTS 未检出 UI 元素 
+ 502 DETECTOR_FAILED OmniParser 不可用 
+ V2.2 自动操作动作类型 (execute 响应 action 字段) 
+ action 说明 执行 关键参数 
+ click 单击 pyautogui.click bbox_center 
+ double_click 双击 pyautogui.doubleClick bbox_center 
+ type 输入文本 pyautogui.write params (内容) 
+ hotkey 组合键 pyautogui.hotkey params ("ctrl+c") 
+ drag 拖拽 pyautogui.drag from→to bbox 
+ scroll 滚轮 pyautogui.scroll params 
+ 执行前经风险评分(1-5)+红线拦截+信任级别三重审核。高风险操作(≥4)需用户确认。 
+ HAJIMI 自动操作助手 API v2.2 · 31 HTTP + 9 B-C Signals · Base: http://127.0.0.1:8010 

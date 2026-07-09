@@ -1,0 +1,787 @@
+# OmniParser GPU 环境交接文档
+
+## 1. 硬件与系统环境
+```bash
+Mon Jun 29 10:48:29 2026       
++---------------------------------------------------------------------------------------+
+| NVIDIA-SMI 535.309.01             Driver Version: 535.309.01   CUDA Version: 12.2     |
+|-----------------------------------------+----------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |         Memory-Usage | GPU-Util  Compute M. |
+|                                         |                      |               MIG M. |
+|=========================================+======================+======================|
+|   0  NVIDIA A800-SXM4-80GB          Off | 00000000:65:00.0 Off |                    0 |
+| N/A   33C    P0              42W / 400W |      9MiB / 81920MiB |      0%      Default |
+|                                         |                      |             Disabled |
++-----------------------------------------+----------------------+----------------------+
+                                                                                         
++---------------------------------------------------------------------------------------+
+| Processes:                                                                            |
+|  GPU   GI   CI        PID   Type   Process name                            GPU Memory |
+|        ID   ID                                                             Usage      |
+|=======================================================================================|
++---------------------------------------------------------------------------------------+
+```
+
+## 2. Python 与 PyTorch 版本
+
+- **Python**: 3.10.12
+- **PyTorch**: 2.7.1+cu118
+- **CUDA available**: True
+- **CUDA version**: 11.8
+- **GPU Name**: NVIDIA A800-SXM4-80GB
+
+## 3. 虚拟环境依赖 (requirements.txt)
+```text
+accelerate==1.14.0
+aiofiles==23.2.1
+aiohappyeyeballs==2.6.2
+aiohttp==3.14.1
+aiosignal==1.4.0
+aistudio-sdk==0.3.8
+altair==6.2.2
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anthropic==0.112.0
+anyio==3.7.1
+astor==0.8.1
+async-timeout==5.0.1
+attrs==26.1.0
+azure-core==1.41.0
+azure-identity==1.25.3
+bce-python-sdk==0.9.72
+beautifulsoup4==4.15.0
+blinker==1.9.0
+boto3==1.43.36
+botocore==1.43.36
+brotli==1.2.0
+cachetools==7.1.4
+certifi==2026.6.17
+cffi==2.0.0
+cfgv==3.5.0
+chardet==7.4.3
+charset-normalizer==3.4.7
+click==8.4.2
+colorlog==6.10.1
+comtypes==1.4.16
+contourpy==1.3.2
+crc32c==2.8
+cryptography==49.0.0
+cuda-bindings==13.3.1
+cuda-pathfinder==1.5.5
+cuda-toolkit==13.0.2
+cycler==0.12.1
+Cython==3.2.6
+dashscope==1.26.0
+decorator==5.2.1
+defusedxml==0.7.1
+dill==0.4.1
+distlib==0.4.3
+distro==1.9.0
+docstring_parser==0.18.0
+easyocr==1.7.2
+einops==0.8.0
+exceptiongroup==1.3.1
+fastapi==0.138.1
+ffmpy==1.0.0
+filelock==3.29.4
+fire==0.7.1
+fonttools==4.63.0
+frozenlist==1.8.0
+fsspec==2026.6.0
+future==1.0.0
+gitdb==4.0.12
+GitPython==3.1.50
+google-auth==2.55.1
+gradio==4.44.1
+gradio_client==1.3.0
+groovy==0.1.2
+groq==1.5.0
+h11==0.16.0
+hf-gradio==0.4.1
+hf-xet==1.5.1
+httpcore==1.0.9
+httptools==0.8.0
+httpx==0.28.1
+huggingface-hub==0.24.7
+identify==2.6.19
+idna==3.18
+ImageIO==2.37.3
+imagesize==2.0.0
+imgaug==0.4.0
+importlib_resources==6.5.2
+iniconfig==2.3.0
+Jinja2==3.1.6
+jiter==0.15.0
+jmespath==1.1.0
+jsonschema==4.22.0
+jsonschema-specifications==2025.9.1
+kiwisolver==1.5.0
+lazy-loader==0.5
+lmdb==2.2.1
+lxml==6.1.1
+markdown-it-py==4.2.0
+MarkupSafe==2.1.5
+matplotlib==3.10.9
+mdurl==0.1.2
+modelscope==1.37.1
+MouseInfo==0.1.3
+mpmath==1.3.0
+msal==1.37.0
+msal-extensions==1.3.1
+multidict==6.7.1
+narwhals==2.22.1
+networkx==3.4.2
+ninja==1.13.0
+nodeenv==1.10.0
+numpy==1.23.5
+nvidia-cublas==13.1.1.3
+nvidia-cublas-cu11==11.11.3.6
+nvidia-cuda-cupti==13.0.85
+nvidia-cuda-cupti-cu11==11.8.87
+nvidia-cuda-nvrtc==13.0.88
+nvidia-cuda-nvrtc-cu11==11.8.89
+nvidia-cuda-runtime==13.0.96
+nvidia-cuda-runtime-cu11==11.8.89
+nvidia-cudnn-cu11==9.1.0.70
+nvidia-cudnn-cu13==9.20.0.48
+nvidia-cufft==12.0.0.61
+nvidia-cufft-cu11==10.9.0.58
+nvidia-cufile==1.15.1.6
+nvidia-curand==10.4.0.35
+nvidia-curand-cu11==10.3.0.86
+nvidia-cusolver==12.0.4.66
+nvidia-cusolver-cu11==11.4.1.48
+nvidia-cusparse==12.6.3.3
+nvidia-cusparse-cu11==11.7.5.86
+nvidia-cusparselt-cu13==0.8.1
+nvidia-nccl-cu11==2.21.5
+nvidia-nccl-cu13==2.29.7
+nvidia-nvjitlink==13.0.88
+nvidia-nvshmem-cu13==3.4.5
+nvidia-nvtx==13.0.85
+nvidia-nvtx-cu11==11.8.86
+openai==1.3.5
+opencv-python-headless==4.13.0.92
+opt-einsum==3.3.0
+orjson==3.11.9
+packaging==26.2
+paddleocr==2.8.1
+paddlepaddle-gpu==2.6.1
+paddlex==3.7.2
+pandas==2.3.3
+pillow==10.4.0
+platformdirs==4.10.0
+pluggy==1.6.0
+pre-commit==3.8.0
+prettytable==3.18.0
+propcache==0.5.2
+protobuf==7.35.1
+psutil==7.2.2
+py-cpuinfo==9.0.0
+pyarrow==24.0.0
+pyasn1==0.6.3
+pyasn1_modules==0.4.2
+PyAutoGUI==0.9.54
+pyclipper==1.4.0
+pycparser==3.0
+pycryptodome==3.23.0
+pydantic==2.13.4
+pydantic_core==2.46.4
+pydeck==0.9.2
+pydub==0.25.1
+PyGetWindow==0.0.9
+Pygments==2.20.0
+PyJWT==2.13.0
+PyMsgBox==2.0.1
+pyparsing==3.3.2
+pypdfium2==5.10.1
+pyperclip==1.11.0
+PyRect==0.2.0
+PyScreeze==1.0.1
+pytest==8.3.3
+pytest-asyncio==0.23.6
+python-bidi==0.6.10
+python-dateutil==2.9.0.post0
+python-discovery==1.4.2
+python-docx==1.2.0
+python-dotenv==1.2.2
+python-multipart==0.0.32
+python3-xlib==0.15
+pytweening==1.2.0
+pytz==2026.2
+PyYAML==6.0.2
+RapidFuzz==3.14.5
+referencing==0.37.0
+regex==2026.6.28
+requests==2.34.2
+rich==15.0.0
+rpds-py==0.30.0
+ruamel.yaml==0.19.1
+ruff==0.6.7
+s3transfer==0.19.0
+safehttpx==0.1.7
+safetensors==0.8.0
+scikit-image==0.25.2
+scipy==1.15.3
+screeninfo==0.8.1
+seaborn==0.13.2
+semantic-version==2.10.0
+shapely==2.1.2
+shellingham==1.5.4
+six==1.17.0
+smmap==5.0.3
+sniffio==1.3.1
+soupsieve==2.8.4
+starlette==1.3.1
+streamlit==1.56.0
+supervision==0.18.0
+sympy==1.14.0
+tenacity==9.1.4
+termcolor==3.3.0
+tifffile==2025.5.10
+timm==1.0.27
+tokenizers==0.19.1
+toml==0.10.2
+tomli==2.4.1
+tomlkit==0.12.0
+torch==2.7.1+cu118
+torchaudio==2.7.1+cu118
+torchvision==0.22.1+cu118
+tornado==6.5.7
+tqdm==4.68.3
+transformers==4.43.4
+triton==3.3.1
+typer==0.25.1
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+tzdata==2026.2
+uiautomation==2.0.29
+ujson==5.13.0
+ultralytics==8.3.70
+ultralytics-thop==2.0.20
+urllib3==2.7.0
+uvicorn==0.49.0
+uvloop==0.22.1
+virtualenv==21.5.1
+watchdog==6.0.0
+watchfiles==1.2.0
+wcwidth==0.8.1
+websocket-client==1.9.0
+websockets==12.0
+yarl==1.24.2
+
+```
+
+## 4. 项目目录结构
+```text
+workspace/
+    env_export.md
+    code/
+        test_gpu.py
+        check_env.py
+        omniparser_api/
+            requirements.txt
+            .env
+            app/
+                __init__.py
+                main.py
+            services/
+                __init__.py
+                parser_service.py
+            schemas/
+                __init__.py
+                schema.py
+        OmniParser/
+            .gitignore
+            demo.ipynb
+            gradio_demo.py
+            LICENSE
+            README.md
+            requirements.txt
+            SECURITY.md
+            requirements_backup.txt
+            test_simple.py
+            test.png
+            test_yolo_only.py
+            result_yolo.png
+            test_complete.py
+            output_labeled.png
+            result.json
+            test2.jpg
+            output_labeled2.png
+            result2.json
+            docs/
+                Evaluation.md
+            eval/
+                ss_pro_gpt4o_omniv2.py
+                logs_sspro_omniv2.json
+            imgs/
+                ios.png
+                mobile.png
+                teams.png
+                windows.png
+                windows_home.png
+                demo_image.jpg
+                demo_image_som.jpg
+                excel.png
+                google_page.png
+                gradioicon.png
+                header_bar.png
+                header_bar_thin.png
+                logo.png
+                omni3.jpg
+                omniboxicon.png
+                omniparsericon.png
+                onenote.png
+                saved_image_demo.png
+                som_overlaid_omni.png
+                windows_multitab.png
+                windows_vm.png
+                word.png
+            omnitool/
+                readme.md
+            util/
+                box_annotator.py
+                omniparser.py
+                utils.py
+                __init__.py
+            .gradio/
+                certificate.pem
+    datasets/
+    models/
+        OmniParser-v2.0/
+            .gitattributes
+            config.json
+            README.md
+            handler.py
+            requirements.txt
+            icon_caption/
+                LICENSE
+                config.json
+                generation_config.json
+                model.safetensors
+            icon_detect/
+                LICENSE
+                train_args.yaml
+                model.yaml
+                model.pt
+        Florence-2-large/
+            SUPPORT.md
+            generation_config.json
+            README.md
+            configuration_florence2.py
+            SECURITY.md
+            config.json
+            modeling_florence2.py
+            preprocessor_config.json
+            processing_florence2.py
+            CODE_OF_CONDUCT.md
+            .gitattributes
+            LICENSE
+            tokenizer_config.json
+            vocab.json
+            tokenizer.json
+            sample_inference.ipynb
+            model.safetensors
+            pytorch_model.bin
+    notebooks/
+        HAJIMI_概要设计文档_V3.8.docx
+        算法与项目流程说明文档.md
+        api-contract-demo.yaml
+        api-contract-demo.md
+        HAJIMI-六天冲刺计划.md
+        UML_diagrams.md
+        b-c-api-contract.md
+        b-c-api-contract.yaml
+        设计文档V2.md
+        分工V1.md
+
+
+```
+
+## 4. 项目目录结构
+```text
+workspace/
+    env_export.md
+    node-v20.18.0-linux-x64.tar.xz
+    node-v22.14.0-linux-x64.tar.xz
+    code/
+        test_gpu.py
+        check_env.py
+        omniparser_api/
+            requirements.txt
+            .env
+            app/
+                __init__.py
+                main.py
+            services/
+                __init__.py
+                parser_service.py
+            schemas/
+                __init__.py
+                schema.py
+        HAJIMI_UI/
+            .gitattributes
+            .gitignore
+            api-contract-demo.yaml
+            api-contract-demo_v2.yaml
+            b-c-api-contract.md
+            config.py
+            main.py
+            requirements-demo.txt
+            requirements.txt
+            start_all.bat
+            stop_all.bat
+            新建 文本文档.txt
+            校园gpu使用.md
+            core/
+                #screen_capturer.py
+                annotation_mapper.py
+                api_client.py
+                coordinate_mapper.py
+                env_sync.py
+                inspect_worker.py
+                mock_backend.py
+                overlay_coords.py
+                relocate_worker.py
+                screen_utils.py
+                service_manager.py
+                task_worker.py
+                ui_parser.py
+                user_settings.py
+                __init__.py
+            docs/
+                B端接口总结-对A与对C_v2.md
+                CHANGELOG-B端_v2.md
+                DAY2-工作内容.md
+                DAY3-工作内容_v2.md
+                design-spec.md
+                GPU-显存占用率查看命令.pdf
+                OmniParser GPU 环境交接文档.md
+                test_dynamic_overlay.py
+                test_main.py
+                test_ui.py
+                ui-html-spec.md
+                学生连接学校GPU实训网站操作手册.pdf
+                校园GPU-B端联调清单_v2.md
+                校园GPU与OmniParser环境速查_v2.md
+                校园gpu使用.template.md
+                设计文档V2.md
+                项目结构.md
+            scripts/
+                check_port.py
+                diagnose_inspect.py
+                gpu_group2_container_services.sh
+                gpu_group2_deploy.py
+                gpu_group2_remote.py
+                kill_port.py
+                patch_omniparser.py
+                setup_omniparser.bat
+                setup_server_env.bat
+                start_all.bat
+                start_client.bat
+                start_omniparser.bat
+                start_server.bat
+                stop_all.bat
+                stop_server.bat
+                stop_server_hint.bat
+                sync_design_tokens.py
+                verify_integration.py
+                verify_web_ui_fallback.bat
+            server/
+                .env
+                .env.example
+                .gitignore
+                config.py
+                main.py
+                README.md
+                README_v2.md
+                requirements.txt
+                test_api.py
+                __init__.py
+            ui/
+                #step_list.py
+                app_controller.py
+                bridge_web.py
+                chat_bubble.py
+                glass_demo.py
+                main_widget.py
+                overlay_anno.py
+                step_list.py
+                web_preview.py
+                __init__.py
+            utils/
+            logs/
+                omniparser.log
+                a_end.log
+        OmniParser/
+            .gitignore
+            demo.ipynb
+            gradio_demo.py
+            LICENSE
+            README.md
+            requirements.txt
+            SECURITY.md
+            requirements_backup.txt
+            test_simple.py
+            test.png
+            test_yolo_only.py
+            result_yolo.png
+            test_complete.py
+            output_labeled.png
+            result.json
+            test2.jpg
+            output_labeled2.png
+            result2.json
+            docs/
+                Evaluation.md
+            eval/
+                ss_pro_gpt4o_omniv2.py
+                logs_sspro_omniv2.json
+            imgs/
+                ios.png
+                mobile.png
+                teams.png
+                windows.png
+                windows_home.png
+                demo_image.jpg
+                demo_image_som.jpg
+                excel.png
+                google_page.png
+                gradioicon.png
+                header_bar.png
+                header_bar_thin.png
+                logo.png
+                omni3.jpg
+                omniboxicon.png
+                omniparsericon.png
+                onenote.png
+                saved_image_demo.png
+                som_overlaid_omni.png
+                windows_multitab.png
+                windows_vm.png
+                word.png
+            omnitool/
+                readme.md
+            util/
+                box_annotator.py
+                omniparser.py
+                utils.py
+                __init__.py
+            .gradio/
+                certificate.pem
+    datasets/
+    models/
+        OmniParser-v2.0/
+            .gitattributes
+            config.json
+            README.md
+            handler.py
+            requirements.txt
+            icon_caption/
+                LICENSE
+                config.json
+                generation_config.json
+                model.safetensors
+            icon_detect/
+                LICENSE
+                train_args.yaml
+                model.yaml
+                model.pt
+        Florence-2-large/
+            SUPPORT.md
+            generation_config.json
+            README.md
+            configuration_florence2.py
+            SECURITY.md
+            config.json
+            modeling_florence2.py
+            preprocessor_config.json
+            processing_florence2.py
+            CODE_OF_CONDUCT.md
+            .gitattributes
+            LICENSE
+            tokenizer_config.json
+            vocab.json
+            tokenizer.json
+            sample_inference.ipynb
+            model.safetensors
+            pytorch_model.bin
+    notebooks/
+        HAJIMI_概要设计文档_V3.8.docx
+        算法与项目流程说明文档.md
+        api-contract-demo.yaml
+        api-contract-demo.md
+        HAJIMI-六天冲刺计划.md
+        UML_diagrams.md
+        b-c-api-contract.md
+        b-c-api-contract.yaml
+        设计文档V2.md
+        分工V1.md
+        OmniParser GPU 环境交接文档.md
+        B端接口总结-对A与对C.md
+    node-v20.18.0-linux-x64/
+        LICENSE
+        CHANGELOG.md
+        README.md
+        share/
+            doc/
+            man/
+        bin/
+            node
+            npm
+            npx
+            corepack
+        lib/
+        include/
+            node/
+                v8-locker.h
+                zconf.h
+                v8config.h
+                common.gypi
+                v8-object.h
+                v8-forward.h
+                v8-profiler.h
+                v8-snapshot.h
+                node_object_wrap.h
+                node_api_types.h
+                v8-version.h
+                v8.h
+                node_version.h
+                v8-weak-callback-info.h
+                v8-value-serializer.h
+                v8-local-handle.h
+                node_buffer.h
+                v8-statistics.h
+                v8-function.h
+                v8-persistent-handle.h
+                v8-platform.h
+                config.gypi
+                js_native_api.h
+                v8-unwinder.h
+                v8-traced-handle.h
+                v8-date.h
+                v8-message.h
+                node.h
+                v8-isolate.h
+                v8-json.h
+                zlib.h
+                v8-primitive-object.h
+                v8-data.h
+                v8-extension.h
+                v8-internal.h
+                v8-exception.h
+                v8-proxy.h
+                v8-maybe.h
+                node_api.h
+                v8-array-buffer.h
+                v8-typed-array.h
+                v8-external.h
+                v8-template.h
+                v8-primitive.h
+                js_native_api_types.h
+                v8-promise.h
+                v8-context.h
+                v8-function-callback.h
+                v8-microtask.h
+                v8-cppgc.h
+                v8-regexp.h
+                v8-embedder-state-scope.h
+                v8-debug.h
+                v8-wasm.h
+                v8-embedder-heap.h
+                v8-script.h
+                v8-microtask-queue.h
+                uv.h
+                v8-container.h
+                v8-memory-span.h
+                v8-value.h
+                v8-initialization.h
+                v8-callbacks.h
+    node-v22.14.0-linux-x64/
+        README.md
+        LICENSE
+        CHANGELOG.md
+        bin/
+            node
+            corepack
+            npx
+            npm
+            ccswitch
+            claude
+            cc-switch
+        share/
+            doc/
+            man/
+        lib/
+        include/
+            node/
+                config.gypi
+                common.gypi
+                node.h
+                node_api.h
+                js_native_api.h
+                js_native_api_types.h
+                node_api_types.h
+                node_buffer.h
+                node_object_wrap.h
+                node_version.h
+                v8-isolate.h
+                v8-internal.h
+                v8-microtask-queue.h
+                v8-maybe.h
+                v8-source-location.h
+                v8-value-serializer.h
+                v8-statistics.h
+                v8-extension.h
+                v8-external.h
+                v8-embedder-state-scope.h
+                v8-forward.h
+                v8-memory-span.h
+                v8-persistent-handle.h
+                v8-json.h
+                v8-template.h
+                v8-traced-handle.h
+                v8-value.h
+                v8-microtask.h
+                v8-primitive-object.h
+                v8-array-buffer.h
+                v8-typed-array.h
+                v8-proxy.h
+                v8-context.h
+                v8-cppgc.h
+                v8-date.h
+                v8-regexp.h
+                v8-embedder-heap.h
+                v8-exception.h
+                v8.h
+                v8-message.h
+                v8-locker.h
+                v8-callbacks.h
+                v8-local-handle.h
+                v8-wasm.h
+                v8-function-callback.h
+                v8-function.h
+                v8-handle-base.h
+                v8-object.h
+                v8-platform.h
+                v8-primitive.h
+                v8-version.h
+                v8config.h
+                v8-data.h
+                v8-promise.h
+                v8-unwinder.h
+                v8-profiler.h
+                v8-script.h
+                v8-container.h
+                v8-debug.h
+                v8-initialization.h
+                v8-snapshot.h
+                v8-weak-callback-info.h
+                uv.h
+                zconf.h
+                zlib.h
+
+
+```
