@@ -217,29 +217,63 @@ def parse_screenshot_full(
     if not payload_base64:
         return ParseResult()
 
-    url = f"{_OMNIPARSER_URL}/parse/"
-    payload = {"base64_image": payload_base64}
+    # ── Downscale to avoid 400 from oversized payload ──
+    sent_size = None
+    try:
+        raw = base64.b64decode(payload_base64)
+        img = Image.open(io.BytesIO(raw))
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        w, h = img.size
+        max_side = 1920
+        if max(w, h) > max_side:
+            ratio = max_side / max(w, h)
+            new_size = (int(w * ratio), int(h * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+            sent_size = [new_size[0], new_size[1]]
+        else:
+            sent_size = [w, h]
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        payload_base64 = base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        pass  # fallback: send original
+
+    omni_url = _OMNIPARSER_URL
+
+    # ── Try multiple endpoints and payload formats ──
+    endpoints = [f"{omni_url}/parse/", f"{omni_url}/parse"]
+    payloads = [{"base64_image": payload_base64}, {"image": payload_base64}]
 
     latency_ms = 0
+    data = None
     last_exc = None
     for attempt in range(_OMNIPARSER_RETRY + 1):
         if attempt > 0:
             time.sleep(_OMNIPARSER_RETRY_DELAY)
         try:
             t_start = time.time()
-            with httpx.Client(timeout=_OMNIPARSER_TIMEOUT) as client:
-                response = client.post(url, json=payload)
-                response.raise_for_status()
-                data = response.json()
-                latency_ms = int((time.time() - t_start) * 1000)
-                break  # success, exit retry loop
+            with httpx.Client(timeout=_OMNIPARSER_TIMEOUT, trust_env=False, follow_redirects=True) as client:
+                for url in endpoints:
+                    for payload in payloads:
+                        response = client.post(url, json=payload)
+                        if response.status_code in (400, 404, 405, 422):
+                            continue
+                        response.raise_for_status()
+                        data = response.json()
+                        latency_ms = int((time.time() - t_start) * 1000)
+                        break
+                    if data is not None:
+                        break
+            if data is not None:
+                break
+            raise httpx.HTTPError("no compatible /parse endpoint accepted request")
         except Exception as exc:
             last_exc = exc
             print(
                 f"[OmniParser Client] attempt {attempt+1}/{_OMNIPARSER_RETRY+1} failed: {exc}"
             )
     else:
-        # All retries exhausted
         print(f"[OmniParser Client] all retries exhausted: {last_exc}")
         return ParseResult()
 
@@ -249,38 +283,47 @@ def parse_screenshot_full(
 
     raw_elements = data.get("parsed_content_list") or data.get("elements") or []
 
-    # If OmniParser returned all None IDs, assign sequential ones
-    all_none = all(
-        isinstance(e, dict) and e.get("id") is None
-        for e in raw_elements
-        if isinstance(e, dict)
-    )
-
+    # ── Element parsing with resolution-aware bbox normalization ──
     reference_resolution = None
-    # Try PIL decode first to get image dimensions for bbox normalization
-    try:
-        raw = base64.b64decode(payload_base64)
-        with Image.open(io.BytesIO(raw)) as img:
-            reference_resolution = [img.width, img.height]
-    except Exception:
-        reference_resolution = [1920, 1080]
+    # 1) from response
+    for w_key, h_key in (
+        ("width", "height"),
+        ("image_width", "image_height"),
+        ("img_width", "img_height"),
+    ):
+        w = data.get(w_key)
+        h = data.get(h_key)
+        if isinstance(w, (int, float)) and isinstance(h, (int, float)):
+            reference_resolution = [int(w), int(h)]
+            break
+    # 2) fallback: PIL decode from sent payload
+    if reference_resolution is None:
+        try:
+            raw = base64.b64decode(payload_base64)
+            with Image.open(io.BytesIO(raw)) as img:
+                reference_resolution = [img.width, img.height]
+        except Exception:
+            pass
+    # 3) last resort: what we sent
+    if reference_resolution is None:
+        reference_resolution = sent_size or [1920, 1080]
+
+    img_w, img_h = reference_resolution[0], reference_resolution[1]
 
     elements: List[UIElement] = []
-    seq = 1
-    for item in raw_elements:
+    for i, item in enumerate(raw_elements):
         if not isinstance(item, dict):
             continue
         bbox_raw = item.get("bbox")
         if not bbox_raw or len(bbox_raw) != 4:
             continue
 
-        # OmniParser returns normalized 0-1 bbox. Convert to pixel bbox.
-        x1, y1, x2, y2 = [float(v) for v in bbox_raw]
-        if max(abs(x1), abs(y1), abs(x2), abs(y2)) <= 1.0:
-            ref_w = reference_resolution[0]
-            ref_h = reference_resolution[1]
-            x1, x2 = int(x1 * ref_w), int(x2 * ref_w)
-            y1, y2 = int(y1 * ref_h), int(y2 * ref_h)
+        vals = [float(v) for v in bbox_raw]
+        if max(vals) <= 1.0 and min(vals) >= 0:
+            x1, y1 = int(vals[0] * img_w), int(vals[1] * img_h)
+            x2, y2 = int(vals[2] * img_w), int(vals[3] * img_h)
+        else:
+            x1, y1, x2, y2 = (int(v) for v in vals)
 
         # Skip degenerate [0,0,0,0] bboxes
         if x1 == 0 and y1 == 0 and x2 == 0 and y2 == 0:
@@ -288,31 +331,18 @@ def parse_screenshot_full(
 
         raw_id = item.get("id")
         if raw_id is not None:
-            element_id = str(raw_id)  # strip ~ prefix — was: f"~{raw_id}"
-        elif all_none:
-            element_id = str(seq)  # strip ~ prefix — was: f"~{seq}"
-            seq += 1
+            element_id = str(raw_id)
         else:
-            element_id = "?"
+            element_id = str(i + 1)
 
         center = item.get("center") or [(x1 + x2) / 2.0, (y1 + y2) / 2.0]
         center_int = [int(center[0]), int(center[1])]
 
         raw_type = item.get("element_type", item.get("type", "other"))
         allowed_types = {
-            "button",
-            "input",
-            "icon",
-            "menu",
-            "checkbox",
-            "dropdown",
-            "text",
-            "other",
+            "button", "input", "icon", "menu", "checkbox", "dropdown", "text", "other",
         }
         element_type = raw_type if raw_type in allowed_types else "other"
-
-        # Use OmniParser center if available, else bbox midpoint
-        center_int = [int((x1 + x2) / 2), int((y1 + y2) / 2)]
 
         elements.append(
             UIElement(

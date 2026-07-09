@@ -39,6 +39,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - get_screen_info(): 获取当前屏幕的元素列表（返回 id, content, left_ids, right_ids, top_ids, bottom_ids）
 - click(element_id): 单击指定元素
 - double_click(element_id): 双击指定元素。桌面图标、文件通常需要双击打开。
+- paste_text(text): 将文本粘贴到当前获得焦点的位置（通过剪贴板）。启动应用后或点击输入框后，文本会自动粘贴到光标所在位置，不需要 element_id。用于无法通过 OmniParser 检测到输入框的场景（如记事本文本区、聊天输入框等纯文本区域）。
 - type_text(element_id, text): 点击元素后输入文本
 - press_key(keys): 按键盘组合键，如 "enter", "ctrl+v", "win"
 - scroll(direction, amount): 滚轮滚动
@@ -174,6 +175,23 @@ def _build_tool_definitions() -> list[dict]:
                         "element_id": {"type": "string", "description": "元素ID"}
                     },
                     "required": ["element_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "paste_text",
+                "description": "将文本粘贴到当前获得焦点的位置（通过剪贴板）。不需要 element_id，适用于记事本文本区、聊天输入框等 OmniParser 检测不到输入框的场景。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "要粘贴的文本",
+                        }
+                    },
+                    "required": ["text"],
                 },
             },
         },
@@ -664,6 +682,38 @@ class ExecutionAgent:
             "action_summary": f"{label} element '{element.text}'",
         }
 
+    def _do_paste_text(self, text: str) -> dict:
+        """Paste text via clipboard into the currently focused element.
+        No element_id needed — uses the current window focus.
+        """
+        safety = check_step(f"paste '{text}'")
+        if safety.level == "red":
+            return {
+                "success": False,
+                "error": f"paste blocked (zone: red): {safety.reason}",
+            }
+        if safety.level == "yellow":
+            return {
+                "success": False,
+                "error": f"paste requires confirmation (zone: yellow): {safety.reason}. "
+                f"Choose a different target or try an alternative approach.",
+            }
+
+        old_clipboard = pyperclip.paste()
+        try:
+            pyperclip.copy(text)
+            time.sleep(0.1)
+            pyautogui.hotkey("ctrl", "v")
+            time.sleep(0.3)
+        finally:
+            pyperclip.copy(old_clipboard)
+
+        return {
+            "success": True,
+            "text": text,
+            "action_summary": f"pasted text into focused window",
+        }
+
     def _do_type_text(self, element_id: str, text: str) -> dict:
         element = self.element_map.get(element_id)
         if element is None:
@@ -748,6 +798,10 @@ class ExecutionAgent:
         elif tool_name == "type_text":
             return self._do_type_text(
                 tool_args.get("element_id", ""),
+                tool_args.get("text", ""),
+            )
+        elif tool_name == "paste_text":
+            return self._do_paste_text(
                 tool_args.get("text", ""),
             )
         elif tool_name == "press_key":
