@@ -30,7 +30,7 @@ from server.services.memory.retriever import get_retriever
 
 logger = logging.getLogger(__name__)
 
-MAX_TOOL_CALL_ROUNDS = getattr(settings, "MAX_TOOL_CALL_ROUNDS", None) or 15
+MAX_TOOL_CALL_ROUNDS = getattr(settings, "MAX_TOOL_CALL_ROUNDS", None) or 50
 
 EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是完成当前步骤。你可以调用工具来观察屏幕和执行操作。
 
