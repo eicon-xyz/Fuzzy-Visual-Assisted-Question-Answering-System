@@ -1,0 +1,70 @@
+### <Heading 4> 在线养老机构运营与服务系统
+### <Heading 4> The online elderly operation and maintenance system
+### <Heading 1> 系统功能特性
+### <Heading 1> 第二章 系统要求
+  [Normal小节] 2. 软件要求
+### <Heading 1> 第三章 菜单界面操作说明
+  [Normal小节] 3.1 管理员登入
+  [Normal小节] 3.2 入住管理
+  [Normal小节] 3.2.1 来访登记
+  [Normal小节] 3.2.2 基本信息录入
+  [Normal小节] 3.2.3 健康状况评估
+  [Normal小节] 3.2.4 居住管理
+  [Normal小节] 3.3 老人管理
+  [Normal小节] 3.3.1 医嘱记录
+  [Normal小节] 3.3.2 护理记录
+  [Normal小节] 3.3.3 事故记录
+  [Normal小节] 3.3.4 请假管理
+  [Normal小节] 3.3.5 生日提醒
+  [Normal小节] 3.3.6 护理变更
+  [Normal小节] 3.3.7 生化检查
+  [Normal小节] 3.3.8 老人信息查询
+  [Normal小节] 3.4 收费管理
+  [Normal小节] 3.4.1 备用金续费
+  [Normal小节] 3.4.2 备用金扣款
+  [Normal小节] 3.4.3 月费用结算
+  [Normal小节] 3.4.4 退住结算查询
+  [Normal小节] 3.4.5 备用金流水
+  [Normal小节] 3.5 辅助决策
+  [Normal小节] 3.5.1 人员流动统计
+  [Normal小节] 3.5.2 欠费统计
+  [Normal小节] 3.5.3 信息分析月报
+  [Normal小节] 3.5.4资金月报
+  [Normal小节] 3.5.5员工人数统计
+  [Normal小节] 3.5.6 员工请假一览
+  [Normal小节] 3.5.7 特殊服务统计
+  [Normal小节] 3.5.8 备用金明细
+  [Normal小节] 3.6 员工管理
+  [Normal小节] 3.6.1 基本信息管理
+  [Normal小节] 3.6.2 请假管理
+  [Normal小节] 3.6.3员工排班
+  [Normal小节] 3.7 仓库管理
+  [Normal小节] 3.7.1入库管理
+  [Normal小节] 3.7.2 出库管理
+  [Normal小节] 3.8 餐饮管理
+  [Normal小节] 3.8.1 菜肴管理
+  [Normal小节] 3.8.2 定制餐单
+  [Normal小节] 3.8.3 老人订餐
+  [Normal小节] 3.8.4 退订管理
+  [Normal小节] 3.8.5 订餐查询
+  [Normal小节] 3.8.6 订餐分区统计
+  [Normal小节] 3.8.7 老人订餐统计…
+### <Heading 3> 3.8.8 订餐发放
+  [Normal小节] 3.9 特殊服务
+  [Normal小节] 3.9.1 技师技能制定
+  [Normal小节] 3.9.2 特殊服务预约
+  [Normal小节] 3.10系统管理
+  [Normal小节] 3.11.1 角色管理
+  [Normal小节] 3.11.2 操作员管理
+  [Normal小节] 3.11.3 角色权限管理
+  [Normal小节] 3.11.6 操作日志查询
+  [Normal小节] 3.11.7 密码修改
+  [Normal小节] 3.12 房间管理
+### <Heading 1> 功能流程介绍
+  [Normal小节] 4.1  入住和退住流程
+  [Normal小节] 4.2  普通管理流程
+  [Normal小节] 4.3  餐饮管理流程
+  [Normal小节] 4.4  特殊服务流程
+  [Normal小节] 4.5  仓库管理流程
+  [Normal小节] 4.6  财务及报表管理流程
+  [Normal小节] 4.7  数据权限管理流程
