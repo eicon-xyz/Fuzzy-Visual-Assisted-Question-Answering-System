@@ -49,9 +49,10 @@ from core.user_settings import (
     load_voice_settings,
     save_settings_fragment,
 )
-from core.env_sync import sync_l5_sidecar_env, sync_server_env
+from core.env_sync import routing_needs_legacy_a_end, sync_backend_env, sync_l5_sidecar_env
 from core.service_manager import (
     restart_local_a_end,
+    restart_l5_sidecar,
     run_gpu_one_click_bat,
     start_backend_services,
     start_gpu_api_services,
@@ -1135,10 +1136,12 @@ class MainWidget(QWidget):
         try:
             merged = save_settings_fragment(data)
             apply_user_settings(merged)
+            l5_path, _legacy_path = sync_backend_env(merged)
             if merged.get("deployment_mode") in ("local", "gpu_api"):
-                sync_server_env(merged)
-                sync_l5_sidecar_env(merged)
-                restart_local_a_end()
+                if routing_needs_legacy_a_end(merged):
+                    restart_local_a_end()
+                if l5_path is not None:
+                    restart_l5_sidecar()
             if is_intranet_mode():
                 mode_label = "内网 API"
             elif is_gpu_api_mode():
@@ -1147,7 +1150,12 @@ class MainWidget(QWidget):
                 mode_label = "本地 CPU"
             restart_note = ""
             if merged.get("deployment_mode") in ("local", "gpu_api"):
-                restart_note = "；A 端已重启以加载新配置"
+                if l5_path is not None and routing_needs_legacy_a_end(merged):
+                    restart_note = "；L5 Sidecar 与 A 端已重启以加载新配置"
+                elif l5_path is not None:
+                    restart_note = "；L5 Sidecar (server_A) 已重启以加载新配置"
+                elif routing_needs_legacy_a_end(merged):
+                    restart_note = "；A 端已重启以加载新配置"
             self.medium_panel.on_model_settings_applied(
                 merged,
                 f"模型配置已保存：{mode_label}{restart_note}",
@@ -1207,8 +1215,7 @@ class MainWidget(QWidget):
             from core.user_settings import load_user_settings
 
             settings = load_user_settings()
-            sync_server_env(settings)
-            sync_l5_sidecar_env(settings)
+            sync_backend_env(settings)
             if is_gpu_api_mode():
                 start_gpu_api_services()
                 from core.routing_config import routing_needs_omniparser

@@ -8,10 +8,13 @@ This module converts those elements into the HAJIMI UIElement schema.
 
 import base64
 import io
+import logging
 import re
 import time
 from dataclasses import dataclass, field
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 import httpx
 from PIL import Image
@@ -218,13 +221,27 @@ def parse_screenshot_full(
         return ParseResult()
 
     url = f"{_OMNIPARSER_URL}/parse/"
-    payload = {"base64_image": payload_base64}
+    # ── Multiple payload formats to try ──
+    _PAYLOAD_FORMATS = [
+        {"base64_image": payload_base64},
+        {"image": payload_base64},
+        {"base64_image": f"data:image/png;base64,{payload_base64}"},
+        {"image": f"data:image/png;base64,{payload_base64}"},
+    ]
 
     latency_ms = 0
     last_exc = None
     for attempt in range(_OMNIPARSER_RETRY + 1):
         if attempt > 0:
             time.sleep(_OMNIPARSER_RETRY_DELAY)
+        # On 400, try next payload format
+        fmt_idx = min(attempt, len(_PAYLOAD_FORMATS) - 1)
+        payload = _PAYLOAD_FORMATS[fmt_idx]
+        if attempt > 0:
+            logger.warning(
+                f"[OmniParser] format {fmt_idx} failed, "
+                f"trying format {fmt_idx+1}/{len(_PAYLOAD_FORMATS)}"
+            )
         try:
             t_start = time.time()
             with httpx.Client(timeout=_OMNIPARSER_TIMEOUT) as client:

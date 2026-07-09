@@ -439,7 +439,10 @@ class ModelSettingsGroup(QFrame):
 
         from core.defaults import DEFAULT_OMNI_GPU_API_URL
 
-        self.field_a_url = SettingsFieldRow("A 端地址", "http://127.0.0.1:8010")
+        self.field_a_url = SettingsFieldRow(
+            "内网 A 端地址",
+            "内网联调填远程 :8010；本地 L5 默认走 server_A :8011",
+        )
         self.field_demo_key = SettingsFieldRow("Demo Key", "hajimi-demo-2026")
         self.field_llm_base = SettingsFieldRow(
             "问答 API Base", "https://www.daseinai.xyz/v1"

@@ -814,6 +814,7 @@ class MediumPanel(QWidget):
         use_l4_settings = mode in ("auto", "fast", "balanced")
         self._l4_group.setVisible(True)
         self._l4_group.set_enabled(use_l4_settings)
+        self._update_api_url_label()
 
     def _apply_deployment_mode_ui(self, mode: str) -> None:
         intranet = mode == "intranet"
@@ -849,9 +850,15 @@ class MediumPanel(QWidget):
         self._update_api_url_label()
 
     def _update_api_url_label(self) -> None:
-        from config import API_BASE_URL
+        from config import API_BASE_URL, L5_API_URL
+        from core.routing_config import is_l5_route
 
-        self._api_lbl.setText(f"A 端地址：{API_BASE_URL}")
+        if is_l5_route():
+            self._api_lbl.setText(
+                f"L5 Sidecar (server_A)：{L5_API_URL}  ·  L4/A 端：{API_BASE_URL}"
+            )
+        else:
+            self._api_lbl.setText(f"A 端地址：{API_BASE_URL}")
 
     def on_model_settings_applied(self, data: dict, success_msg: str = "") -> None:
         feedback = success_msg or "已保存并应用"
