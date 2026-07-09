@@ -18,6 +18,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 TPL = os.path.join(BASE, "..", "模版",
                    "03-《基于YOLOv5的小目标无人机检测系统》-AI样例_详细设计文档.docx")
 IMG = os.path.join(BASE, "images")
+SHOT = os.path.join(BASE, "..", "实训项目图片")  # 真实运行截图
 
 CN = "宋体"
 
@@ -105,6 +106,23 @@ def figure(d, img_name, cap, width=5.9):
         p = d.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         r = p.add_run("〔此处为界面截图，留待运行后补入〕")
+        _set_cn(r, size=11, color=RGBColor(0x90, 0x90, 0x90))
+        p.paragraph_format.space_before = Pt(6)
+        p.paragraph_format.space_after = Pt(2)
+    caption(d, cap)
+
+
+def shot(d, filename, cap, width=5.0):
+    """插入真实运行截图（实训项目图片/）+ 题注；缺失则插入占位说明。"""
+    path = os.path.join(SHOT, filename) if filename else None
+    if path and os.path.exists(path):
+        p = d.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.add_run().add_picture(path, width=Inches(width))
+    else:
+        p = d.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r = p.add_run("〔此处为界面截图，留待补入〕")
         _set_cn(r, size=11, color=RGBColor(0x90, 0x90, 0x90))
         p.paragraph_format.space_before = Pt(6)
         p.paragraph_format.space_after = Pt(2)
@@ -296,31 +314,64 @@ def build_02():
     h3(d, "二、业务界面风格展示")
     h4(d, "1、PyQt5 桌面端界面")
     h5(d, "a、主界面（悬浮面板）")
-    para(d, "主界面为常驻桌面右下角的悬浮面板（约 480×520 像素）。最上方为标题栏，含 Logo、风格切换"
-            "与折叠/关闭按钮；中部自上而下依次为指令输入栏、任务进度标题、步骤卡片列表，以及底部的"
-            "截图预览与执行日志分栏；最下方为开始、暂停、恢复、停止四枚控制按钮。步骤卡片以图标与"
-            "颜色区分“待执行、执行中、已完成、失败、被拦截、跳过”六种状态，并在每步旁标注操作类型"
-            "与风险评分圆点。")
-    figure(d, None, "图4  B 端主界面（悬浮面板）")
-    h5(d, "b、紧凑模式与标注覆盖层")
-    para(d, "紧凑模式将面板收拢为一条约 320×52 像素的浮动条，仅保留输入框、执行按钮与状态图标，"
-            "便于在不遮挡工作区的情况下随时调用。标注覆盖层是一层全屏透明窗口，用红色箭头、虚线"
-            "高亮框与白底红字编号标签，将“下一步应操作的位置”直接叠加绘制在真实界面之上。")
-    figure(d, None, "图5  紧凑模式与屏幕标注覆盖层")
+    para(d, "主界面为常驻桌面右下角的悬浮面板。最上方为标题栏，含 Logo、风格切换与折叠/关闭按钮；"
+            "中部自上而下依次为对话与步骤区、指令输入栏；步骤卡片以图标与颜色区分“待执行、执行中、"
+            "已完成、失败、被拦截、跳过”六种状态，并在每步旁标注操作类型与风险评分圆点。")
+    shot(d, "默认蓝主页面.png", "图4  B 端主界面（默认蓝主题悬浮面板）", width=2.5)
+    h5(d, "b、紧凑模式")
+    para(d, "紧凑模式将面板收拢为一条浮动条，仅保留指令输入框、执行按钮与状态图标，便于在不遮挡"
+            "工作区的情况下随时调用；单击展开按钮即可恢复为完整面板。")
+    shot(d, "默认蓝小窗口.png", "图5  B 端紧凑模式浮动条", width=4.6)
+    h5(d, "c、多主题风格")
+    para(d, "系统内置多套界面主题，覆盖不同审美与场景需求：默认蓝为通用现代风格；典雅黑为深色"
+            "护眼风格；牛皮纸为复古纸感风格；黑金轻奢为高对比商务风格；耄耋主题面向老年用户，"
+            "采用大字号、高对比与简化布局以提升可读性。各主题的主界面与紧凑条如下所示。")
+    shot(d, "典雅黑主页面.png", "图6  典雅黑主题主界面", width=2.5)
+    shot(d, "牛皮纸主页面.png", "图7  牛皮纸主题主界面", width=2.5)
+    shot(d, "黑金轻奢主页面.png", "图8  黑金轻奢主题主界面", width=2.5)
+    shot(d, "耄耋主页面.png", "图9  耄耋（适老）主题主界面", width=2.5)
+    shot(d, "主题-耄耋.png", "图10  耄耋主题整体效果展示", width=5.2)
+    shot(d, "典雅黑小窗口.png", "图11  典雅黑主题紧凑条", width=4.4)
+    shot(d, "牛皮纸小窗.png", "图12  牛皮纸主题紧凑条", width=4.4)
+    shot(d, "黑金小窗.png", "图13  黑金轻奢主题紧凑条", width=4.4)
+    shot(d, "耄耋小窗.png", "图14  耄耋主题紧凑条", width=4.4)
+    h5(d, "d、自动执行与检测确认")
+    para(d, "在执行涉及关键操作的步骤前，系统会弹出检测确认提示，向用户展示即将执行的动作与目标"
+            "位置，经用户确认后方才继续，避免误操作。对于复杂任务，系统在全屏透明覆盖层上以箭头、"
+            "高亮框与编号标签，将每一步的操作位置直接叠加绘制在真实界面之上。")
+    shot(d, "L4检测确认.png", "图15  执行前的检测确认提示", width=2.6)
+    shot(d, "L5演示.png", "图16  全屏标注覆盖层演示（箭头+高亮框+编号）", width=5.9)
+    h5(d, "e、安全警示")
+    para(d, "当指令或步骤命中黄线且风险评分达到高危阈值时，系统弹出安全警示并挂起执行，等待用户"
+            "明确确认；命中红线的指令则被直接拒绝。")
+    shot(d, "L5警示.png", "图17  高风险操作安全警示", width=4.6)
+    h5(d, "f、系统设置界面")
+    para(d, "系统设置界面以分区表单组织各项配置，覆盖主题外观、语音交互、部署模式、网络代理与"
+            "开发者选项等，保存后即时生效。")
+    shot(d, "系统设置-主题默认蓝.png", "图18  系统设置——主题（默认蓝）", width=5.2)
+    shot(d, "系统设置-主题黑金轻奢.png", "图19  系统设置——主题（黑金轻奢）", width=5.2)
+    shot(d, "系统设置-语音.png", "图20  系统设置——语音交互", width=4.8)
+    shot(d, "系统设置-部署模式.png", "图21  系统设置——部署模式（本地/内网）", width=4.6)
+    shot(d, "系统设置-网络代理.png", "图22  系统设置——网络代理", width=5.2)
+    shot(d, "系统设置-开发者.png", "图23  系统设置——开发者选项", width=5.2)
+    h5(d, "g、语音交互提示")
+    para(d, "系统支持语音下达指令，并在识别异常时给出明确的错误提示，引导用户重试或改用文本输入。")
+    shot(d, "语音识别-错误提示.png", "图24  语音识别错误提示", width=3.6)
 
     h4(d, "2、Web 端界面")
+    para(d, "Web 管理面板供运营与开发人员使用，以下页面截图留待面板运行（npm run dev）后补入。")
     h5(d, "a、总览页面")
     para(d, "总览页面以卡片与图表组合呈现核心运营指标，配色克制、信息密度适中，支持时间范围切换。")
-    figure(d, None, "图6  Web 端总览页面")
+    shot(d, None, "图25  Web 端总览页面")
     h5(d, "b、失败归因页面")
     para(d, "失败归因页面通过“图表概览—列表下钻—详情抽屉”的三段式结构，引导使用者由宏观到微观定位问题。")
-    figure(d, None, "图7  Web 端失败归因页面")
+    shot(d, None, "图26  Web 端失败归因页面")
     h5(d, "c、数据流监控页面")
     para(d, "数据流页面以桑基图展示各链路的调用流向，以双轴折线展示 QPS 与成功率，以饼图展示版本分布。")
-    figure(d, None, "图8  Web 端数据流监控页面")
+    shot(d, None, "图27  Web 端数据流监控页面")
     h5(d, "d、健康监控页面")
     para(d, "健康监控页面以状态灯呈现各组件在线情况，列出资源占用与告警信息，并支持导出 CSV。")
-    figure(d, None, "图9  Web 端健康监控页面")
+    shot(d, None, "图28  Web 端健康监控页面")
 
     out = os.path.join(BASE, "02-详细设计-界面设计.docx")
     d.save(out)

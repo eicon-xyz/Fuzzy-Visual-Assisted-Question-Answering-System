@@ -48,12 +48,6 @@ const routes = [
         component: () => import('../views/HealthMonitor.vue'),
         meta: { title: '健康监控' },
       },
-      {
-        path: 'users',
-        name: 'Users',
-        component: () => import('../views/Users.vue'),
-        meta: { title: '用户管理', requireAdmin: true },
-      },
     ],
   },
 ]

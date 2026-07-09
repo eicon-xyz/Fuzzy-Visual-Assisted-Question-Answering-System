@@ -36,6 +36,7 @@ import { useRouter } from 'vue-router'
 import { User, Lock } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { authLogin } from '../api/admin'
+import { adaptLoginResponse } from '../auth/normalize'
 import { setTokens } from '../api/index'
 
 const router = useRouter()
@@ -54,18 +55,16 @@ const rules = {
 async function login() {
   loading.value = true
   try {
-    const res = await authLogin(form.username, form.password)
-    if (res.success) {
-      // 存储 token + 用户信息
-      setTokens(res.data.access_token, res.data.refresh_token)
-      localStorage.setItem('hajimi_user', JSON.stringify(res.data.user))
-      ElMessage.success('登录成功')
-      router.replace('/dashboard')
-    } else {
-      ElMessage.error(res.error?.message || '登录失败')
-    }
+    const raw = await authLogin(form.username, form.password)
+    // 适配 A 端登录响应（当前为 {access_token,...}，兼容未来 {success,data} 信封）
+    const session = adaptLoginResponse(raw, form.username)
+    setTokens(session.accessToken, session.refreshToken)
+    localStorage.setItem('hajimi_user', JSON.stringify(session.user))
+    ElMessage.success('登录成功')
+    router.replace('/dashboard')
   } catch (err) {
-    // 错误已由拦截器处理显示，这里只需停止 loading
+    // 401 等错误已由响应拦截器统一提示；此处兜底提示
+    ElMessage.error(err?.message || '用户名或密码错误')
   } finally {
     loading.value = false
   }
