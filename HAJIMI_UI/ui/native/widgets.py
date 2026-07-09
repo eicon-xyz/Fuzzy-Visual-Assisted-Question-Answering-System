@@ -128,6 +128,8 @@ class CollapsibleSection(QWidget):
 
     def __init__(self, title: str, parent=None, expanded: bool = True):
         super().__init__(parent)
+        self.setObjectName("CollapsibleSection")
+        make_widget_transparent(self)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
@@ -142,6 +144,8 @@ class CollapsibleSection(QWidget):
         layout.addLayout(row)
 
         self._body = QWidget()
+        self._body.setObjectName("CollapsibleBody")
+        make_widget_transparent(self._body)
         self._body_layout = QVBoxLayout(self._body)
         self._body_layout.setContentsMargins(0, 4, 0, 0)
         layout.addWidget(self._body)

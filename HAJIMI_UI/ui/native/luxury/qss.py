@@ -97,12 +97,19 @@ QPushButton#MenuBtn:hover, QPushButton#LuxIconBtn:hover {{
 QScrollArea#MediumContent,
 QScrollArea#SettingsScroll {{
     background: transparent;
+    background-color: transparent;
     border: none;
 }}
 QScrollArea#MediumContent QAbstractScrollArea::viewport,
 QScrollArea#SettingsScroll QAbstractScrollArea::viewport {{
     background: transparent;
+    background-color: transparent;
     border: none;
+}}
+QLabel {{
+    color: {TOKENS.secondary};
+    background: transparent;
+    background-color: transparent;
 }}
 QWidget#MediumContentWrap,
 QStackedWidget#MediumPages,
@@ -110,9 +117,56 @@ QWidget#MediumPage,
 QWidget#MediumChatContainer,
 QWidget#ChatBubbleHost,
 QWidget#SettingsScrollInner,
+QStackedWidget#AppearanceDetailStack,
+QWidget#AppearanceDetailPage,
+QWidget#CollapsibleSection,
+QWidget#CollapsibleBody,
+QWidget#SettingsFieldRow,
 QWidget#InputDock {{
     background: transparent;
+    background-color: transparent;
     border: none;
+}}
+QLineEdit#SettingsInput {{
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid {TOKENS.surface_line};
+    border-radius: 8px;
+    color: {TOKENS.secondary};
+    font-size: 12px;
+    padding: 6px 10px;
+    min-height: 20px;
+}}
+QLineEdit#SettingsInput:focus {{
+    border-color: {gold};
+}}
+QTextEdit#ChainDiagOutput {{
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid {TOKENS.surface_line};
+    border-radius: 8px;
+    color: {TOKENS.secondary_muted};
+    font-size: 11px;
+    font-family: Consolas, "Courier New", monospace;
+    padding: 6px 8px;
+}}
+QSlider::groove:horizontal {{
+    background: {TOKENS.surface_line};
+    height: 4px;
+    border-radius: 2px;
+}}
+QSlider::handle:horizontal {{
+    background: {gold};
+    width: 14px;
+    height: 14px;
+    margin: -5px 0;
+    border-radius: 7px;
+}}
+QSlider::sub-page:horizontal {{
+    background: rgba(201, 168, 76, 0.45);
+    border-radius: 2px;
+}}
+QCheckBox {{
+    color: {TOKENS.secondary};
+    spacing: 6px;
 }}
 QFrame#bubble-user {{
     background-color: #1C1916;

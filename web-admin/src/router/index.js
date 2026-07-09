@@ -37,6 +37,12 @@ const routes = [
         meta: { title: '系统配置' },
       },
       {
+        path: 'users',
+        name: 'Users',
+        component: () => import('../views/Users.vue'),
+        meta: { title: '用户管理' },
+      },
+      {
         path: 'health',
         name: 'HealthMonitor',
         component: () => import('../views/HealthMonitor.vue'),

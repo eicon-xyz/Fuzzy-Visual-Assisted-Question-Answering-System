@@ -59,7 +59,20 @@ from ui.native.shell_paint import (
 from ui.native.title_art import DEFAULT_TITLE_ART, TITLE_ART_MODES
 
 _ORANGE_CAT_AVATAR_FILTER = "Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)"
-from ui.native.widgets import CollapsibleSection
+from ui.native.widgets import CollapsibleSection, make_widget_transparent
+
+
+def _settings_row_label(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setObjectName("SetRowLabel")
+    return lbl
+
+
+def _appearance_detail_page(parent=None) -> QWidget:
+    page = QWidget(parent)
+    page.setObjectName("AppearanceDetailPage")
+    make_widget_transparent(page)
+    return page
 
 
 class SettingsEnterFilter(QObject):
@@ -115,6 +128,7 @@ class SettingsFieldRow(QWidget):
     ):
         super().__init__(parent)
         self.setObjectName("SettingsFieldRow")
+        make_widget_transparent(self)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 6, 0, 6)
         layout.setSpacing(12)
@@ -563,7 +577,7 @@ class UiAppearanceGroup(QFrame):
         self._font_size_slider.valueChanged.connect(self._update_font_size_label)
         self._font_size_slider.valueChanged.connect(self._emit_preview)
         row_f = QHBoxLayout()
-        row_f.addWidget(QLabel("全局字号"))
+        row_f.addWidget(_settings_row_label("全局字号"))
         row_f.addWidget(self._font_size_slider, 1)
         row_f.addWidget(self._font_size_label)
         layout.addLayout(row_f)
@@ -597,7 +611,7 @@ class UiAppearanceGroup(QFrame):
         self._medium_alpha_slider.valueChanged.connect(self._update_medium_alpha_label)
         self._medium_alpha_slider.valueChanged.connect(self._emit_preview)
         row_m = QHBoxLayout()
-        row_m.addWidget(QLabel("中窗透明度"))
+        row_m.addWidget(_settings_row_label("中窗透明度"))
         row_m.addWidget(self._medium_alpha_slider, 1)
         row_m.addWidget(self._medium_alpha_label)
         classic_alpha_l.addLayout(row_m)
@@ -610,7 +624,7 @@ class UiAppearanceGroup(QFrame):
         self._compact_alpha_slider.valueChanged.connect(self._update_compact_alpha_label)
         self._compact_alpha_slider.valueChanged.connect(self._emit_preview)
         row_c = QHBoxLayout()
-        row_c.addWidget(QLabel("小窗透明度"))
+        row_c.addWidget(_settings_row_label("小窗透明度"))
         row_c.addWidget(self._compact_alpha_slider, 1)
         row_c.addWidget(self._compact_alpha_label)
         classic_alpha_l.addLayout(row_c)
@@ -627,7 +641,7 @@ class UiAppearanceGroup(QFrame):
         self._shadow_slider.valueChanged.connect(self._update_shadow_label)
         self._shadow_slider.valueChanged.connect(self._emit_preview)
         row_s = QHBoxLayout()
-        row_s.addWidget(QLabel("Crystal 阴影"))
+        row_s.addWidget(_settings_row_label("Crystal 阴影"))
         row_s.addWidget(self._shadow_slider, 1)
         row_s.addWidget(self._shadow_label)
         classic_shadow_l.addLayout(row_s)
@@ -664,7 +678,7 @@ class UiAppearanceGroup(QFrame):
         self._luxury_star_slider.valueChanged.connect(self._update_luxury_star_label)
         self._luxury_star_slider.valueChanged.connect(self._emit_preview)
         star_row = QHBoxLayout()
-        star_row.addWidget(QLabel("强度"))
+        star_row.addWidget(_settings_row_label("强度"))
         star_row.addWidget(self._luxury_star_slider, 1)
         star_row.addWidget(self._luxury_star_label)
         self._luxury_star_section.body_layout().addLayout(star_row)
@@ -755,7 +769,7 @@ class UiAppearanceGroup(QFrame):
         self._top_light_slider.valueChanged.connect(self._update_top_light_label)
         self._top_light_slider.valueChanged.connect(self._emit_preview)
         row_tl = QHBoxLayout()
-        row_tl.addWidget(QLabel("顶光强度"))
+        row_tl.addWidget(_settings_row_label("顶光强度"))
         row_tl.addWidget(self._top_light_slider, 1)
         row_tl.addWidget(self._top_light_label)
         crystal_l.addLayout(row_tl)
@@ -799,13 +813,15 @@ class UiAppearanceGroup(QFrame):
         self._qss_highlight_slider.valueChanged.connect(self._update_qss_highlight_label)
         self._qss_highlight_slider.valueChanged.connect(self._emit_preview)
         row_qh = QHBoxLayout()
-        row_qh.addWidget(QLabel("高光强度"))
+        row_qh.addWidget(_settings_row_label("高光强度"))
         row_qh.addWidget(self._qss_highlight_slider, 1)
         row_qh.addWidget(self._qss_highlight_label)
         qss_l.addLayout(row_qh)
 
         self._detail_stack = QStackedWidget()
-        page_default = QWidget()
+        self._detail_stack.setObjectName("AppearanceDetailStack")
+        make_widget_transparent(self._detail_stack)
+        page_default = _appearance_detail_page()
         self._default_detail_layout = QVBoxLayout(page_default)
         self._default_detail_layout.setContentsMargins(0, 0, 0, 0)
         self._default_detail_layout.setSpacing(6)
@@ -813,7 +829,7 @@ class UiAppearanceGroup(QFrame):
         self._default_detail_layout.addWidget(self._qss_highlight_section)
         self._detail_stack.addWidget(page_default)
 
-        page_elegant = QWidget()
+        page_elegant = _appearance_detail_page()
         self._elegant_detail_layout = QVBoxLayout(page_elegant)
         self._elegant_detail_layout.setContentsMargins(0, 0, 0, 0)
         self._elegant_detail_layout.setSpacing(6)
@@ -821,19 +837,21 @@ class UiAppearanceGroup(QFrame):
         self._elegant_detail_layout.addWidget(self._crystal_light_section)
         self._detail_stack.addWidget(page_elegant)
 
-        page_luxury = QWidget()
+        page_luxury = _appearance_detail_page()
         self._luxury_detail_layout = QVBoxLayout(page_luxury)
         self._luxury_detail_layout.setContentsMargins(0, 0, 0, 0)
         self._luxury_detail_layout.setSpacing(6)
         self._luxury_detail_layout.addWidget(self._luxury_star_section)
         self._luxury_font_anchor = QWidget()
+        self._luxury_font_anchor.setObjectName("AppearanceDetailPage")
+        make_widget_transparent(self._luxury_font_anchor)
         self._luxury_font_anchor_layout = QVBoxLayout(self._luxury_font_anchor)
         self._luxury_font_anchor_layout.setContentsMargins(0, 0, 0, 0)
         self._luxury_font_anchor_layout.addWidget(self._luxury_font_section)
         self._luxury_detail_layout.addWidget(self._luxury_font_anchor)
         self._detail_stack.addWidget(page_luxury)
 
-        page_kraft = QWidget()
+        page_kraft = _appearance_detail_page()
         p3 = QVBoxLayout(page_kraft)
         p3.setContentsMargins(0, 0, 0, 0)
         p3.setSpacing(6)
@@ -842,12 +860,14 @@ class UiAppearanceGroup(QFrame):
         kraft_hint.setWordWrap(True)
         p3.addWidget(kraft_hint)
         self._kraft_font_host = QWidget()
+        self._kraft_font_host.setObjectName("AppearanceDetailPage")
+        make_widget_transparent(self._kraft_font_host)
         self._kraft_font_host_layout = QVBoxLayout(self._kraft_font_host)
         self._kraft_font_host_layout.setContentsMargins(0, 0, 0, 0)
         p3.addWidget(self._kraft_font_host)
         self._detail_stack.addWidget(page_kraft)
 
-        page_orange = QWidget()
+        page_orange = _appearance_detail_page()
         self._orange_detail_layout = QVBoxLayout(page_orange)
         self._orange_detail_layout.setContentsMargins(0, 0, 0, 0)
         self._orange_detail_layout.setSpacing(6)
