@@ -23,7 +23,7 @@
         </el-card>
       </el-col>
       <el-col :span="12">
-        <el-card header="L2 / L3 路径占比">
+        <el-card header="L4 / L5 路径占比">
           <div ref="routeChart" style="height: 300px"></div>
         </el-card>
       </el-col>
@@ -105,7 +105,7 @@ function renderFeedbackPie() {
   })
 }
 
-// ── 饼图：L2/L3 占比 ──
+// ── 饼图：L4/L5 占比 ──
 function renderRoutePie() {
   if (!routeChart.value) return
   const chart = echarts.init(routeChart.value)
@@ -116,8 +116,8 @@ function renderRoutePie() {
       type: 'pie',
       radius: ['45%', '75%'],
       data: [
-        { value: 70, name: 'L2 快路径' },
-        { value: 30, name: 'L3 慢路径' },
+        { value: 70, name: 'L4 指导模式' },
+        { value: 30, name: 'L5 自动模式' },
       ],
       label: { formatter: '{b}\n{d}%' },
     }],
@@ -163,14 +163,14 @@ function renderLatencyLine() {
     yAxis: { type: 'value', name: '秒' },
     series: [
       {
-        type: 'line', name: 'L2', data: l2, smooth: true,
+        type: 'line', name: 'L4 指导模式', data: l2, smooth: true,
         lineStyle: { color: '#67c23a' }, itemStyle: { color: '#67c23a' },
-        markLine: { silent: true, data: [{ yAxis: 3, label: { formatter: 'L2阈值 3s' }, lineStyle: { type: 'dashed', color: '#e6a23c' } }] },
+        markLine: { silent: true, data: [{ yAxis: 3, label: { formatter: 'L4阈值 3s' }, lineStyle: { type: 'dashed', color: '#e6a23c' } }] },
       },
       {
-        type: 'line', name: 'L3', data: l3, smooth: true,
+        type: 'line', name: 'L5 自动模式', data: l3, smooth: true,
         lineStyle: { color: '#409EFF' }, itemStyle: { color: '#409EFF' },
-        markLine: { silent: true, data: [{ yAxis: 10, label: { formatter: 'L3阈值 10s' }, lineStyle: { type: 'dashed', color: '#e6a23c' } }] },
+        markLine: { silent: true, data: [{ yAxis: 10, label: { formatter: 'L5阈值 10s' }, lineStyle: { type: 'dashed', color: '#e6a23c' } }] },
       },
     ],
   })

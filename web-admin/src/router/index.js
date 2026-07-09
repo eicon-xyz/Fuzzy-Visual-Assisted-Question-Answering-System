@@ -1,5 +1,4 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
-import { isAuthenticated, migrateLegacyToken } from '../auth'
 
 const routes = [
   {
@@ -43,6 +42,12 @@ const routes = [
         component: () => import('../views/HealthMonitor.vue'),
         meta: { title: '健康监控' },
       },
+      {
+        path: 'users',
+        name: 'Users',
+        component: () => import('../views/Users.vue'),
+        meta: { title: '用户管理', requireAdmin: true },
+      },
     ],
   },
 ]
@@ -52,12 +57,14 @@ const router = createRouter({
   routes,
 })
 
-migrateLegacyToken()
-
 router.beforeEach((to) => {
-  if (to.meta.noAuth) return true
-  if (!isAuthenticated()) {
+  const token = localStorage.getItem('hajimi_access_token')
+  if (!to.meta.noAuth && !token) {
     return '/login'
+  }
+  // 已登录访问登录页 → 重定向到 dashboard
+  if (to.path === '/login' && token) {
+    return '/dashboard'
   }
 })
 
