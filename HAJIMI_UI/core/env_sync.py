@@ -203,7 +203,8 @@ def _settings_to_env_updates(data: dict) -> Dict[str, str]:
     if speed in ("fast", "balanced", "precision"):
         updates["LLM_SPEED_MODE"] = speed
     if routing in ("auto", "fast", "balanced", "precision", "l5"):
-        updates["ROUTING_MODE"] = routing
+        # l5 不是 route_selector.py 的合法值，回退会选 L4 跳过 OmniParser
+        updates["ROUTING_MODE"] = "precision" if routing == "l5" else routing
     elif speed in ("fast", "balanced", "precision"):
         updates["ROUTING_MODE"] = speed
     mode = data.get("deployment_mode", "gpu_api")

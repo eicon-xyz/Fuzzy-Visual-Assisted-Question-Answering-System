@@ -397,6 +397,9 @@ def _force_window_foreground(app_name: str) -> bool:
 
     Uses pygetwindow for window enumeration and activation.
     Falls back to pywinauto if pygetwindow's activate() fails (e.g. RDP).
+
+    Retries up to 3 times with 1s interval to handle slow-launching apps.
+    Also tries alternative names (English name, exe name) as search fallback.
     """
     try:
         import pygetwindow as gw
@@ -404,22 +407,55 @@ def _force_window_foreground(app_name: str) -> bool:
         logger.warning("pygetwindow not installed — cannot force window foreground")
         return False
 
-    time.sleep(0.5)
+    # Build search terms: original name + known aliases + exe name
+    search_terms = {app_name}
+    mapped = APP_EXECUTABLE_MAP.get(app_name)
+    if mapped:
+        search_terms.add(mapped.replace(".exe", ""))
+    # Add reverse-mapped aliases: all keys mapping to the same exe
+    if mapped:
+        for key, exe in APP_EXECUTABLE_MAP.items():
+            if exe == mapped:
+                search_terms.add(key)
 
-    # Collect candidates: exact title match first, then fuzzy
-    candidates = gw.getWindowsWithTitle(app_name)
-    if not candidates:
-        app_words = app_name.lower().split()
-        for win in gw.getAllWindows():
-            title = (win.title or "").lower()
-            if not title or title.startswith("_"):
-                continue
-            if any(word in title for word in app_words):
-                candidates.append(win)
+    # Remove any pygetwindow windows that are stale/empty
+    for attempt in range(3):
+        time.sleep(0.5)
 
-    if not candidates:
+        candidates = []
+        seen_titles: set[str] = set()
+        all_windows = gw.getAllWindows()
+
+        for term in search_terms:
+            for win in all_windows:
+                title = win.title or ""
+                if not title or title in seen_titles:
+                    continue
+                if term.lower() in title.lower() and not title.startswith("_"):
+                    candidates.append(win)
+                    seen_titles.add(title)
+
+        # Fallback: try matching by exe name against window class
+        if not candidates and mapped:
+            exe_base = mapped.replace(".exe", "").lower()
+            for win in all_windows:
+                title = win.title or ""
+                if not title or title in seen_titles:
+                    continue
+                if exe_base in title.lower() and not title.startswith("_"):
+                    candidates.append(win)
+                    seen_titles.add(title)
+
+        if candidates:
+            break
+        logger.info(
+            f"_force_window_foreground: attempt {attempt+1}/3 no window "
+            f"for '{app_name}' (searched: {search_terms})"
+        )
+    else:
         logger.warning(
-            f"_force_window_foreground: no window found matching '{app_name}'"
+            f"_force_window_foreground: no window found matching '{app_name}' "
+            f"after 3 attempts (searched: {search_terms})"
         )
         return False
 
