@@ -48,11 +48,9 @@ if not "%_PIP_ERR%"=="0" (
     exit /b 1
 )
 
-echo [HAJIMI-L5] Installing Playwright Chromium (L5 browser tools)...
-"%VENV_PY%" -m playwright install chromium
-if errorlevel 1 (
-    echo [HAJIMI-L5] WARN: playwright install chromium failed — L5 browser tasks may fail
-)
+echo [HAJIMI-L5] L5 web automation uses your installed Edge/Chrome via Playwright.
+echo [HAJIMI-L5] If browser tools fail, install/update Edge or Chrome, or run:
+echo [HAJIMI-L5]   "%VENV_PY%" -m playwright install chromium
 
 echo [HAJIMI-L5] Verifying installation...
 "%VENV_PY%" -c "import fastapi, uvicorn, pydantic, sqlalchemy, psutil; print('fastapi', fastapi.__version__, 'sqlalchemy', sqlalchemy.__version__, 'psutil', psutil.__version__)"

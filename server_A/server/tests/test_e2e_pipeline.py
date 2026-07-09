@@ -5,7 +5,7 @@ Verifies the FULL business loop: User says "search X" → Agent plans →
 dispatches real browser tools → confirms result → marks done.
 
 Uses:
-  - Real BrowserController (Playwright Chromium, headless)
+  - Real BrowserController (Playwright, headless; Edge/Chrome or bundled Chromium)
   - Mock LLM — canned tool-call sequences (avoids LLM cost/non-determinism)
 
 This distinguishes "browser driver is broken" from "agent logic is broken":
@@ -21,20 +21,12 @@ import threading
 import time
 from unittest.mock import MagicMock, patch, AsyncMock
 
+from server.services.browser.launch_helpers import browser_available_for_e2e
+
 pytestmark = pytest.mark.e2e
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
-
-
-def _chromium_installed():
-    import importlib, os
-    try:
-        mod = importlib.import_module("playwright.sync_api")
-        with mod.sync_playwright() as p:
-            return os.path.exists(p.chromium.executable_path)
-    except Exception:
-        return False
 
 
 def _try_import_playwright():
@@ -85,8 +77,8 @@ def agent_with_real_browser():
 # ── Skip conditions ─────────────────────────────────────────────────────────
 
 pytestmark_skip = pytest.mark.skipif(
-    not (_try_import_playwright() and _chromium_installed()),
-    reason="playwright + chromium required (run: playwright install chromium)",
+    not (_try_import_playwright() and browser_available_for_e2e()),
+    reason="playwright + launchable browser required (Edge/Chrome or playwright install chromium)",
 )
 
 

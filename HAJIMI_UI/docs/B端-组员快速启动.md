@@ -123,6 +123,20 @@ set HAJIMI_L5_TOOL_SSE=1
 
 Compact 小窗 L5 时显示一行状态 + 停止按钮。
 
+### L5 网页自动化（browser_* 工具）
+
+Sidecar 首次配置（`server_A\scripts\setup_server_env.bat`）**不再自动下载** Playwright 自带的 Chromium（约 150–300MB）。
+
+L5 任务里涉及 `browser_navigate` / `browser_click` 等网页工具时，会使用本机已安装的 **Microsoft Edge 或 Google Chrome**（Playwright channel 模式，与用户日常浏览器版本独立、不会覆盖安装）。
+
+| 情况 | 行为 |
+|------|------|
+| 本机有 Edge/Chrome | 自动优先 Edge → Chrome |
+| 都没有或版本过旧 | 报错并提示安装/更新浏览器 |
+| 必须用 bundled Chromium | 手动：`server\.venv\Scripts\python.exe -m playwright install chromium`，并可选 `set PLAYWRIGHT_CHANNEL=chromium` |
+
+不用 L5 网页自动化、只做桌面点击/截图时，**无需**额外安装浏览器。
+
 ---
 
 ## 固定坐标点击冒烟（验证 8011 键鼠层）
@@ -187,7 +201,7 @@ cd HAJIMI_UI
 scripts\setup.bat          # B 端 UI
 scripts\setup_server_env.bat   # 8010 A-end
 cd ..\server_A
-scripts\setup_server_env.bat   # 8011 L5（与 8010 是两套独立 venv）
+scripts\setup_server_env.bat   # 8011 L5 venv（pip 依赖；浏览器用本机 Edge/Chrome）
 ```
 
 ## 2. 只看 UI（推荐首次验证）

@@ -19,6 +19,8 @@ import asyncio
 import logging
 from typing import Optional
 
+from server.services.browser.launch_helpers import launch_chromium
+
 logger = logging.getLogger(__name__)
 
 # ── Snapshot size guard ──
@@ -65,11 +67,11 @@ class BrowserController:
             from playwright.async_api import async_playwright
         except ImportError as exc:
             raise RuntimeError(
-                "playwright not installed. Run: pip install playwright && playwright install chromium"
+                "playwright not installed. Run: pip install playwright"
             ) from exc
 
         logger.info(
-            "Starting Playwright Chromium (headless=%s, profile=%s)...",
+            "Starting Playwright browser (headless=%s, profile=%s)...",
             headless, user_data_dir or "(fresh)",
         )
         self._playwright = await async_playwright().start()
@@ -81,27 +83,15 @@ class BrowserController:
             "--disable-background-networking",
         ]
 
-        if user_data_dir:
-            from pathlib import Path
-            Path(user_data_dir).mkdir(parents=True, exist_ok=True)
-            self._context = await self._playwright.chromium.launch_persistent_context(
-                user_data_dir=user_data_dir,
-                headless=headless,
-                args=launch_args,
-            )
-            self._browser = None
-            pages = self._context.pages
-            self._page = pages[0] if pages else await self._context.new_page()
-        else:
-            self._browser = await self._playwright.chromium.launch(
-                headless=headless,
-                args=launch_args,
-            )
-            self._context = None
-            self._page = await self._browser.new_page()
+        self._browser, self._context, self._page, channel_label = await launch_chromium(
+            self._playwright,
+            headless=headless,
+            user_data_dir=user_data_dir,
+            launch_args=launch_args,
+        )
 
         self._started = True
-        logger.info("BrowserController started successfully")
+        logger.info("BrowserController started successfully (channel=%s)", channel_label)
 
         # Navigate to start URL if requested (avoids blank tab on launch)
         if start_url:

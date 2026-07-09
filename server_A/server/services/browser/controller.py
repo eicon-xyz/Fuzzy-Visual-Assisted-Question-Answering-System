@@ -19,6 +19,8 @@ import asyncio
 import logging
 from typing import Optional
 
+from server.services.browser.launch_helpers import launch_chromium
+
 logger = logging.getLogger(__name__)
 
 # ── Snapshot size guard ──
@@ -47,12 +49,13 @@ class BrowserController:
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
-    async def start(self, headless: bool = False, user_data_dir: str | None = None) -> None:
-        """Launch Chromium via Playwright.
+    async def start(self, headless: bool = False, user_data_dir: str | None = None, start_url: str | None = None) -> None:
+        """Launch a browser via Playwright (system Edge/Chrome preferred).
 
         Args:
             headless: Run without UI. Default False so humans can watch.
             user_data_dir: Persistent profile directory for cookies/login state.
+            start_url: Optional URL to open after launch.
         """
         if self._started:
             logger.info("BrowserController already started, reusing")
@@ -62,11 +65,11 @@ class BrowserController:
             from playwright.async_api import async_playwright
         except ImportError as exc:
             raise RuntimeError(
-                "playwright not installed. Run: pip install playwright && playwright install chromium"
+                "playwright not installed. Run: pip install playwright"
             ) from exc
 
         logger.info(
-            "Starting Playwright Chromium (headless=%s, profile=%s)...",
+            "Starting Playwright browser (headless=%s, profile=%s)...",
             headless, user_data_dir or "(fresh)",
         )
         self._playwright = await async_playwright().start()
@@ -78,27 +81,22 @@ class BrowserController:
             "--disable-background-networking",
         ]
 
-        if user_data_dir:
-            from pathlib import Path
-            Path(user_data_dir).mkdir(parents=True, exist_ok=True)
-            self._context = await self._playwright.chromium.launch_persistent_context(
-                user_data_dir=user_data_dir,
-                headless=headless,
-                args=launch_args,
-            )
-            self._browser = None
-            pages = self._context.pages
-            self._page = pages[0] if pages else await self._context.new_page()
-        else:
-            self._browser = await self._playwright.chromium.launch(
-                headless=headless,
-                args=launch_args,
-            )
-            self._context = None
-            self._page = await self._browser.new_page()
+        self._browser, self._context, self._page, channel_label = await launch_chromium(
+            self._playwright,
+            headless=headless,
+            user_data_dir=user_data_dir,
+            launch_args=launch_args,
+        )
 
         self._started = True
-        logger.info("BrowserController started successfully")
+        logger.info("BrowserController started successfully (channel=%s)", channel_label)
+
+        if start_url:
+            logger.info("Browser navigating to start_url: %s", start_url)
+            try:
+                await self._page.goto(start_url, wait_until="commit", timeout=10_000)
+            except Exception:
+                logger.warning("start_url navigation timed out, continuing anyway")
 
     async def close(self) -> None:
         """Close browser and stop Playwright. Safe to call multiple times."""

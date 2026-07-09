@@ -1,26 +1,15 @@
 """
-E2E smoke tests for BrowserController — uses real Playwright Chromium.
+E2E smoke tests for BrowserController — uses real Playwright browser.
 
-These tests require: playwright install chromium
-Skip if Chromium is not installed.
+Requires playwright pip package and a launchable Edge/Chrome (or bundled Chromium).
 """
 
 import pytest
 import pytest_asyncio
 
+from server.services.browser.launch_helpers import browser_available_for_e2e
+
 pytestmark = pytest.mark.e2e
-
-
-def _chromium_installed():
-    """Check if Playwright Chromium binary exists."""
-    import importlib
-    import os
-    try:
-        mod = importlib.import_module("playwright.sync_api")
-        with mod.sync_playwright() as p:
-            return os.path.exists(p.chromium.executable_path)
-    except Exception:
-        return False
 
 
 def _try_import_playwright():
@@ -46,8 +35,8 @@ async def browser():
     reason="playwright not installed",
 )
 @pytest.mark.skipif(
-    not _chromium_installed(),
-    reason="chromium browser not installed (run: playwright install chromium)",
+    not browser_available_for_e2e(),
+    reason="no launchable browser (install Edge/Chrome or playwright install chromium)",
 )
 class TestBrowserE2E:
     """Real-browser round-trip tests."""
