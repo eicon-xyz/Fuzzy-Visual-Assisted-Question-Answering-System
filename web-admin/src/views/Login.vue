@@ -9,7 +9,7 @@
         </div>
       </template>
 
-      <el-form ref="formRef" :model="form" :rules="rules" @keyup.enter="submitLogin">
+      <el-form ref="formRef" :model="form" :rules="rules" @keyup.enter="login">
         <el-form-item prop="username">
           <el-input v-model="form.username" placeholder="管理员账号" :prefix-icon="User" />
         </el-form-item>
@@ -17,15 +17,14 @@
           <el-input v-model="form.password" type="password" placeholder="密码" show-password :prefix-icon="Lock" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" style="width: 100%" :loading="loading" @click="submitLogin">
+          <el-button type="primary" style="width: 100%" :loading="loading" @click="login">
             {{ loading ? '登录中...' : '登 录' }}
           </el-button>
         </el-form-item>
       </el-form>
 
-      <div style="text-align: center; color: #c0c4cc; font-size: 12px; line-height: 1.5">
-        演示账号：admin / demo123（需 A 端 :8010 运行）<br>
-        Dashboard 数据仍使用 Demo Key，不影响 B 端桌面助手
+      <div style="text-align: center; color: #c0c4cc; font-size: 12px">
+        管理员账号 · 初始密码 admin
       </div>
     </el-card>
   </div>
@@ -36,15 +35,15 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { User, Lock } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { login, extractErrorMessage } from '../auth'
+import { authLogin } from '../api/admin'
+import { setTokens } from '../api/index'
 
 const router = useRouter()
 const loading = ref(false)
-const formRef = ref(null)
 
 const form = reactive({
   username: 'admin',
-  password: 'demo123',
+  password: '',
 })
 
 const rules = {
@@ -52,21 +51,21 @@ const rules = {
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
 }
 
-async function submitLogin() {
-  if (!formRef.value) return
-  try {
-    await formRef.value.validate()
-  } catch {
-    return
-  }
-
+async function login() {
   loading.value = true
   try {
-    await login(form.username, form.password)
-    ElMessage.success('登录成功')
-    router.replace('/dashboard')
+    const res = await authLogin(form.username, form.password)
+    if (res.success) {
+      // 存储 token + 用户信息
+      setTokens(res.data.access_token, res.data.refresh_token)
+      localStorage.setItem('hajimi_user', JSON.stringify(res.data.user))
+      ElMessage.success('登录成功')
+      router.replace('/dashboard')
+    } else {
+      ElMessage.error(res.error?.message || '登录失败')
+    }
   } catch (err) {
-    ElMessage.error(extractErrorMessage(err))
+    // 错误已由拦截器处理显示，这里只需停止 loading
   } finally {
     loading.value = false
   }

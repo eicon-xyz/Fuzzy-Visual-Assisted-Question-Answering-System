@@ -33,6 +33,10 @@
           <el-icon><Monitor /></el-icon>
           <span>健康监控</span>
         </el-menu-item>
+        <el-menu-item index="/users">
+          <el-icon><User /></el-icon>
+          <span>用户管理</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 
@@ -42,7 +46,7 @@
         <span style="font-size: 16px; font-weight: 600">{{ route.meta.title }}</span>
         <div>
           <span style="margin-right: 12px; color: #909399">{{ username }}</span>
-          <el-button text @click="handleLogout">退出</el-button>
+          <el-button text @click="logout">退出</el-button>
         </div>
       </el-header>
       <el-main style="background: #f0f2f5; overflow-y: auto">
@@ -55,14 +59,31 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getUsername, logout } from '../auth'
+import { authLogout } from '../api/admin'
+import { clearAuth, getRefreshToken } from '../api/index'
 
 const route = useRoute()
 const router = useRouter()
-const username = computed(() => getUsername())
 
-async function handleLogout() {
-  await logout()
+const username = computed(() => {
+  try {
+    const user = JSON.parse(localStorage.getItem('hajimi_user') || '{}')
+    return user.username || 'admin'
+  } catch {
+    return 'admin'
+  }
+})
+
+async function logout() {
+  try {
+    const rt = getRefreshToken()
+    if (rt) {
+      await authLogout(rt)
+    }
+  } catch {
+    // 忽略 logout API 错误
+  }
+  clearAuth()
   router.replace('/login')
 }
 </script>
