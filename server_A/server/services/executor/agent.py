@@ -522,9 +522,19 @@ class ExecutionAgent:
         self._browser_loop_thread = None
 
     def _ensure_browser_started(self) -> None:
-        """Lazy-start the browser on first use."""
+        """Lazy-start the browser on first use. Auto-recover if page was closed."""
         if not self.browser.is_started:
             self._run_async(self.browser.start(headless=False))
+        # If page was closed by a previous LLM action, recreate it
+        if self._browser is not None:
+            try:
+                page = self._browser._page if hasattr(self._browser, '_page') else None
+                if page is not None and page.is_closed():
+                    logger.warning("Browser page was closed externally, recreating...")
+                    self._browser._started = False
+                    self._run_async(self._browser.start(headless=False))
+            except Exception:
+                pass
 
     def close_browser(self) -> None:
         """Close browser and clean up. Safe to call multiple times."""
@@ -1024,8 +1034,10 @@ class ExecutionAgent:
                 except Exception:
                     pass
             result = self.dispatch_tool(tool_name, tool_args)
+            if result is None:
+                result = {"success": False, "error": "tool dispatch returned None"}
             duration_ms = int((time.perf_counter() - t0) * 1000)
-            if on_tool_event:
+            if on_tool_event and result:
                 try:
                     on_tool_event(
                         "tool_result",
@@ -1040,11 +1052,11 @@ class ExecutionAgent:
                 except Exception:
                     pass
             logger.info(
-                f"Round {round_num}: {tool_name}({tool_args}) → success={result.get('success')}"
+                f"Round {round_num}: {tool_name}({tool_args}) → success={result.get('success') if result else 'N/A'}"
             )
 
             # If the tool took a screenshot, push it to the frontend
-            if tool_name == "get_screen_info" and on_screenshot:
+            if tool_name == "get_screen_info" and on_screenshot and result:
                 annotated = result.get("annotated_image")
                 if annotated:
                     try:
@@ -1053,19 +1065,19 @@ class ExecutionAgent:
                         pass
 
             # Check for step completion signals
-            if result.get("__step_complete__"):
+            if result and result.get("__step_complete__"):
                 step.status = "done"
                 step.action_summary = action_summary or result.get(
                     "reason", "step completed"
                 )
                 return step
-            if result.get("__step_failed__"):
+            if result and result.get("__step_failed__"):
                 step.status = "failed"
                 step.action_summary = result.get("reason", "step failed")
                 return step
 
             # Accumulate action_summary from tool returns
-            if result.get("action_summary"):
+            if result and result.get("action_summary"):
                 action_summary = result["action_summary"]
 
             # Add assistant message + tool result to conversation using the original

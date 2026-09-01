@@ -21,7 +21,7 @@ from server.models.schemas import UIElement
 
 _OMNIPARSER_URL = settings.OMNIPARSER_URL.rstrip("/")
 _OMNIPARSER_TIMEOUT = settings.OMNIPARSER_TIMEOUT
-_OMNIPARSER_RETRY = getattr(settings, "OMNIPARSER_RETRY", 1)
+_OMNIPARSER_RETRY = max(getattr(settings, "OMNIPARSER_RETRY", 1), 1)  # At least 1 retry
 _OMNIPARSER_RETRY_DELAY = getattr(settings, "OMNIPARSER_RETRY_DELAY", 3.0)
 
 # Regex to strip data URI prefix, e.g. "data:image/png;base64,"
@@ -267,7 +267,8 @@ def parse_screenshot_full(
                         break
             if data is not None:
                 break
-            raise httpx.HTTPError("no compatible /parse endpoint accepted request")
+            raise httpx.HTTPError(f"no compatible /parse endpoint accepted request"
+                f" [endpoints={endpoints} payloads={[list(p.keys()) for p in payloads]}]")
         except Exception as exc:
             last_exc = exc
             print(
