@@ -1,11 +1,20 @@
 @echo off
 setlocal EnableExtensions
-cd /d %~dp0..
 
-echo ============================================================
-echo  HAJIMI local_vision mode - no OmniParser (old :9800 stopped)
-echo  L4 vision planning (DeepSeek) + L5 UIA binding + Playwright
-echo ============================================================
+REM ============================================================
+REM  HAJIMI local_vision mode - no OmniParser (old :9800 stopped)
+REM  ASCII-only: keep this file free of non-ASCII (GBK codepage).
+REM  L4 vision planning (DeepSeek) + L5 UIA binding + Playwright
+REM ============================================================
+
+cd /d "%~dp0.." 2>nul
+if errorlevel 1 (
+    echo [ERROR] Cannot cd to repo root at "%~dp0.."
+    echo         UNC paths (\\wsl.localhost\...) are not supported by CMD.
+    echo         Please copy the repo to C:\HAJIMI and run the launcher bat from there.
+    pause
+    exit /b 1
+)
 
 if exist server\.venv\Scripts\python.exe (
     set PYTHON=server\.venv\Scripts\python.exe

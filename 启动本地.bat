@@ -1,10 +1,27 @@
 @echo off
 setlocal EnableExtensions
-cd /d %~dp0HAJIMI_UI
-REM 无 :9800 纯视觉模式：L4 视觉(DeepSeek) + L5 UIA 绑定执行
-REM （原 GPU 隧道路径保留在 scripts\start_local_one_click.bat / start_gpu_one_click.bat）
+
+REM ============================================================
+REM  HAJIMI launcher - local_vision mode (no OmniParser :9800)
+REM  IMPORTANT: keep this file ASCII-only (GBK codepage safe).
+REM  Run from a Windows-local path like C:\HAJIMI, NOT from
+REM  \\wsl.localhost\... (CMD cannot cd to UNC paths).
+REM ============================================================
+
+cd /d "%~dp0HAJIMI_UI" 2>nul
+if errorlevel 1 (
+    echo [ERROR] Cannot enter HAJIMI_UI at "%~dp0HAJIMI_UI"
+    echo         UNC paths (\\wsl.localhost\...) are not supported by CMD.
+    echo         Please copy the repo to C:\HAJIMI and run from there.
+    pause
+    exit /b 1
+)
+
+REM local_vision: L4 vision planning (DeepSeek) + L5 UIA execution.
+REM Old GPU tunnel path kept in scripts\start_local_one_click.bat
 call scripts\start_local_vision.bat
 set ERR=%ERRORLEVEL%
+
 if %ERR% GEQ 1 (
     echo.
     if %ERR% EQU 2 (
