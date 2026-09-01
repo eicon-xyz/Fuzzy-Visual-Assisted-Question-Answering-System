@@ -156,6 +156,9 @@ def get_detector_health_info() -> Dict[str, Any]:
 
 def detect(pil_image: Image.Image, backend: Optional[str] = None) -> DetectionResult:
     backend = backend or settings.DETECTOR_BACKEND
+    if not getattr(settings, "OMNIPARSER_ENABLED", True):
+        # 无 :9800 纯视觉模式：检测器未启用，直接失败（由上层走 L4/视觉路径）
+        raise DetectorError("OmniParser disabled (OMNIPARSER_ENABLED=false)")
     if backend == "auto":
         active, url, _device = resolve_auto_backend()
         if active == "replicate_omniparser":

@@ -59,7 +59,22 @@ def _format_sse(event: str, data: dict) -> str:
 
 @router.get("/health", summary="服务健康检查")
 async def health_check():
-    """Health check with OmniParser probe."""
+    """Health check with OmniParser probe.
+
+    无 :9800 纯视觉模式（OMNIPARSER_ENABLED=false）：
+    直接报告 vision_llm / not_required，不再探测 / 返回 503。
+    """
+    if not getattr(settings, "OMNIPARSER_ENABLED", True):
+        return HealthResponse(
+            status="ok",
+            version="2.0.0",
+            detector_backend="vision_llm",
+            detector_active="vision_llm",
+            detector_device=None,
+            omniparser_url=None,
+            omniparser_ready="not_required",
+        )
+
     import httpx
 
     omni_ready = False

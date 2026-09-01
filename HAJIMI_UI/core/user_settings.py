@@ -43,9 +43,10 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "a_end_url": DEFAULT_A_URL,
     "demo_key": DEFAULT_DEMO_KEY,
     "llm": {
-        "base_url": "https://www.daseinai.xyz/v1",
+        # 留空 = 使用 server/.env 中已有配置（LLM_API_KEY / DEEPSEEK_API_KEY）
+        "base_url": "",
         "api_key": "",
-        "model": "gpt-5.5",
+        "model": "deepseek-chat",
     },
     "omniparser": {
         "url": DEFAULT_OMNI_GPU_API_URL,
@@ -59,10 +60,11 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "shortcut_l5_stop": "J",
     "shortcut_l5_pause": "P",
     "l4": {
-        "planner_model": "gpt-5.5",
-        "locator_model": "gpt-5.5",
+        # 无 :9800 纯视觉模式默认：文本规划 deepseek-chat（已验证可用）
+        "planner_model": "deepseek-chat",
+        "locator_model": "deepseek-chat",
         "planner_use_vision": False,
-        "strict_locate": True,
+        "strict_locate": False,
         "pipeline_enabled": True,
     },
     "voice": dict(DEFAULT_VOICE_SETTINGS),
@@ -82,7 +84,7 @@ def _settings_path() -> str:
 
 
 def _merge_core_settings(out: dict, data: dict) -> None:
-    if data.get("deployment_mode") in ("local", "intranet", "gpu_api"):
+    if data.get("deployment_mode") in ("local", "intranet", "gpu_api", "local_vision"):
         out["deployment_mode"] = data["deployment_mode"]
     if data.get("llm_speed_mode") in ("fast", "balanced", "precision"):
         out["llm_speed_mode"] = data["llm_speed_mode"]
@@ -411,11 +413,19 @@ def apply_user_settings(data: dict | None = None) -> dict:
 
     omni = settings.get("omniparser") or {}
     mode = settings.get("deployment_mode", DEFAULT_DEPLOYMENT_MODE)
-    default_omni = DEFAULT_OMNI_GPU_API_URL if mode == "gpu_api" else DEFAULT_OMNI_LOCAL_URL
+    if mode == "gpu_api":
+        default_omni = DEFAULT_OMNI_GPU_API_URL
+    elif mode == "local":
+        default_omni = DEFAULT_OMNI_LOCAL_URL
+    else:
+        default_omni = ""  # local_vision：无 OmniParser
     omni_url = (omni.get("url") or default_omni).strip()
     if omni_url:
         os.environ["OMNIPARSER_LOCAL_URL"] = omni_url
         os.environ["OMNIPARSER_URL"] = omni_url
+    elif "OMNIPARSER_URL" in os.environ:
+        os.environ.pop("OMNIPARSER_URL", None)
+        os.environ.pop("OMNIPARSER_LOCAL_URL", None)
     gpu_url = (omni.get("gpu_url") or "").strip()
     if gpu_url:
         os.environ["OMNIPARSER_GPU_URL"] = gpu_url

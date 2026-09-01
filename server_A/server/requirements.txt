@@ -19,3 +19,4 @@ sentence-transformers>=3.0
 numpy>=1.24
 playwright>=1.40
 pywin32>=306
+uiautomation>=2.0.17  # UIA 绑定：结构化控件采集 + 精确操作（无 :9800 模式核心依赖）

@@ -121,6 +121,10 @@ class Config:
         self.OMNIPARSER_IOU_THRESHOLD = float(
             os.getenv("OMNIPARSER_IOU_THRESHOLD", "0.1")
         )
+        # 无 :9800 纯视觉模式：OMNIPARSER_ENABLED=false 时跳过一切探测与调用
+        self.OMNIPARSER_ENABLED = (
+            os.getenv("OMNIPARSER_ENABLED", "true").lower() not in ("0", "false", "no")
+        )
 
         self.DETECTOR_BACKEND = os.getenv("DETECTOR_BACKEND", "auto")
         self.DETECTOR_AUTO_FALLBACK_REPLICATE = (

@@ -2,7 +2,7 @@
 HAJIMI Demo API Pydantic 模型
 严格对应 docs/api-contract-demo.md 中的数据定义
 """
-from typing import Optional, List
+from typing import Optional, List, Union
 from pydantic import BaseModel, Field
 
 
@@ -300,7 +300,8 @@ class HealthResponse(BaseModel):
     detector_active: Optional[str] = None
     detector_device: Optional[str] = None
     omniparser_url: Optional[str] = None
-    omniparser_ready: Optional[bool] = None
+    # 纯视觉模式（无 OmniParser）下返回字符串 "not_required"
+    omniparser_ready: Optional[Union[bool, str]] = None
     config_source: Optional[str] = None
     routing_mode: Optional[str] = None
     llm_configured: Optional[bool] = None

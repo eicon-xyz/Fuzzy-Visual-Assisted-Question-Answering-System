@@ -37,6 +37,10 @@ class Config:
     OMNIPARSER_TIMEOUT: int = int(os.getenv("OMNIPARSER_TIMEOUT", "30"))
     OMNIPARSER_RETRY: int = int(os.getenv("OMNIPARSER_RETRY", "1"))
     OMNIPARSER_RETRY_DELAY: float = float(os.getenv("OMNIPARSER_RETRY_DELAY", "3.0"))
+    # 无 :9800 纯视觉模式：OMNIPARSER_ENABLED=false 时跳过一切 OmniParser 探测/调用
+    OMNIPARSER_ENABLED: bool = (
+        os.getenv("OMNIPARSER_ENABLED", "true").lower() not in ("0", "false", "no")
+    )
 
     # ═════════════════════════════════════════════════════════════════════
     # LLM 提供商选择

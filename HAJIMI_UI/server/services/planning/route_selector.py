@@ -28,9 +28,13 @@ def select_route(
     if routing_mode not in ("auto", "fast", "balanced", "precision"):
         routing_mode = "auto"
 
+    # 无 :9800 纯视觉模式（OMNIPARSER_ENABLED=false）：L3（依赖 OmniParser 元素绑定）
+    # 不可用，模板命中也改走 L4 视觉路径
+    omni_enabled = getattr(settings, "OMNIPARSER_ENABLED", True)
+
     # L2 模板命中但带截图且非 keyboard_only：沿用原 L3 OmniParser 绑定路径
     if l2_steps and has_image and not l2_steps_skip_parse_with_image(l2_steps):
-        return "L3"
+        return "L3" if omni_enabled else "L4"
 
     if getattr(settings, "BROWSER_PLUGIN_ENABLED", True) and is_browser_task(query):
         if browser_route_available():

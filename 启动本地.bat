@@ -1,7 +1,9 @@
 @echo off
 setlocal EnableExtensions
 cd /d %~dp0HAJIMI_UI
-call scripts\start_local_one_click.bat
+REM 无 :9800 纯视觉模式：L4 视觉(DeepSeek) + L5 UIA 绑定执行
+REM （原 GPU 隧道路径保留在 scripts\start_local_one_click.bat / start_gpu_one_click.bat）
+call scripts\start_local_vision.bat
 set ERR=%ERRORLEVEL%
 if %ERR% GEQ 1 (
     echo.

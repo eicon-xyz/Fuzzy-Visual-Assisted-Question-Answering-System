@@ -272,7 +272,8 @@ def start_backend_services() -> None:
         mode = "local"
         omni_url = ""
 
-    if mode == "gpu_api" or is_remote_omni_url(omni_url):
+    # local_vision：只启动 A 端（纯视觉模式，不启动本地 OmniParser）
+    if mode in ("gpu_api", "local_vision") or is_remote_omni_url(omni_url):
         start_gpu_api_services()
         return
 

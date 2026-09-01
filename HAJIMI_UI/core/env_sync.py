@@ -18,6 +18,9 @@ ROOT = Path(__file__).resolve().parent.parent
 ENV_PATH = ROOT / "server" / ".env"
 EXAMPLE_PATH = ROOT / "server" / ".env.example"
 
+# 注：OMNIPARSER_* 与 ROUTING_MODE 已从同步键中剔除 —— 它们由
+# 启动脚本（apply_local_vision_settings.py / start_local_vision.bat）按
+# 部署模式直接写入两端 .env，避免 user_settings 把配置回滚到旧的 :9800/precision。
 _L5_SIDECAR_SYNC_KEYS = (
     "DEEPSEEK_API_KEY",
     "DEEPSEEK_BASE_URL",
@@ -26,15 +29,9 @@ _L5_SIDECAR_SYNC_KEYS = (
     "LLM_API_KEY",
     "LLM_BASE_URL",
     "LLM_MODEL",
-    "OMNIPARSER_URL",
-    "OMNIPARSER_LOCAL_URL",
-    "OMNIPARSER_TIMEOUT",
-    "OMNIPARSER_LOCAL_TIMEOUT",
-    "OMNIPARSER_RETRY",
     "HAJIMI_DEMO_KEY",
     "HAJIMI_HOST",
     "HAJIMI_PORT",
-    "ROUTING_MODE",
     "LLM_SPEED_MODE",
 )
 
@@ -175,16 +172,24 @@ def sync_l5_sidecar_env(data: dict | None = None) -> Path | None:
 def _default_omni_url(data: dict) -> str:
     mode = data.get("deployment_mode", "gpu_api")
     omni = data.get("omniparser") or {}
+    if mode == "local_vision":
+        return ""  # 无 OmniParser：忽略 omniparser.url（默认值可能是旧 :9800）
     if omni.get("url"):
         return str(omni["url"]).strip()
     if mode == "gpu_api":
         return DEFAULT_OMNI_GPU_API_URL
-    return DEFAULT_OMNI_LOCAL_URL
+    if mode == "local":
+        return DEFAULT_OMNI_LOCAL_URL
+    return ""
 
 
 def _omni_timeout(data: dict) -> str:
     mode = data.get("deployment_mode", "gpu_api")
-    return "120" if mode in ("gpu_api", "intranet") else "360"
+    if mode in ("gpu_api", "intranet"):
+        return "120"
+    if mode == "local":
+        return "360"
+    return "10"  # local_vision：OmniParser 未启用，超时收紧避免阻塞
 
 
 def _settings_to_env_updates(data: dict) -> Dict[str, str]:
@@ -198,16 +203,18 @@ def _settings_to_env_updates(data: dict) -> Dict[str, str]:
         "OMNIPARSER_LOCAL_TIMEOUT": omni_timeout,
         "HAJIMI_DEMO_KEY": (data.get("demo_key") or DEFAULT_DEMO_KEY).strip(),
     }
+    mode = data.get("deployment_mode", "gpu_api")
     speed = (data.get("llm_speed_mode") or "fast").strip().lower()
     routing = (data.get("routing_mode") or speed or "fast").strip().lower()
     if speed in ("fast", "balanced", "precision"):
         updates["LLM_SPEED_MODE"] = speed
     if routing in ("auto", "fast", "balanced", "precision", "l5"):
-        # l5 不是 route_selector.py 的合法值，回退会选 L4 跳过 OmniParser
-        updates["ROUTING_MODE"] = "precision" if routing == "l5" else routing
+        # l5 不是 route_selector.py 的合法值；无 :9800 模式下统一落到 fast（L4 视觉）
+        updates["ROUTING_MODE"] = "fast" if routing == "l5" else routing
     elif speed in ("fast", "balanced", "precision"):
         updates["ROUTING_MODE"] = speed
-    mode = data.get("deployment_mode", "gpu_api")
+    # 部署模式开关：local_vision（无 OmniParser）/ gpu_api / local
+    updates["OMNIPARSER_ENABLED"] = "false" if mode == "local_vision" else "true"
     if mode == "gpu_api":
         updates["OMNIPARSER_RETRY"] = "0"
     if llm.get("api_key"):

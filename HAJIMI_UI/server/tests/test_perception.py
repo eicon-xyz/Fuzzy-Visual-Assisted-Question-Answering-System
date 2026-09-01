@@ -193,6 +193,9 @@ def test_l2_template_skips_gpu_parse(monkeypatch):
 def test_l2_settings_with_image_runs_parse(monkeypatch):
     """带截图时，非 keyboard 的 L2 模板（如打开设置）应降级 L3 并 parse"""
     monkeypatch.setattr(settings, "USE_REAL_LLM", False)
+    # 本用例显式验证「OmniParser 启用」路径；纯视觉模式（OMNIPARSER_ENABLED=false）走 L4
+    monkeypatch.setattr(settings, "OMNIPARSER_ENABLED", True)
+    monkeypatch.setattr(settings, "ROUTING_MODE", "precision")
     parse_called = {"n": 0}
 
     def _fake_parse(_img):

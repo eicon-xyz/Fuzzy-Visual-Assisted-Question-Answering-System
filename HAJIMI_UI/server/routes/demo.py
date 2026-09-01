@@ -78,11 +78,17 @@ def _locate_step_for_route(state, step, image: str, request) -> tuple:
 
 
 def _probe_omniparser_sync() -> Tuple[bool, Optional[str], str]:
-    """同步探测 OmniParser（在线程池中运行，避免阻塞 event loop）。"""
+    """同步探测 OmniParser（在线程池中运行，避免阻塞 event loop）。
+
+    无 :9800 纯视觉模式（OMNIPARSER_ENABLED=false）时直接返回未启用，
+    不发起任何网络探测。
+    """
     reload_settings()
     omniparser_ready = False
     detector_device = None
     omni_url = settings.OMNIPARSER_URL.rstrip("/")
+    if not getattr(settings, "OMNIPARSER_ENABLED", True) or not omni_url:
+        return omniparser_ready, detector_device, omni_url
     try:
         import httpx
 
@@ -160,12 +166,29 @@ async def health_live():
     description="供前端启动时探测后端是否可用，无需认证。",
 )
 async def health_check():
+    omniparser_enabled = getattr(settings, "OMNIPARSER_ENABLED", True)
     omniparser_ready, detector_device, omni_url = await asyncio.to_thread(
         _probe_omniparser_sync
     )
     llm_configured, l4_capable, routing_mode = await asyncio.to_thread(
         _llm_capability
     )
+
+    if not omniparser_enabled:
+        # 无 :9800 纯视觉模式：检测器为 vision_llm，OmniParser 视为不需要
+        return HealthResponse(
+            status="ok",
+            version="1.0.0",
+            detector_backend="vision_llm",
+            detector_active="vision_llm",
+            detector_device=None,
+            omniparser_url=None,
+            omniparser_ready="not_required",
+            config_source=CONFIG_SOURCE,
+            routing_mode=routing_mode,
+            llm_configured=llm_configured,
+            l4_capable=l4_capable,
+        )
 
     return HealthResponse(
         status="ok",

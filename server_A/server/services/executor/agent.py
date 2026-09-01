@@ -37,10 +37,10 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 ## 可用工具
 - launch_app(app_name): 通过系统级命令启动应用（Win+搜索）。当步骤为打开应用时，优先使用此工具。
 - get_screen_info(): 获取当前屏幕的元素列表（返回 id, content, left_ids, right_ids, top_ids, bottom_ids）
-- click(element_id): 单击指定元素
+- click(element_id): 单击指定元素（UIA 绑定优先：Invoke/Select 等精确模式；失败回退坐标点击）
 - double_click(element_id): 双击指定元素。桌面图标、文件通常需要双击打开。
 - paste_text(text): 将文本粘贴到当前获得焦点的位置（通过剪贴板）。启动应用后或点击输入框后，文本会自动粘贴到光标所在位置，不需要 element_id。用于无法通过 OmniParser 检测到输入框的场景（如记事本文本区、聊天输入框等纯文本区域）。
-- type_text(element_id, text): 点击元素后输入文本
+- type_text(element_id, text): 点击元素后输入文本（UIA 绑定优先：ValuePattern.SetValue 精确设置）
 - press_key(keys): 按键盘组合键，如 "enter", "ctrl+v", "win"
 - scroll(direction, amount): 滚轮滚动
 - wait(seconds): 等待指定秒数，让界面响应
@@ -60,6 +60,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 调用 get_screen_info 后，所有之前的 element_id 立即失效。你必须基于最新一次返回的元素列表选择目标。不得引用之前调用的 element_id。如果工具返回 "element_id not found in current screen"，你必须重新调用 get_screen_info。
 
 ## 元素定位策略
+- 元素来自 Windows UI Automation 结构化采集（控件名称/类型）或 OmniParser 视觉检测
 - 优先精确匹配 content 文本
 - 匹配不唯一时，利用空间关系：如"搜索框右边的按钮" → 找 left_ids 包含搜索框 id 的元素
 - 内容可能部分匹配（如搜索框显示"搜"而非"搜索"）
@@ -143,7 +144,7 @@ def _build_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "get_screen_info",
-                "description": "截取当前屏幕并通过OmniParser获取元素列表。返回元素的id、content和空间关系。每次调用会刷新element_map，旧的element_id全部失效。",
+                "description": "获取当前屏幕元素列表：优先 Windows UI Automation 结构化采集（返回控件名称/类型），无可用控件时回退 OmniParser。返回元素的 id、content。每次调用会刷新 element_map，旧的 element_id 全部失效。",
                 "parameters": {"type": "object", "properties": {}},
             },
         },
@@ -447,6 +448,8 @@ class ExecutionAgent:
         self.screen_elements: list[dict] = []
         self.tools = _build_tool_definitions()
         self._browser: Optional[BrowserController] = None
+        self._uia = None  # lazy: server.services.executor.uia_bridge.UIABridge
+        self.screen_source: Optional[str] = None  # "uia" | "omniparser" | "none"
 
     @property
     def browser(self) -> BrowserController:
@@ -551,11 +554,22 @@ class ExecutionAgent:
         self.screen_elements = []
         self._get_screen_call_count = 0
         self._last_screen_ids = None
+        self.screen_source = None
+        if getattr(self, "_uia", None) is not None:
+            self._uia.clear()
 
     # ── Tool implementations ──
 
+    def _get_uia(self) -> "UIABridge":
+        """Lazy-init UIA 桥（UIA 绑定，非 Windows/未安装自动降级为空）。"""
+        if getattr(self, "_uia", None) is None:
+            from server.services.executor.uia_bridge import UIABridge
+
+            self._uia = UIABridge()
+        return self._uia
+
     def _do_get_screen_info(self) -> dict:
-        """Screenshot → OmniParser → rebuild element_map."""
+        """屏幕感知：UIA 结构化采集优先 → OmniParser 兜底 → 明确空结果。"""
         # Wake up potentially frozen RDP/remote GUI session before screenshot
         try:
             import pyautogui
@@ -565,65 +579,127 @@ class ExecutionAgent:
         except Exception:
             pass
 
-        try:
-            from core.screen_capture import capture_to_base64
+        # 1) UIA 优先（无 :9800 纯视觉模式的主感知通道）
+        uia = self._get_uia()
+        if uia.available:
+            uia_elements = uia.snapshot()
+            if uia_elements:
+                self.element_map = {e.element_id: e for e in uia_elements}
+                self.screen_elements = _filter_elements_for_llm(uia_elements)
+                self.screen_source = "uia"
+                result = {
+                    "success": True,
+                    "source": "uia",
+                    "elements": [
+                        {"id": el["id"], "content": el["content"]}
+                        for el in self.screen_elements
+                        if el.get("content") and el["content"].strip()
+                    ][:30],
+                    "element_count": len(self.screen_elements),
+                    "action_summary": f"UIA 结构化采集（{len(self.screen_elements)} 个控件）",
+                }
+                win = uia.window_title()
+                if win:
+                    result["window_title"] = win
+                # 附带截图供前端展示视觉更新（无标注框）
+                try:
+                    from core.screen_capture import capture_to_base64
 
-            image_b64 = capture_to_base64(exclude_self=True, fmt="JPEG")
-        except ImportError:
-            # Fallback: use mss directly
-            import base64
-            from io import BytesIO
+                    result["annotated_image"] = capture_to_base64(
+                        exclude_self=True, fmt="JPEG"
+                    )
+                except Exception:
+                    pass
+                self._get_screen_call_count = getattr(
+                    self, "_get_screen_call_count", 0
+                ) + 1
+                self._last_screen_ids = frozenset(self.element_map.keys())
+                if self._get_screen_call_count >= 3:
+                    result["warning"] = (
+                        f"已连续调用 get_screen_info {self._get_screen_call_count} 次。"
+                        "屏幕元素不会因为反复截屏而改变。请立即根据已有元素决定下一步操作："
+                        "点击目标元素、输入文本、或调用 mark_step_done/mark_step_failed。"
+                    )
+                return result
 
-            import mss
-            from PIL import Image
+        # 2) OmniParser 兜底（仅 OMNIPARSER_ENABLED=true 时）
+        if getattr(settings, "OMNIPARSER_ENABLED", True):
+            try:
+                from core.screen_capture import capture_to_base64
 
-            with mss.mss() as sct:
-                monitor = sct.monitors[1]
-                img = sct.grab(monitor)
-                pil = Image.frombytes("RGB", img.size, img.bgra, "raw", "BGRX")
-                buf = BytesIO()
-                pil.save(buf, format="JPEG", quality=70)
-                image_b64 = (
-                    "data:image/jpeg;base64,"
-                    + base64.b64encode(buf.getvalue()).decode()
-                )
+                image_b64 = capture_to_base64(exclude_self=True, fmt="JPEG")
+            except ImportError:
+                # Fallback: use mss directly
+                import base64
+                from io import BytesIO
 
-        parse_result = parse_screenshot_full(image_b64, compute_spatial=False)
-        self.element_map = {e.element_id: e for e in parse_result.elements}
-        self.screen_elements = _filter_elements_for_llm(parse_result.elements)
+                import mss
+                from PIL import Image
 
-        result = {
-            "success": True,
-            "elements": [
-                {"id": el["id"], "content": el["content"]}
-                for el in self.screen_elements
-                if el.get("content") and el["content"].strip()
-            ][:30],
-            "element_count": len(self.screen_elements),
-            "action_summary": f"screenshot taken ({len(self.screen_elements)} elements)",
-        }
-        # Include annotated screenshot so the frontend can display visual updates
-        if parse_result.annotated_image:
-            result["annotated_image"] = parse_result.annotated_image
-        # Warn LLM after 3+ screen calls AND detect near-duplicate screens
-        self._get_screen_call_count = getattr(self, "_get_screen_call_count", 0) + 1
-        this_ids = frozenset(self.element_map.keys())
-        prev_ids = getattr(self, "_last_screen_ids", None)
-        if prev_ids is not None and this_ids:
-            overlap = len(this_ids & prev_ids) / max(len(this_ids | prev_ids), 1)
-            if overlap > 0.8:
+                with mss.mss() as sct:
+                    monitor = sct.monitors[1]
+                    img = sct.grab(monitor)
+                    pil = Image.frombytes("RGB", img.size, img.bgra, "raw", "BGRX")
+                    buf = BytesIO()
+                    pil.save(buf, format="JPEG", quality=70)
+                    image_b64 = (
+                        "data:image/jpeg;base64,"
+                        + base64.b64encode(buf.getvalue()).decode()
+                    )
+
+            parse_result = parse_screenshot_full(image_b64, compute_spatial=False)
+            self.element_map = {e.element_id: e for e in parse_result.elements}
+            self.screen_elements = _filter_elements_for_llm(parse_result.elements)
+            self.screen_source = "omniparser"
+
+            result = {
+                "success": True,
+                "source": "omniparser",
+                "elements": [
+                    {"id": el["id"], "content": el["content"]}
+                    for el in self.screen_elements
+                    if el.get("content") and el["content"].strip()
+                ][:30],
+                "element_count": len(self.screen_elements),
+                "action_summary": f"screenshot taken ({len(self.screen_elements)} elements)",
+            }
+            # Include annotated screenshot so the frontend can display visual updates
+            if parse_result.annotated_image:
+                result["annotated_image"] = parse_result.annotated_image
+            # Warn LLM after 3+ screen calls AND detect near-duplicate screens
+            self._get_screen_call_count = getattr(
+                self, "_get_screen_call_count", 0
+            ) + 1
+            this_ids = frozenset(self.element_map.keys())
+            prev_ids = getattr(self, "_last_screen_ids", None)
+            if prev_ids is not None and this_ids:
+                overlap = len(this_ids & prev_ids) / max(len(this_ids | prev_ids), 1)
+                if overlap > 0.8:
+                    result["warning"] = (
+                        f"⚠️ 屏幕与上一次截图几乎相同 ({overlap:.0%} 元素重叠)。"
+                        "连续截屏不会改变画面。请立即基于当前元素列表点击目标或 mark_step_done/mark_step_failed。"
+                    )
+            self._last_screen_ids = this_ids
+            if self._get_screen_call_count >= 3:
                 result["warning"] = (
-                    f"⚠️ 屏幕与上一次截图几乎相同 ({overlap:.0%} 元素重叠)。"
-                    "连续截屏不会改变画面。请立即基于当前元素列表点击目标或 mark_step_done/mark_step_failed。"
+                    f"已连续调用 get_screen_info {self._get_screen_call_count} 次。"
+                    "屏幕元素不会因为反复截屏而改变。请立即根据已有元素决定下一步操作："
+                    "点击目标元素、输入文本、或调用 mark_step_done/mark_step_failed。"
                 )
-        self._last_screen_ids = this_ids
-        if self._get_screen_call_count >= 3:
-            result["warning"] = (
-                f"已连续调用 get_screen_info {self._get_screen_call_count} 次。"
-                "屏幕元素不会因为反复截屏而改变。请立即根据已有元素决定下一步操作："
-                "点击目标元素、输入文本、或调用 mark_step_done/mark_step_failed。"
-            )
-        return result
+            return result
+
+        # 3) 无 UIA、无 OmniParser：给出可操作提示
+        self.element_map = {}
+        self.screen_elements = []
+        self.screen_source = None
+        return {
+            "success": True,
+            "source": "none",
+            "elements": [],
+            "element_count": 0,
+            "warning": "无法获取屏幕元素：UIA 无可用控件，且 OmniParser/视觉兜底未配置。"
+            "可尝试 launch_app / press_key / wait，或 mark_step_done / mark_step_failed。",
+        }
 
     def _do_launch_app(self, app_name: str) -> dict:
         safety = check_step(f"launch app '{app_name}'")
@@ -665,7 +741,6 @@ class ExecutionAgent:
                 f"Please call get_screen_info() again.",
             }
 
-        cx, cy = element.center
         safety = check_step(f"click element {element.text}")
         if safety.level == "red":
             return {
@@ -679,6 +754,27 @@ class ExecutionAgent:
                 f"Choose a different target or try an alternative approach.",
             }
 
+        # UIA 绑定优先：Invoke/SelectionItem/Toggle → 坐标回退
+        if getattr(self, "screen_source", None) == "uia":
+            action = "double_click" if double else "click"
+            r = self._get_uia().act(element_id, action=action)
+            if r.get("success"):
+                via = r.get("via") or "coord"
+                label = "双击" if double else "单击"
+                return {
+                    "success": True,
+                    "clicked": element_id,
+                    "content": element.text,
+                    "via": via,
+                    "action_summary": f"{label} 元素 '{element.text}'（{via}）",
+                }
+            return {
+                "success": False,
+                "error": f"UIA 操作失败: {r.get('error')}",
+                "via": r.get("via"),
+            }
+
+        cx, cy = element.center
         pyautogui.moveTo(cx, cy, duration=0.2)
         time.sleep(0.1)
         clicks = 2 if double else 1
@@ -689,6 +785,7 @@ class ExecutionAgent:
             "success": True,
             "clicked": element_id,
             "content": element.text,
+            "via": "coord",
             "action_summary": f"{label} element '{element.text}'",
         }
 
@@ -747,6 +844,23 @@ class ExecutionAgent:
                 f"Choose a different target or try an alternative approach.",
             }
 
+        # UIA 绑定优先：ValuePattern.SetValue → 焦点+剪贴板
+        if getattr(self, "screen_source", None) == "uia":
+            r = self._get_uia().act(element_id, action="type", text=text)
+            if r.get("success"):
+                return {
+                    "success": True,
+                    "typed": text,
+                    "into": element_id,
+                    "via": r.get("via"),
+                    "action_summary": f"typed '{text}' into '{element.text}'（{r.get('via')}）",
+                }
+            return {
+                "success": False,
+                "error": f"UIA 输入失败: {r.get('error')}",
+                "via": r.get("via"),
+            }
+
         old_clipboard = pyperclip.paste()
         try:
             pyautogui.click(cx, cy)
@@ -761,6 +875,7 @@ class ExecutionAgent:
             "success": True,
             "typed": text,
             "into": element_id,
+            "via": "coord",
             "action_summary": f"typed '{text}' into '{element.text}'",
         }
 
