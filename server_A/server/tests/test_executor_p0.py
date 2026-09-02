@@ -289,6 +289,9 @@ class _BridgeStub:
         self.calls.append(("wait_for_text", text))
         return dict(self._wait_result)
 
+    def clear(self):
+        pass
+
 
 def test_agent_click_surfaces_verification_fields(monkeypatch):
     bridge = _BridgeStub(
@@ -702,9 +705,11 @@ def test_dispatch_success_contract_and_control_signal_passthrough():
     r = a.dispatch_tool("click", {"element_id": "u1", "name": "确定"})
     assert r["ok"] is True and r["success"] is True
     assert r["error_code"] is None and r["message"] is None
-    # mark_step_failed（无 success 字段但属控制信号）不被误判为错误
-    f = a.dispatch_tool("mark_step_failed", {"reason": "尽力了"})
-    assert f["ok"] is False and f["error_code"] is None and f["__step_failed__"]
+    # 0.7 mark_step_failed：首次拦（giveup_refused_retry），二次直通为控制信号
+    f1 = a.dispatch_tool("mark_step_failed", {"reason": "尽力了"})
+    assert f1["ok"] is False and f1["error_code"] == "giveup_refused_retry"
+    f2 = a.dispatch_tool("mark_step_failed", {"reason": "尽力了"})
+    assert f2["__step_failed__"] is True and f2["error_code"] is None
 
 
 def test_dispatch_exception_becomes_tool_exception_contract(monkeypatch):
@@ -730,3 +735,132 @@ def test_dispatch_yellow_zone_contract(monkeypatch):
     r = a.dispatch_tool("click", {"element_id": "u1", "name": "确定"})
     assert r["ok"] is False and r["error_code"] == "confirm_required"
     assert "ask_user" in r["hint"] or "确认" in r["hint"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 0.7 done 证据化 + report_infeasible / ask_user 终止动作
+# ═══════════════════════════════════════════════════════════════════════════
+
+import json as _json  # noqa: E402
+from server.models.schemas import ExecutedStep  # noqa: E402
+
+
+def _scripted_agent(monkeypatch, calls, bridge=None):
+    """用脚本化 LLM 回复驱动 execute_step（不发真实 API、不睡眠、不查记忆）。"""
+    a = _make_agent_with_fake_bridge(bridge or _click_ok_bridge())
+    seq = list(calls)
+    idx = [0]
+
+    def fake_llm(msgs):
+        i = min(idx[0], len(seq) - 1)
+        idx[0] += 1
+        name, args = seq[i]
+        return _json.dumps({"__tool_call__": True, "name": name, "arguments": args}), None
+
+    monkeypatch.setattr(a, "_call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agent_mod.time, "sleep", lambda s: None)
+    # 保留预置 element_map/_uia/screen_source（真实实现会清空并重建）
+    monkeypatch.setattr(a, "clear_element_map", lambda: None)
+
+    def _no_memory():
+        raise RuntimeError("no memory in test")
+
+    monkeypatch.setattr(agent_mod, "get_retriever", _no_memory)
+    return a
+
+
+def _step(instruction="完成某事"):
+    return ExecutedStep(step_index=1, instruction=instruction)
+
+
+def test_execute_step_done_without_evidence_refused_then_passes(monkeypatch):
+    a = _scripted_agent(monkeypatch, [
+        ("mark_step_done", {"reason": "应该好了", "evidence": ""}),
+        ("mark_step_done", {"reason": "应该好了", "evidence": "窗口标题含'无标题 - 记事本'"}),
+    ])
+    result = a.execute_step(_step(), goal="g", previous_steps=[])
+    assert result.status == "done"
+    assert "unverified_done" in (result.evidence or "")  # 拒收一次后的自证 done 打标
+
+
+def test_execute_step_done_with_action_evidence(monkeypatch):
+    a = _scripted_agent(monkeypatch, [
+        ("click", {"element_id": "u1", "name": "确定"}),
+        ("mark_step_done", {"reason": "点掉了", "evidence": ""}),
+    ])
+    result = a.execute_step(_step(), goal="g", previous_steps=[])
+    assert result.status == "done"
+    assert "click→确定" in (result.evidence or "")
+    assert "state_changed=True" in (result.evidence or "")
+    assert "unverified_done" not in (result.evidence or "")
+
+
+def test_execute_step_report_infeasible_terminates(monkeypatch):
+    a = _scripted_agent(monkeypatch, [
+        ("report_infeasible", {"reason": "系统未安装该应用", "tried": "launch_app×2, Win搜索"}),
+    ])
+    result = a.execute_step(_step(), goal="g", previous_steps=[])
+    assert result.status == "failed"
+    assert result.terminal_kind == "infeasible"
+    assert "[不可行]" in result.action_summary and "launch_app" in result.action_summary
+
+
+def test_execute_step_ask_user_terminates(monkeypatch):
+    a = _scripted_agent(monkeypatch, [
+        ("ask_user", {"question": "需要登录，账号密码是什么？"}),
+    ])
+    result = a.execute_step(_step(), goal="g", previous_steps=[])
+    assert result.status == "failed"
+    assert result.terminal_kind == "ask_user"
+    assert result.user_question == "需要登录，账号密码是什么？"
+
+
+def test_execute_step_failed_gets_second_chance(monkeypatch):
+    a = _scripted_agent(monkeypatch, [
+        ("mark_step_failed", {"reason": "点不动"}),
+        ("mark_step_failed", {"reason": "点不动"}),
+    ])
+    result = a.execute_step(_step(), goal="g", previous_steps=[])
+    assert result.status == "failed"
+    assert result.terminal_kind is None
+    assert "点不动" in result.action_summary
+
+
+def test_engine_terminal_actions_skip_blind_retry(monkeypatch):
+    """engine：ask_user/infeasible 不再走同指令盲重试，ask_user 发 step_blocked。"""
+    from server.services.executor import engine
+
+    q = engine.register_task("t-terminal")
+    calls = {"n": 0}
+
+    def fake_execute_step(self, step, goal, previous_steps, **kw):
+        calls["n"] += 1
+        step.status = "failed"
+        step.terminal_kind = "ask_user"
+        step.user_question = "选A还是B？"
+        step.action_summary = "[需用户决策] 选A还是B？"
+        return step
+
+    import server.services.executor.agent as ag_mod
+
+    monkeypatch.setattr(ag_mod.ExecutionAgent, "execute_step", fake_execute_step)
+    monkeypatch.setattr(ag_mod.ExecutionAgent, "close_browser", lambda self: None)
+    monkeypatch.setattr(
+        engine, "_trigger_memory_extraction_failure", lambda *a, **k: None
+    )
+    import threading as _th
+
+    engine.run_plan_agent_loop(
+        "t-terminal", "g", [{"step_index": 1, "instruction": "做选择"}],
+        _th.Event(),
+    )
+    events = []
+    while not q.empty():
+        events.append(q.get())
+    names = [e["event"] for e in events]
+    assert calls["n"] == 1  # 未盲重试
+    assert "step_blocked" in names
+    blocked = next(e for e in events if e["event"] == "step_blocked")
+    assert blocked["data"]["question"] == "选A还是B？"
+    assert "task_failed" in names
+    engine.unregister_task("t-terminal")

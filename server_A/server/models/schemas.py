@@ -70,6 +70,10 @@ class ExecutedStep(BaseModel):
     params: Optional[dict] = None
     action_summary: Optional[str] = None
     status: str = Field("pending", pattern="^(pending|executing|done|failed)$")
+    # 0.7 done 证据化 + 显式终止语义
+    evidence: Optional[str] = None  # done 时成立的独立证据（prop diff/观察事实）
+    terminal_kind: Optional[str] = None  # None | "infeasible" | "ask_user"
+    user_question: Optional[str] = None  # ask_user 时提交给用户的问题
 
 
 class Annotation(BaseModel):

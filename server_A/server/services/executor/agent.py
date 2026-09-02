@@ -45,8 +45,10 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - press_key(keys): 按键盘组合键，如 "enter", "ctrl+v", "win"
 - scroll(direction, amount): 滚轮滚动
 - wait(seconds): 等待指定秒数，让界面响应
-- mark_step_done(reason): 标记当前步骤已完成。如果步骤的前置条件已满足（如应用已打开、搜索框已聚焦），直接调用此工具并说明 reason="precondition already satisfied"。
-- mark_step_failed(reason): 标记步骤失败并说明原因
+- mark_step_done(reason, evidence): 标记当前步骤已完成。evidence 必填：来自屏幕观察/动作验证的独立事实（如窗口标题变化、控件文本/value 变化），无证据会被拒收。如果步骤的前置条件已满足（如应用已打开、搜索框已聚焦），观察确认后可调用此工具并说明 reason="precondition already satisfied"
+- mark_step_failed(reason): 标记步骤失败（第一次会被拦下要求换策略再试，第二次生效）
+- report_infeasible(reason, tried): 环境/权限/红线下确实做不到时显式终止并回报原因（必须先试过≥2种策略）
+- ask_user(question): 需要用户提供信息或决策（登录、选择、授权）时向用户提问，不要瞎猜也不要卡死在这
 
 ## 工作流程
 1. 如果当前步骤是打开某个应用，直接调用 launch_app(app_name)，不需要先 get_screen_info
@@ -55,7 +57,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 4. 在元素列表中定位目标（匹配 content 文本）
 5. 调用 click / double_click / type_text 等执行操作
 6. 验证操作结果（见下方验证标准）
-7. 确认完成后调用 mark_step_done
+7. 确认完成后调用 mark_step_done，evidence 写支持判定的屏幕事实（不是"我觉得完成了"）
 
 ## 警告：element_id 生命周期
 调用 get_screen_info 后，所有之前的 element_id 立即失效。你必须基于最新一次返回的元素列表选择目标。不得引用之前调用的 element_id。如果工具返回 "element_id not found in current screen"，你必须重新调用 get_screen_info。
@@ -83,7 +85,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - 点击后无反应 → wait(1) 后重试
 - 元素始终找不到 → 尝试 press_key("tab") 切换焦点再试
 - 意外弹窗 → 优先点击关闭/取消按钮（content 为 "关闭"/"取消"/"跳过"/"×" 的元素）
-- 多次重试无效 → mark_step_failed
+- 多次重试无效 → 换全新策略再试；仍无效才 mark_step_failed；环境根本做不到 → report_infeasible；需要人来决策/提供信息 → ask_user（WebArena 数据：过半"失败"其实是过早放弃，别提前躺平）
 - 弹窗遮挡目标元素 → 先关闭弹窗再继续
 
 ## 效率约束
@@ -299,14 +301,32 @@ def _build_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "mark_step_done",
-                "description": "标记当前步骤已成功完成。",
+                "description": "标记当前步骤已成功完成。必须提供 evidence（可独立核查的完成证据，如界面观察到的控件文本/状态变化、动作返回的 state_changed/expect_ok）——无证据会被拒收并要求补充。",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "reason": {
                             "type": "string",
                             "description": "完成原因，如'操作成功'或'precondition already satisfied'",
-                        }
+                        },
+                        "evidence": {
+                            "type": "string",
+                            "description": "支持完成判定的具体屏幕证据（来自最新 get_screen_info/动作验证结果的事实描述，如「窗口标题变为'无标题 - 记事本'」「搜索框 value 已含目标文本」）",
+                        },
+                    },
+                    "required": ["reason", "evidence"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "mark_step_failed",
+                "description": "标记当前步骤失败并说明原因。第一次调用会被拦下要求先换一种策略重试（防过早放弃）；确认无路可走时第二次调用即生效。若需要用户决策请改用 ask_user，环境/权限根本做不到请改用 report_infeasible。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "reason": {"type": "string", "description": "失败原因"}
                     },
                     "required": ["reason"],
                 },
@@ -315,14 +335,38 @@ def _build_tool_definitions() -> list[dict]:
         {
             "type": "function",
             "function": {
-                "name": "mark_step_failed",
-                "description": "标记当前步骤失败。",
+                "name": "report_infeasible",
+                "description": "显式判定当前步骤在当前环境/权限/红线约束下不可行，终止本任务并回报原因。必须先真正尝试过至少 2 种不同策略。用于替代 mark_step_failed 表达'做不到'而非'没做到'，防止假失败。",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "reason": {"type": "string", "description": "失败原因"}
+                        "reason": {
+                            "type": "string",
+                            "description": "为什么不可行（环境缺什么/触碰哪条红线/需要什么权限）",
+                        },
+                        "tried": {
+                            "type": "string",
+                            "description": "已尝试过的策略列表（简述），证明不是提前放弃",
+                        },
                     },
-                    "required": ["reason"],
+                    "required": ["reason", "tried"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "ask_user",
+                "description": "当需要用户提供信息/决策（如登录凭据、二选一方案、敏感操作授权）时调用，步骤暂停并把问题回传用户。不要用它逃避可自己解决的困难。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": {
+                            "type": "string",
+                            "description": "要问用户的问题（简明、可直接回答）",
+                        }
+                    },
+                    "required": ["question"],
                 },
             },
         },
@@ -600,6 +644,7 @@ class ExecutionAgent:
         self._browser: Optional[BrowserController] = None
         self._uia = None  # lazy: server.services.executor.uia_bridge.UIABridge
         self.screen_source: Optional[str] = None  # "uia" | "omniparser" | "none"
+        self._reset_step_ledger()  # 0.7 证据账本（每步在 execute_step 再重置）
 
     @property
     def browser(self) -> BrowserController:
@@ -707,6 +752,129 @@ class ExecutionAgent:
         self.screen_source = None
         if getattr(self, "_uia", None) is not None:
             self._uia.clear()
+
+    # ── 0.7 done 证据化：步骤级证据账本 ──
+
+    # 动作类工具：成功执行即记入证据账本（browser_* 同权）
+    _MUTATING_TOOLS = (
+        "click",
+        "double_click",
+        "type_text",
+        "paste_text",
+        "press_key",
+        "scroll",
+        "launch_app",
+        "browser_navigate",
+        "browser_click",
+        "browser_type",
+        "browser_press_key",
+        "browser_scroll",
+    )
+
+    def _reset_step_ledger(self) -> None:
+        self._action_evidence: list[dict] = []
+        self._observation_count = 0
+        self._done_attempts = 0
+        self._failed_attempts = 0
+
+    def _record_evidence(self, tool_name: str, result: dict) -> None:
+        """把成功的动作/观察记入本步证据账本。"""
+        if not isinstance(result, dict):
+            return
+        if tool_name == "get_screen_info" and result.get("ok"):
+            self._observation_count = getattr(self, "_observation_count", 0) + 1
+            return
+        if tool_name in self._MUTATING_TOOLS and result.get("ok"):
+            self._action_evidence.append(
+                {
+                    "tool": tool_name,
+                    "target": str(
+                        result.get("content")
+                        or result.get("into")
+                        or result.get("keys")
+                        or result.get("app_name")
+                        or result.get("url")
+                        or tool_name
+                    )[:60],
+                    "state_changed": result.get("state_changed"),
+                    "verified": result.get("verified"),
+                    "via": result.get("via"),
+                }
+            )
+
+    def _strong_evidence(self) -> Optional[dict]:
+        """最强证据：属性实际变化(state_changed) > 校验通过(verified) > 其他成功动作。"""
+        ev = getattr(self, "_action_evidence", [])
+        for e in ev:
+            if e.get("state_changed"):
+                return e
+        for e in ev:
+            if e.get("verified"):
+                return e
+        return ev[-1] if ev else None
+
+    def _gate_mark_step_done(self, reason: str, evidence: str) -> Optional[dict]:
+        """done 证据化 gate。返回 None=放行；返回 dict=拒收（带 hint）。
+
+        放行条件（任一）：
+          a) 本步有成功动作且其中存在 state_changed/verified 的独立证据；
+          b) LLM 显式提交了 evidence 描述（≥8 字）且本步至少观察过一次；
+          c) reason 为“前置条件已满足”且有观察记录；
+          d) 本步已有成功的 launch_app/browser_navigate（应用/页面级证据）；
+          e) 已拒收过一次（防死锁：第二次放行，但结果标注 unverified_done）。
+        """
+        self._done_attempts = getattr(self, "_done_attempts", 0) + 1
+        if self._done_attempts >= 2:
+            return None
+        strong = self._strong_evidence()
+        if strong is not None and (
+            strong.get("state_changed") or strong.get("verified")
+        ):
+            return None
+        if len((evidence or "").strip()) >= 8 and getattr(self, "_observation_count", 0) >= 1:
+            return None
+        if (
+            "precondition" in (reason or "").lower()
+            and getattr(self, "_observation_count", 0) >= 1
+        ):
+            return None
+        if any(
+            e["tool"] in ("launch_app", "browser_navigate")
+            for e in getattr(self, "_action_evidence", [])
+        ):
+            return None
+        return {
+            "ok": False,
+            "success": False,
+            "error_code": "done_without_evidence",
+            "error": "mark_step_done 被拒收：本步骤尚无可独立核查的完成证据。",
+            "hint": (
+                "完成判定不能只靠自评。请任选其一："
+                "1) 用带 expect 的动作工具拿到 state_changed/expect_ok=true 的结果；"
+                "2) 重新 get_screen_info，把支持结论的屏幕事实（窗口标题/控件文本变化）"
+                "写进 evidence 参数再调 mark_step_done；"
+                "3) 若确实无法完成，调用 mark_step_failed 或 report_infeasible 说明原因。"
+                f"本步已有动作记录：{[e['tool'] + ':' + e['target'] for e in getattr(self, '_action_evidence', [])][:8]}"
+            ),
+        }
+
+    def _gate_mark_step_failed(self, reason: str) -> Optional[dict]:
+        """防过早放弃：mark_step_failed 第一次调用给一次'换策略'机会。"""
+        self._failed_attempts = getattr(self, "_failed_attempts", 0) + 1
+        if self._failed_attempts >= 2:
+            return None
+        return {
+            "ok": False,
+            "success": False,
+            "error_code": "giveup_refused_retry",
+            "error": "mark_step_failed 暂被拦下：按 WebArena 教训，过早放弃比多试一次贵得多。",
+            "hint": (
+                "最后再试一条不同的路径：换控件（按 type/patterns/bbox 重新选）、"
+                "换交互方式（press_key/菜单展开/滚动后再看）、或先 wait 再观察。"
+                "需要人工决策→ask_user；确认环境做不到→report_infeasible。"
+                "若你仍坚持，再调一次 mark_step_failed 即生效。"
+            ),
+        }
 
     # ── Tool implementations ──
 
@@ -1337,7 +1505,9 @@ class ExecutionAgent:
                 "error": f"tool exception: {type(exc).__name__}: {exc}",
                 "error_code": "tool_exception",
             }
-        return self._normalize_tool_result(tool_name, result)
+        result = self._normalize_tool_result(tool_name, result)
+        self._record_evidence(tool_name, result)  # 0.7 证据账本
+        return result
 
     def _dispatch_tool_inner(self, tool_name: str, tool_args: dict) -> dict:
         if tool_name == "get_screen_info":
@@ -1385,13 +1555,37 @@ class ExecutionAgent:
                 "action_summary": f"waited {secs}s",
             }
         elif tool_name == "mark_step_done":
+            reject = self._gate_mark_step_done(
+                tool_args.get("reason", ""), tool_args.get("evidence", "")
+            )
+            if reject is not None:
+                return reject
             return {
                 "__step_complete__": True,
                 "success": True,
                 "reason": tool_args.get("reason", ""),
+                "evidence": tool_args.get("evidence", ""),
+                "unverified_done": getattr(self, "_done_attempts", 0) >= 2
+                and (self._strong_evidence() is None
+                     or not (self._strong_evidence().get("state_changed")
+                             or self._strong_evidence().get("verified"))),
             }
         elif tool_name == "mark_step_failed":
+            reject = self._gate_mark_step_failed(tool_args.get("reason", ""))
+            if reject is not None:
+                return reject
             return {"__step_failed__": True, "reason": tool_args.get("reason", "")}
+        elif tool_name == "report_infeasible":
+            return {
+                "__step_infeasible__": True,
+                "reason": tool_args.get("reason", ""),
+                "tried": tool_args.get("tried", ""),
+            }
+        elif tool_name == "ask_user":
+            return {
+                "__ask_user__": True,
+                "question": tool_args.get("question", ""),
+            }
         # ── Browser tools ──
         elif tool_name == "browser_navigate":
             self._ensure_browser_started()
@@ -1462,6 +1656,10 @@ class ExecutionAgent:
         step.status = "executing"
         self.clear_element_map()
         loop_detector = _LoopDetector()  # 0.4 卡死检测（每步独立）
+        self._reset_step_ledger()  # 0.7 证据账本（每步独立）
+        step.terminal_kind = None
+        step.user_question = None
+        step.evidence = None
 
         current_step_info = {"index": step.step_index, "instruction": step.instruction}
         context = _build_context_for_llm(goal, current_step_info, previous_steps)
@@ -1637,10 +1835,39 @@ class ExecutionAgent:
                 step.action_summary = action_summary or result.get(
                     "reason", "step completed"
                 )
+                # 0.7：done 必须带可核查证据（gate 已在 dispatch 层把关）
+                strong = self._strong_evidence()
+                ev_text = (result.get("evidence") or "").strip()
+                if strong is not None:
+                    auto_ev = (
+                        f"{strong['tool']}→{strong['target']}"
+                        f" state_changed={strong.get('state_changed')}"
+                        f" verified={strong.get('verified')}"
+                    )
+                    step.evidence = f"{auto_ev}; {ev_text}".strip("; ")
+                else:
+                    step.evidence = ev_text
+                if result.get("unverified_done"):
+                    step.evidence = (step.evidence or "") + " [unverified_done]"
+                    step.action_summary = (step.action_summary or "") + "（未独立验证）"
                 return step
             if result and result.get("__step_failed__"):
                 step.status = "failed"
                 step.action_summary = result.get("reason", "step failed")
+                return step
+            if result and result.get("__step_infeasible__"):
+                step.status = "failed"
+                step.terminal_kind = "infeasible"
+                step.action_summary = (
+                    f"[不可行] {result.get('reason', '')}"
+                    + (f"｜已尝试: {result.get('tried')}" if result.get("tried") else "")
+                )
+                return step
+            if result and result.get("__ask_user__"):
+                step.status = "failed"
+                step.terminal_kind = "ask_user"
+                step.user_question = result.get("question", "")
+                step.action_summary = f"[需用户决策] {result.get('question', '')}"
                 return step
 
             # Accumulate action_summary from tool returns

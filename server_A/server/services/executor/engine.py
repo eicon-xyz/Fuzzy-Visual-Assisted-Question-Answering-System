@@ -230,6 +230,8 @@ def run_plan_agent_loop(
                 {
                     "step_index": step_idx,
                     "action_summary": result.action_summary or "",
+                    # 0.7 done 证据随事件下发（B 端可展示/审计）
+                    "evidence": getattr(result, "evidence", None) or "",
                 },
             )
             previous_steps.append(
@@ -241,6 +243,31 @@ def run_plan_agent_loop(
                 }
             )
         else:
+            # 0.7 显式终止动作不做同指令盲重试：infeasible/ask_user 需要人类可见的语义
+            if getattr(result, "terminal_kind", None) == "ask_user":
+                _push_event(
+                    task_id,
+                    "step_blocked",
+                    {
+                        "step_index": step_idx,
+                        "question": result.user_question or "",
+                        "reason": result.action_summary or "需要用户决策",
+                    },
+                )
+                all_done = False
+                break
+            if getattr(result, "terminal_kind", None) == "infeasible":
+                _push_event(
+                    task_id,
+                    "step_failed",
+                    {
+                        "step_index": step_idx,
+                        "reason": result.action_summary or "infeasible",
+                        "infeasible": True,
+                    },
+                )
+                all_done = False
+                break
             # Retry loop (STEP_RETRY_LIMIT times)
             retry_success = False
             for retry_attempt in range(retry_limit):
@@ -280,6 +307,7 @@ def run_plan_agent_loop(
                             {
                                 "step_index": step_idx,
                                 "action_summary": retry_result.action_summary or "",
+                                "evidence": getattr(retry_result, "evidence", None) or "",
                             },
                         )
                         previous_steps.append(
