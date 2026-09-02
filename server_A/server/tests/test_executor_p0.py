@@ -234,8 +234,8 @@ def test_wait_for_text_polls_without_touching_id_map(monkeypatch):
     before_map = dict(b._last_controls)
 
     w = b.wait_for_text("确定", timeout=1.0, interval=0.2)
-    assert w["ok"] is True and w["matched"] == "确定"
-    assert b._last_controls == before_map  # id 映射未被临时快照污染
+    assert w["ok"] is True and w["name"] == "确定"
+    assert b._last_controls == before_map  # id 映射未被临时扫描污染
 
     miss = b.wait_for_text("不存在的文本XYZ", timeout=0.4, interval=0.2)
     assert miss["ok"] is False and "within" in miss["reason"]
@@ -340,3 +340,93 @@ def test_agent_click_verify_fail_no_change_triggers_reobserve(monkeypatch):
     r = a._do_click("u1")
     assert r["reobserved"] is True
     assert "控件校验未通过" in r["hint"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 0.1 感知序列化：投影字段 + 10 类 ControlType 白名单
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _projection_tree():
+    btn = FakeControl("确定", ctype="ButtonControl", rect=(10, 10, 60, 30))
+    btn._patterns["invoke"] = _FakeInvokePattern(btn)
+    edit = FakeControl("搜索", ctype="EditControl", rect=(100, 10, 300, 40))
+    edit._patterns["value"] = _FakeValuePattern(edit)
+    label = FakeControl("只读提示文本", ctype="TextControl", rect=(10, 60, 200, 80))
+    combo = FakeControl("", ctype="ComboBoxControl", rect=(400, 10, 500, 40))  # 无名白名单
+    noise = FakeControl("布局层", ctype="PaneControl", rect=(0, 0, 800, 600))
+    root = FakeControl("主窗口", ctype="WindowControl", rect=(0, 0, 800, 600),
+                       children=(btn, edit, label, combo, noise))
+    return root, btn, edit
+
+
+def test_projection_fields_and_whitelist(monkeypatch):
+    """投影含 type/name/class/enabled/patterns/相对 bbox；白名单无名控件保留、
+    无交互纯文本与布局 Pane 被过滤。"""
+    root, btn, edit = _projection_tree()
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    b.snapshot()
+    proj = b.last_projection()
+    ids = {p["id"]: p for p in proj}
+    by_name = {p["name"]: p for p in proj}
+    assert "只读提示文本" not in by_name  # 非交互 Text 不进投影
+    assert "布局层" not in by_name       # Pane 无 pattern 不进投影
+
+    p_btn = by_name["确定"]
+    assert p_btn["type"] == "button"
+    assert p_btn["class"] == "DummyClass"
+    assert p_btn["enabled"] is True
+    assert p_btn["patterns"] == ["invoke"]
+    assert p_btn["bbox"] == [10, 10, 50, 20]  # 相对窗口 [左,上,宽,高]
+
+    p_edit = by_name["搜索"]
+    assert p_edit["type"] == "edit" and "value" in p_edit["patterns"]
+
+    # 无名 ComboBox 靠白名单保留
+    combo_entries = [p for p in proj if p["type"] == "combobox"]
+    assert len(combo_entries) == 1 and combo_entries[0]["name"] == ""
+
+    # element_map 与投影 id 对齐
+    assert set(ids) == set(b._last_controls)
+
+
+def test_agent_get_screen_info_returns_projection(monkeypatch):
+    """UIA 分支返回体从 {id,content}×30 升级为投影字段列表。"""
+    root, btn, edit = _projection_tree()
+    install_fake_uia(monkeypatch, root)
+    # 屏蔽观察前的键鼠副作用（Linux 走模块桩；Windows 真模块时替换 press）
+    import pyautogui as _pag
+
+    monkeypatch.setattr(_pag, "press", lambda *a, **k: None)
+    a = agent_mod.ExecutionAgent()
+    result = a._do_get_screen_info()
+    assert result["success"] and result["source"] == "uia"
+    names = {e.get("name") for e in result["elements"]}
+    assert {"确定", "搜索"} <= names
+    entry = next(e for e in result["elements"] if e["name"] == "确定")
+    assert entry["type"] == "button" and "patterns" in entry and "bbox" in entry
+    assert "left_ids" not in entry and "content" not in entry  # 死条款字段已删
+    assert result["window_size"] == [800, 600]
+    assert a.screen_source == "uia"
+    # element_map 键与投影 id 一致，click 可直接消费
+    assert set(a.element_map) >= {entry["id"]}
+
+
+def test_prioritize_projection_caps_and_orders():
+    """超 40 个：可交互优先入选，结果保持快照（空间）顺序。"""
+    a = agent_mod.ExecutionAgent()
+    proj = []
+    for i in range(50):
+        proj.append({
+            "id": f"u{i + 1}", "type": "text", "name": f"n{i}", "class": "",
+            "enabled": True, "patterns": ["invoke"] if i >= 20 else [],
+            "bbox": [i, 0, 10, 10],
+        })
+    out = a._prioritize_projection(proj)
+    assert len(out) == a._SCREEN_PROJECTION_LIMIT
+    kept_ids = [e["id"] for e in out]
+    # 全部可交互（u21..u50 共 30 个）必须入选，且按原顺序排列
+    interactive_kept = [i for i in kept_ids if int(i[1:]) > 20]
+    assert len(interactive_kept) == 30
+    assert kept_ids == sorted(kept_ids, key=lambda s: int(s[1:]))

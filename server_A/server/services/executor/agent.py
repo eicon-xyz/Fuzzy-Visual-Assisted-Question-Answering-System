@@ -36,7 +36,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 
 ## 可用工具
 - launch_app(app_name): 通过系统级命令启动应用（Win+搜索）。当步骤为打开应用时，优先使用此工具。
-- get_screen_info(): 获取当前屏幕的元素列表（返回 id, content, left_ids, right_ids, top_ids, bottom_ids）
+- get_screen_info(): 获取当前屏幕控件投影列表，字段：id / type(控件类型) / name(控件文本) / class(框架类名) / enabled(是否可用) / patterns(可用交互模式: invoke,value,toggle,selectionitem,expandcollapse) / bbox(相对窗口左上角 [左,上,宽,高] 像素)。附带 window_title 与 window_size
 - click(element_id[, expect]): 单击指定元素（UIA 绑定优先：Invoke/Select 等精确模式；失败回退坐标点击）。自动动作后验证，可选 expect 声明期望界面变化
 - double_click(element_id[, expect]): 双击指定元素。桌面图标、文件通常需要双击打开。
 - paste_text(text[, expect]): 将文本粘贴到当前获得焦点的位置（通过剪贴板）。启动应用后或点击输入框后，文本会自动粘贴到光标所在位置，不需要 element_id。用于无法检测到输入框的场景（如记事本文本区、聊天输入框等纯文本区域）。
@@ -60,10 +60,11 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 调用 get_screen_info 后，所有之前的 element_id 立即失效。你必须基于最新一次返回的元素列表选择目标。不得引用之前调用的 element_id。如果工具返回 "element_id not found in current screen"，你必须重新调用 get_screen_info。
 
 ## 元素定位策略
-- 元素来自 Windows UI Automation 结构化采集（控件名称/类型）或 OmniParser 视觉检测
-- 优先精确匹配 content 文本
-- 匹配不唯一时，利用空间关系：如"搜索框右边的按钮" → 找 left_ids 包含搜索框 id 的元素
-- 内容可能部分匹配（如搜索框显示"搜"而非"搜索"）
+- 元素来自 Windows UI Automation 结构化采集，每个元素带 type/name/class/enabled/patterns/bbox 投影字段
+- 优先按 name 精确/部分匹配目标文本（如目标"搜索框"可能显示为"搜"）
+- 用 type+patterns 判定控件性质：输入框=edit+value，按钮=button+invoke，菜单项=menuitem，复选框=checkbox/toggle
+- 跳过 enabled=false 的控件（点了不会生效）
+- 同名多控件时用 bbox 区分：bbox=[左,上,宽,高] 为相对窗口左上角像素，"左边的按钮"→ 取左值小者，"顶部菜单"→ 取上值小者，"第 N 行"→ 按上值排序
 - 找不到时，先 wait(2) 再重新 get_screen_info
 
 ## 验证标准
@@ -146,7 +147,7 @@ def _build_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "get_screen_info",
-                "description": "获取当前屏幕元素列表：优先 Windows UI Automation 结构化采集（返回控件名称/类型），无可用控件时回退 OmniParser。返回元素的 id、content。每次调用会刷新 element_map，旧的 element_id 全部失效。",
+                "description": "获取当前屏幕控件投影列表（UIA 结构化采集）。每个元素含 id/type/name/class/enabled/patterns/bbox(相对窗口像素)。每次调用会刷新 element_map，旧的 element_id 全部失效。",
                 "parameters": {"type": "object", "properties": {}},
             },
         },
@@ -625,6 +626,42 @@ class ExecutionAgent:
             )
         return base
 
+    _SCREEN_PROJECTION_LIMIT = 40
+
+    def _prioritize_projection(self, proj: list[dict]) -> list[dict]:
+        """0.1 感知序列化：投影字段替代旧 {id,content}×30 截断。
+
+        优先级：可交互 patterns > 白名单类型 > 有名字 > 可用状态；
+        截断后按快照（DFS）顺序重排，保持空间阅读顺序。
+        """
+        if len(proj) <= self._SCREEN_PROJECTION_LIMIT:
+            return proj
+
+        def _score(item: dict) -> int:
+            return (
+                (4 if item.get("patterns") else 0)
+                + (2 if item.get("enabled") else 0)
+                + (1 if item.get("name") else 0)
+            )
+
+        ranked = sorted(enumerate(proj), key=lambda p: -_score(p[1]))
+        picked = sorted(ranked[: self._SCREEN_PROJECTION_LIMIT], key=lambda p: p[0])
+        out = []
+        for _, item in picked:
+            entry = {
+                "id": item["id"],
+                "type": item["type"],
+                "name": item["name"],
+                "enabled": item["enabled"],
+            }
+            if item.get("class"):
+                entry["class"] = item["class"]
+            if item.get("patterns"):
+                entry["patterns"] = item["patterns"]
+            entry["bbox"] = item["bbox"]
+            out.append(entry)
+        return out
+
     def _do_get_screen_info(self) -> dict:
         """屏幕感知：UIA 结构化采集优先 → OmniParser 兜底 → 明确空结果。"""
         # Wake up potentially frozen RDP/remote GUI session before screenshot
@@ -636,7 +673,7 @@ class ExecutionAgent:
         except Exception:
             pass
 
-        # 1) UIA 优先（无 :9800 纯视觉模式的主感知通道）
+        # 1) UIA 优先（主感知通道：结构化投影，非截扁的 id+content）
         uia = self._get_uia()
         if uia.available:
             uia_elements = uia.snapshot()
@@ -644,20 +681,23 @@ class ExecutionAgent:
                 self.element_map = {e.element_id: e for e in uia_elements}
                 self.screen_elements = _filter_elements_for_llm(uia_elements)
                 self.screen_source = "uia"
+                proj = uia.last_projection()
+                visible = self._prioritize_projection(proj)
                 result = {
                     "success": True,
                     "source": "uia",
-                    "elements": [
-                        {"id": el["id"], "content": el["content"]}
-                        for el in self.screen_elements
-                        if el.get("content") and el["content"].strip()
-                    ][:30],
-                    "element_count": len(self.screen_elements),
-                    "action_summary": f"UIA 结构化采集（{len(self.screen_elements)} 个控件）",
+                    "elements": visible,
+                    "element_count": len(proj),
+                    "action_summary": f"UIA 结构化采集（{len(proj)} 个控件，展示 {len(visible)} 个）",
                 }
+                if len(visible) < len(proj):
+                    result["truncated"] = len(proj) - len(visible)
                 win = uia.window_title()
                 if win:
                     result["window_title"] = win
+                rect = getattr(uia, "_last_window_rect", None)
+                if rect:
+                    result["window_size"] = [rect[2] - rect[0], rect[3] - rect[1]]
                 # 附带截图供前端展示视觉更新（无标注框）
                 try:
                     from core.screen_capture import capture_to_base64

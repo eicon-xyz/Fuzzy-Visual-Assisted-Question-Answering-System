@@ -124,6 +124,33 @@ def _available_patterns(control) -> List[str]:
     return out
 
 
+# UFO 同款高价值 ControlType 白名单（10 类）：这些类型的控件无条件保留，
+# 替代旧「有名字就要」造成的列表爆炸与关键无名按钮丢失。
+_WHITELIST_CONTROL_TYPES = {
+    "button",
+    "edit",
+    "tabitem",
+    "document",
+    "listitem",
+    "menuitem",
+    "treeitem",
+    "combobox",
+    "hyperlink",
+    "scrollbar",
+}
+
+
+def _raw_control_type(control) -> str:
+    """归一化 ControlTypeName：'ButtonControl' → 'button'。"""
+    try:
+        name = (getattr(control, "ControlTypeName", "") or "").lower()
+    except Exception:
+        name = ""
+    if name.endswith("control"):
+        name = name[: -len("control")]
+    return name
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 桥接器
 # ═══════════════════════════════════════════════════════════════════════════
@@ -132,12 +159,14 @@ def _available_patterns(control) -> List[str]:
 class UIABridge:
     """UIA 采集 + 操作 + 校验。每个 ExecutionAgent 一个实例。"""
 
-    _MAX_DEPTH = 5
-    _MAX_NODES = 60
+    _MAX_DEPTH = 6
+    _MAX_NODES = 120
 
     def __init__(self) -> None:
         self._last_controls: Dict[str, object] = {}
+        self._last_projection: List[dict] = []
         self._last_window_title: str = ""
+        self._last_window_rect: Optional[List[int]] = None
         self._auto = _import_auto()
         self._available = self._auto is not None and platform.system() == "Windows"
         if not self._available:
@@ -153,8 +182,11 @@ class UIABridge:
         """遍历前台窗口 UIA 树，返回 UIElement 列表（含空间/模式信息）。
 
         注意：会重置 _last_controls 并重新编号 element_id（旧 id 全部失效）。
+        同时刷新 _last_projection（0.1 感知序列化：type/name/class/enabled/
+        patterns/窗口相对 bbox 的投影视图）。
         """
         self._last_controls = {}
+        self._last_projection = []
         return self._snapshot_into(self._last_controls, max_depth, max_nodes)
 
     def _snapshot_into(
@@ -183,10 +215,17 @@ class UIABridge:
                 self._last_window_title = fg.Name or ""
             except Exception:
                 pass
-            self._walk(fg, 0, depth, budget, out, store)
+            win_rect = _control_bbox(fg)
+            if store is self._last_controls:
+                self._last_window_rect = win_rect
+            self._walk(fg, 0, depth, budget, out, store, win_rect)
         except Exception as exc:
             _log().debug("UIA snapshot failed: %s", exc)
         return out
+
+    def last_projection(self) -> List[dict]:
+        """最近一次 snapshot() 的投影字段列表（0.1 感知序列化）。"""
+        return self._last_projection
 
     def _walk(
         self,
@@ -196,6 +235,7 @@ class UIABridge:
         budget: List[int],
         out: List[UIElement],
         store: Optional[Dict[str, object]] = None,
+        win_rect: Optional[List[int]] = None,
     ) -> None:
         if depth > max_depth or budget[0] <= 0:
             return
@@ -206,16 +246,20 @@ class UIABridge:
             bbox = _control_bbox(control)
             if bbox is not None:
                 name = (control.Name or "").strip()
-                ctrl_type = _control_type(control)
-                # 只保留有名字或可交互的控件，减少噪音
-                if name or ctrl_type in ("button", "input", "checkbox", "dropdown", "link"):
+                raw_type = _raw_control_type(control)
+                patterns = _available_patterns(control)
+                interactive = bool(patterns)
+                # 两级过滤（UFO 式硬过滤）：白名单 ControlType 无条件保留；
+                # 其余仅保留「有名字且可交互」的控件，压掉布局噪声。
+                keep = raw_type in _WHITELIST_CONTROL_TYPES or (name and interactive)
+                if keep:
+                    ctrl_type = _control_type(control)
                     cx, cy = (bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2
                     eid = f"u{len(store) + 1}"
                     try:
                         enabled = bool(control.IsEnabled)
                     except Exception:
                         enabled = True
-                    patterns = _available_patterns(control)
                     store[eid] = control
                     out.append(
                         UIElement(
@@ -231,11 +275,37 @@ class UIABridge:
                             bottom_elem_ids=[],
                         )
                     )
+                    if store is self._last_controls:
+                        # 投影字段：bbox 换算为相对前台窗口左上角，
+                        # LLM 由此推断左右/上下/行列关系（替代恒空的空间关系死条款）。
+                        rel = bbox
+                        if win_rect:
+                            rel = [
+                                bbox[0] - win_rect[0],
+                                bbox[1] - win_rect[1],
+                                bbox[2] - bbox[0],
+                                bbox[3] - bbox[1],
+                            ]
+                        try:
+                            cls = (control.ClassName or "").strip()
+                        except Exception:
+                            cls = ""
+                        self._last_projection.append(
+                            {
+                                "id": eid,
+                                "type": raw_type or "pane",
+                                "name": name,
+                                "class": cls,
+                                "enabled": enabled,
+                                "patterns": patterns,
+                                "bbox": rel,  # [左, 上, 宽, 高]（相对窗口，px）
+                            }
+                        )
             children = control.GetChildren()
             for child in children:
                 if budget[0] <= 0:
                     break
-                self._walk(child, depth + 1, max_depth, budget, out, store)
+                self._walk(child, depth + 1, max_depth, budget, out, store, win_rect)
         except Exception:
             return
 
@@ -296,6 +366,42 @@ class UIABridge:
             "after": {k: after.get(k) for k in changed},
         }
 
+    def _scan_for_text(self, needle: str) -> Optional[dict]:
+        """遍历前台窗口 UIA 树（不受投影白名单限制），找 Name 含 needle 的节点。
+
+        expect/WaitFor 常匹配静态文本标签（Text/Custom），它们不进可交互投影，
+        因此这里做独立的轻量扫描，命中返回 {name, type}。
+        """
+        auto = self._auto
+        budget = [200]
+        try:
+            fg = auto.GetForegroundControl()
+        except Exception:
+            fg = None
+        if fg is None:
+            return None
+        try:
+            stack = [(fg, 0)]
+        except Exception:
+            return None
+        while stack and budget[0] > 0:
+            node, d = stack.pop()
+            budget[0] -= 1
+            try:
+                node_name = (node.Name or "").strip()
+            except Exception:
+                node_name = ""
+            if node_name and needle in node_name.lower():
+                return {"name": node_name, "type": _raw_control_type(node)}
+            if d >= 8:
+                continue
+            try:
+                for child in reversed(node.GetChildren()):
+                    stack.append((child, d + 1))
+            except Exception:
+                pass
+        return None
+
     def wait_for_text(
         self,
         text: str,
@@ -304,7 +410,7 @@ class UIABridge:
     ) -> dict:
         """在一次调用内轮询界面，等待包含 text 的控件/窗口标题出现。
 
-        Windows-MCP WaitFor 语义：动作后置条件断言。用独立临时快照轮询，
+        Windows-MCP WaitFor 语义：动作后置条件断言。独立轻量扫描，
         不触碰 _last_controls（当前 element_id 映射保持有效）。
         """
         if not self._available or not text:
@@ -313,22 +419,18 @@ class UIABridge:
         deadline = time.time() + timeout
         last_title = ""
         while True:
-            tmp: Dict[str, object] = {}
             try:
-                elements = self._snapshot_into(tmp, max_nodes=120)
+                fg = self._auto.GetForegroundControl()
+                last_title = (fg.Name or "") if fg is not None else ""
             except Exception:
-                elements = []
-            last_title = self._last_window_title or ""
+                pass
             if needle in last_title.lower():
                 return {"ok": True, "matched": "window_title", "window_title": last_title}
-            for el in elements:
-                if needle in (el.text or "").lower():
-                    return {
-                        "ok": True,
-                        "matched": el.text,
-                        "matched_type": el.element_type,
-                        "window_title": last_title,
-                    }
+            hit = self._scan_for_text(needle)
+            if hit is not None:
+                hit["ok"] = True
+                hit["window_title"] = last_title
+                return hit
             if time.time() >= deadline:
                 break
             time.sleep(interval)
