@@ -10,7 +10,7 @@ REM ============================================================
 cd /d "%~dp0.." 2>nul
 if errorlevel 1 (
     echo [ERROR] Cannot cd to repo root at "%~dp0.."
-    echo         UNC paths (\\wsl.localhost\...) are not supported by CMD.
+    echo         UNC paths like \\wsl.localhost\... are not supported by CMD.
     echo         Please copy the repo to C:\HAJIMI and run the launcher bat from there.
     pause
     exit /b 1
@@ -43,11 +43,11 @@ if errorlevel 1 goto fail_exit
 echo.
 echo [HAJIMI] Starting A-end :8010 (L4 vision planning) ...
 start "HAJIMI-A-end" cmd /k "call %~dp0start_server.bat"
-timeout /t 3 /nobreak >nul
+ping -n 4 127.0.0.1 >nul 2>&1
 
 echo [HAJIMI] Starting L5 Sidecar :8011 (UIA binding execution) ...
 start "HAJIMI-L5-Sidecar" cmd /k "call %~dp0start_l5_sidecar.bat"
-timeout /t 2 /nobreak >nul
+ping -n 3 127.0.0.1 >nul 2>&1
 
 echo [HAJIMI] Starting B-end UI ...
 start "HAJIMI-B-end" cmd /k "call %~dp0start_client.bat"

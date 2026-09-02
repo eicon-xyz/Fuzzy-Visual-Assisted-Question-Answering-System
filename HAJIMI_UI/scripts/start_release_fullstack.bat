@@ -51,11 +51,11 @@ echo [HAJIMI] local_vision: no :9800 tunnel needed (L4 vision + UIA execution)
 
 echo [HAJIMI] Starting A-end on :%HAJIMI_PORT% ...
 start "HAJIMI-A-end" cmd /k "set HAJIMI_PORT=%HAJIMI_PORT%&& call %~dp0start_server.bat"
-timeout /t 2 /nobreak >nul
+ping -n 3 127.0.0.1 >nul 2>&1
 
 echo [HAJIMI] Starting L5 Sidecar on :%L5_API_PORT% ...
 start "HAJIMI-L5-Sidecar" cmd /k "set L5_API_PORT=%L5_API_PORT%&& call %~dp0start_l5_sidecar.bat"
-timeout /t 2 /nobreak >nul
+ping -n 3 127.0.0.1 >nul 2>&1
 
 echo [HAJIMI] Waiting for A-end /health/live ...
 set /a WAIT=0
@@ -67,7 +67,7 @@ if %WAIT% GTR 45 (
 )
 "%PYTHON%" -c "import json,urllib.request; r=urllib.request.urlopen('http://127.0.0.1:%HAJIMI_PORT%/api/demo/health/live',timeout=3); d=json.loads(r.read()); exit(0 if d.get('status')=='ok' else 1)" 2>nul
 if errorlevel 1 (
-    timeout /t 2 /nobreak >nul
+    ping -n 3 127.0.0.1 >nul 2>&1
     goto wait_a
 )
 echo [HAJIMI] A-end live on :%HAJIMI_PORT%
@@ -83,7 +83,7 @@ if %WAIT_L5% GTR 45 (
 )
 "%PYTHON%" scripts\check_l5_sidecar_live.py --port %L5_API_PORT% 2>nul
 if errorlevel 1 (
-    timeout /t 2 /nobreak >nul
+    ping -n 3 127.0.0.1 >nul 2>&1
     goto wait_l5
 )
 echo [HAJIMI] L5 Sidecar live on :%L5_API_PORT%
