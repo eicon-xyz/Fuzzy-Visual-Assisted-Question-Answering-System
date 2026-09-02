@@ -1,6 +1,6 @@
 # HAJIMI L5 执行引擎架构对标开源调研报告
 
-> 调研日期：2026-09-02 · 作者：HAJIMI 工程 · 状态：v3（四组均为代理/直查终稿；论文表格级数字，快照存 /tmp/research、/tmp/gui、/tmp/ufo_src）
+> 调研日期：2026-09-02 · 作者：HAJIMI 工程 · 状态：**v3.2（2026-09-03：P0 八项全部实施完毕，见 §四 状态列与 commit 清单）**；四组均为代理/直查终稿；论文表格级数字，快照存 /tmp/research、/tmp/gui、/tmp/ufo_src
 > 目的：HAJIMI L5（UIA 自动执行）在**复杂多步任务**上成功率低，对标开源桌面/GUI/浏览器 Agent 的架构设计，产出可落地的改造路线。
 > 结论速览：**瓶颈不在"模型不够聪明"，而在 agent 骨架的四个缺件——感知被截扁、动作后零验证、偏航无账本、经验不可回放。** 四项全部可用现有 deepseek-chat + UIA 落地，不需新模型；「模型不动、只换骨架」的对照实验收益（+3×/-31%/3.8→12.5）远大于换模型的边际。
 
@@ -249,16 +249,21 @@ checkpoint/time-travel/interrupt 的本质=状态外置+每步落盘+可回滚�
 
 ### P0 —— 接线级修复（1-2 天/项，收益立竿见影）
 
-| # | 改造 | 命中断点 | 依据（出处见 §二） | 改动点 |
-|---|---|---|---|---|
-| 0.1 | **感知序列化升级**：`{id,content}`→投影字段 `id/type/name/class/enabled/patterns/bbox 相对位置/所在容器路径`；10 类 ControlType 白名单 + 语义 top-k 过滤替代"前 30 个"截断；prompt 里空间关系条款改为真实字段或删除 | §1.3-1 | UFO inspector 投影 + 两级过滤；Windows-MCP Snapshot | `uia_bridge._walk/_control_type` + `agent._do_get_screen_info` 返回体 + prompt |
-| 0.2 | **动作后验证接线**：act 后强制 `uia_bridge.verify()`（已有！）+ **WaitFor(期望条件)**（Windows-MCP 同款：在调用内轮询文本/控件/焦点出现）；验证失败→自动"重观察"而非继续；删除 done 自评依赖：mark_step_done 前必须有一次成功断言或显式 `complete_criterion` 字段 | §1.3-2 | UFO 机制#3、Skyvern complete_criterion、Anthropic"durable result" | `uia_bridge.act/verify` 返回链 + `agent.execute_step` 循环 + 工具 schema |
-| 0.3 | **id×name 交叉验证**：click/type 参数强制带 `name`，服务端与快照核对，不符即拒绝并回报真名 | §1.3-1 幻觉点击 | UFO `_verify_id` | `agent._do_click/_do_type_text` |
-| 0.4 | **零 LLM 卡死检测**：动作哈希滑窗 + 观测指纹停滞（UIA id 集合 sha256，连续 N 步不变→分级 nudge）；同动作同观测 4×/同动作皆错 3× → 回滚到循环起点或熔断 | §1.3-3 局部 | OpenHands stuck 五规则、browser-use 5/8/12 阈值 | `agent.execute_step` 内 ~100 行 |
-| 0.5 | **ExpandCollapse/右键/拖拽入动作空间**；删 `get_screen_info` 前全局 ESC 副作用（改为可选 close_popup 显式动作）；`double_click/act` 用 UIA 路径 | §1.3-5 | uiacli 坑单、cwin 三层栈 | `uia_bridge.act` + 工具定义 |
-| 0.6 | **错误结构化带 hint**：所有工具返回 `{ok, error_code, message, hint}`，hint 面向 LLM 下一轮自纠 | §1.3-2/3 | uiacli、Skyvern error_code_mapping（业务失败不重试） | `agent.dispatch_tool` 统一包装 |
-| 0.7 | **done 证据化 + 防过早放弃**：`mark_step_done` 必带证据（UIA prop diff/文件 stat），无证据拒收；`mark_step_failed` 前先给一次"换策略"机会；**新增显式 `report_infeasible/ask_user` 终止动作**（防 WebArena 54.9% 式提前躺平，UI-TARS `finished()/call_user()` 同款） | §1.3-2 | WebArena 数据、tinyfish"click landed≠done"、Anthropic durable result、UI-TARS2/Minitap 的 ASK_USER 维度 | 工具 schema + agent 循环两处小改 |
-| 0.8 | **Playwright 式 actionability 前置检查**：动作前校验"唯一解析/可见/Stable(bbox 200ms 不变)/可点(不被遮挡)/启用"，不满足→等待或换目标，**等待条件不等待时间** | §1.3-5 | Playwright actionability、V-Droid 预校验(+17pp 级) | `uia_bridge.act` 入口加谓词链 |
+> **✅ 2026-09-03：P0 八项已全部实施完毕并逐 commit 推送（实施顺序 0.2→0.1→0.4→0.3→0.5→0.6→0.7→0.8，
+> 提交 f5190555→c971079e→d6ffef75→3d0448f2→ad0ee212→7c4bf78a→4d97241b→f13d4320）。
+> 单测集中在 server_A/server/tests/test_executor_p0.py（52 例，Linux 可跑）；
+> 未做项：wait_for 独立工具（expect 参数已覆盖后置断言语义）。下表「改动点」为实施后口径。**
+
+| # | 改造 | 状态 | 命中断点 | 依据（出处见 §二） | 改动点 |
+|---|---|---|---|---|---|
+| 0.1 | **感知序列化升级**：`{id,content}`→投影字段 `id/type/name/class/enabled/patterns/bbox 相对位置/所在容器路径`；10 类 ControlType 白名单 + 语义 top-k 过滤替代"前 30 个"截断；prompt 里空间关系条款改为真实字段或删除 | ✅ c971079e | §1.3-1 | UFO inspector 投影 + 两级过滤；Windows-MCP Snapshot | `uia_bridge._walk/_snapshot_into`（白名单+投影+depth6/120）+ `agent._prioritize_projection` top-40 + prompt 死条款删除（语义 top-k 留 P1） |
+| 0.2 | **动作后验证接线**：act 后强制 `uia_bridge.verify()`（已有！）+ **WaitFor(期望条件)**（Windows-MCP 同款：在调用内轮询文本/控件/焦点出现）；验证失败→自动"重观察"而非继续；删除 done 自评依赖：mark_step_done 前必须有一次成功断言或显式 `complete_criterion` 字段 | ✅ f5190555 | §1.3-2 | UFO 机制#3、Skyvern complete_criterion、Anthropic"durable result" | `uia_bridge.act/verify/wait_for_text/_props` 返回链 + `agent._post_action_result`（失败自动重观察附 new_elements）+ expect 入 4 个动作工具 schema（done 证据化在 0.7） |
+| 0.3 | **id×name 交叉验证**：click/type 参数强制带 `name`，服务端与快照核对，不符即拒绝并回报真名 | ✅ 3d0448f2 | §1.3-1 幻觉点击 | UFO `_verify_id` | `agent._name_guard/_names_match`（精确/双向包含）+ click/double_click/type_text schema required name |
+| 0.4 | **零 LLM 卡死检测**：动作哈希滑窗 + 观测指纹停滞（UIA id 集合 sha256，连续 N 步不变→分级 nudge）；同动作同观测 4×/同动作皆错 3× → 回滚到循环起点或熔断 | ✅ d6ffef75 | §1.3-3 局部 | OpenHands stuck 五规则、browser-use 5/8/12 阈值 | `agent._LoopDetector`（滑窗20、重复 5/8/12 三级、指纹=内容 sha256 对 id 重编号免疫、3×失败 REPLAN）nudge 改写；回滚/熔断留 P1 账本 |
+| 0.5 | **ExpandCollapse/右键/拖拽入动作空间**；删 `get_screen_info` 前全局 ESC 副作用（改为可选 close_popup 显式动作）；`double_click/act` 用 UIA 路径 | ✅ ad0ee212 | §1.3-5 | uiacli 坑单、cwin 三层栈 | `uia_bridge._act_expand`+`_act_click` expand 档（幂等）+ `agent._do_click` uia_expand 自动重观察选第二级 + ESC 副作用删除（关弹窗=显式 press_key("esc")；右键/拖拽未做，留 P1-1.4/1.6） |
+| 0.6 | **错误结构化带 hint**：所有工具返回 `{ok, error_code, message, hint}`，hint 面向 LLM 下一轮自纠 | ✅ 7c4bf78a | §1.3-2/3 | uiacli、Skyvern error_code_mapping（业务失败不重试） | `agent.dispatch_tool` 薄包装+`_normalize_tool_result/_classify_error_code`（8 类码×默认 hint 表，工具异常不再掀翻整步）；tool_result SSE 附 error_code+hint |
+| 0.7 | **done 证据化 + 防过早放弃**：`mark_step_done` 必带证据（UIA prop diff/文件 stat），无证据拒收；`mark_step_failed` 前先给一次"换策略"机会；**新增显式 `report_infeasible/ask_user` 终止动作**（防 WebArena 54.9% 式提前躺平，UI-TARS `finished()/call_user()` 同款） | ✅ 4d97241b | §1.3-2 | WebArena 数据、tinyfish"click landed≠done"、Anthropic durable result、UI-TARS2/Minitap 的 ASK_USER 维度 | `agent` 证据账本+`_gate_mark_step_done/_gate_mark_step_failed`（拒收一次防死锁、unverified_done 打标）+ ExecutedStep.evidence/terminal_kind + `engine` ask_user→step_blocked、infeasible 跳过盲重试 |
+| 0.8 | **Playwright 式 actionability 前置检查**：动作前校验"唯一解析/可见/Stable(200ms 不变)/可点(不被遮挡)/启用"，不满足→等待或换目标，**等待条件不等待时间** | ✅ f13d4320 | §1.3-5 | Playwright actionability、V-Droid 预校验(+17pp 级) | `uia_bridge._check_actionable`（轮询谓词链，超时拒发 not_actionable+missing_predicates+hint）+ ambiguous_same_name 软校验 + agent 透传 |
 
 ### P1 —— 骨架升级（1-2 周，解决"复杂任务"结构性问题）
 
