@@ -864,3 +864,128 @@ def test_engine_terminal_actions_skip_blind_retry(monkeypatch):
     assert blocked["data"]["question"] == "选A还是B？"
     assert "task_failed" in names
     engine.unregister_task("t-terminal")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 0.8 Playwright 式 actionability 前置谓词
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class _ShiftingRectControl(FakeControl):
+    """每次取 bbox 都在动（模拟动画中）→ 不满足 Stable。"""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self._tick = 0
+
+    @property
+    def BoundingRectangle(self):
+        self._tick += 1
+        d = self._tick * 5
+        return _Rect(d, 10, 60 + d, 30)
+
+    @BoundingRectangle.setter
+    def BoundingRectangle(self, v):  # 吸收基类 __init__ 的赋值
+        pass
+
+
+class _ObscuredControl(FakeControl):
+    def GetClickablePoint(self):
+        raise RuntimeError("obscured (element offscreen/covered)")
+
+
+class _LoadingControl(FakeControl):
+    """前 N 次读 IsEnabled=False，之后 True —— 验证等待条件而非等待时间。"""
+
+    def __init__(self, *a, flips=3, **k):
+        super().__init__(*a, **k)
+        self._flips = flips
+        self._reads = 0
+
+    @property
+    def IsEnabled(self):
+        self._reads += 1
+        return self._reads > self._flips
+
+    @IsEnabled.setter
+    def IsEnabled(self, v):
+        pass
+
+
+def test_actionability_rejects_disabled(monkeypatch):
+    btn = FakeControl("按钮", enabled=False)
+    btn._patterns["invoke"] = _FakeInvokePattern(btn)
+    root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 400, 300), children=(btn,))
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    els = b.snapshot()
+    r = b.act(find_el(els, "按钮").element_id, action_timeout=0.5)
+    assert r["success"] is False
+    assert r["error_code"] == "not_actionable"
+    assert "enabled" in r["missing_predicates"]
+    assert "hint" in r
+    assert "invoke" not in btn.log  # 谓词不过，动作绝不下发
+
+
+def test_actionability_rejects_unstable_bbox(monkeypatch):
+    moving = _ShiftingRectControl("滑块", rect=(0, 10, 60, 30))
+    moving._patterns["invoke"] = _FakeInvokePattern(moving)
+    root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 400, 300), children=(moving,))
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    els = b.snapshot()
+    r = b.act(els[0].element_id, action_timeout=0.5)
+    assert r["success"] is False and "stable" in r["missing_predicates"]
+
+
+def test_actionability_rejects_obscured_click(monkeypatch):
+    obscured = _ObscuredControl("被盖住的按钮")
+    obscured._patterns["invoke"] = _FakeInvokePattern(obscured)
+    root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 400, 300), children=(obscured,))
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    els = b.snapshot()
+    r = b.act(els[0].element_id, action_timeout=0.4)
+    assert r["success"] is False and "receives_events" in r["missing_predicates"]
+
+
+def test_actionability_waits_for_condition_not_time(monkeypatch):
+    """加载中的控件（若干次读取后 enabled）：等待谓词满足后才执行动作。"""
+    loading = _LoadingControl("稍后就绪", flips=3)
+    loading._patterns["invoke"] = _FakeInvokePattern(loading)
+    root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 400, 300), children=(loading,))
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    els = b.snapshot()
+    r = b.act(els[0].element_id, action_timeout=2.5)
+    assert r["success"] is True and r["via"] == "uia_invoke"
+    assert "invoke" in loading.log
+
+
+def test_ambiguous_same_name_flagged_not_blocked(monkeypatch):
+    """同名多控件：唯一解析软校验——照常执行但回报歧义数量。"""
+    b1 = FakeControl("确定", rect=(0, 0, 40, 20))
+    b1._patterns["invoke"] = _FakeInvokePattern(b1)
+    b2 = FakeControl("确定", rect=(60, 0, 100, 20))
+    b2._patterns["invoke"] = _FakeInvokePattern(b2)
+    root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 400, 300), children=(b1, b2))
+    install_fake_uia(monkeypatch, root)
+    br = UIABridge()
+    els = br.snapshot()
+    r = br.act(els[0].element_id, action_timeout=0.4)
+    assert r["success"] is True
+    assert r["ambiguous_same_name"] == 2
+
+
+def test_agent_not_actionable_propagates_error_code():
+    """agent 层把 not_actionable + hint 透传给统一错误契约。"""
+    bridge = _BridgeStub(
+        {"success": False, "via": None, "error_code": "not_actionable",
+         "error": "element not actionable: missing=enabled (waited 3000ms)",
+         "hint": "控件未就绪…换 enabled=true 的同功能控件"}
+    )
+    a = _make_agent_with_fake_bridge(bridge)
+    r = a.dispatch_tool("click", {"element_id": "u1", "name": "确定"})
+    assert r["ok"] is False
+    assert r["error_code"] == "not_actionable"
+    assert "同功能控件" in r["hint"]

@@ -73,6 +73,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - 菜单/下拉框（type=menu/menuitem/combobox，或 patterns 含 expandcollapse）：直接 click 会自动走 ExpandCollapse 展开，并返回展开后的新选项列表（new_elements，旧 id 失效）——从中选第二级目标再 click，禁止用坐标盲点菜单
 
 ## 验证标准
+- 动作下发前服务端自动做 actionability 预检（可见/启用/位置稳定/不被遮挡，在超时内轮询等待条件而非固定等待）；预检不过返回 error_code=not_actionable + missing_predicates——界面在加载就 wait 后重试，控件不可用就换 enabled 的同功能控件，不要硬点同一个 id
 - 动作工具（click/double_click/type_text/paste_text）会自动做动作后验证，返回：
   action_ok（动作是否送达）、verified（控件是否仍可用且在屏内）、state_changed（控件属性是否变化）、prop_diff（变化明细）
 - 对界面状态有把握的动作用 expect 参数声明期望（如 click(确定, expect="已发送")），服务端在调用内轮询验证；expect_ok=false 时结果会附 new_elements（自动重观察），旧 id 全部失效
@@ -1228,6 +1229,9 @@ class ExecutionAgent:
                 "error": f"UIA 操作失败: {r.get('error')}",
                 "via": r.get("via"),
                 "action_ok": False,
+                # 0.8 actionability 拒绝等带码错误原样透传（error_code/hint）
+                "error_code": r.get("error_code"),
+                "hint": r.get("hint"),
             }
 
         cx, cy = element.center
@@ -1353,6 +1357,8 @@ class ExecutionAgent:
                 "error": f"UIA 输入失败: {r.get('error')}",
                 "via": r.get("via"),
                 "action_ok": False,
+                "error_code": r.get("error_code"),  # 0.8 not_actionable 透传
+                "hint": r.get("hint"),
             }
 
         old_clipboard = pyperclip.paste()

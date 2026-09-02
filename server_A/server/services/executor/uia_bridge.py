@@ -440,6 +440,67 @@ class UIABridge:
             "window_title": last_title,
         }
 
+    def _check_actionable(
+        self, ctrl, action: str = "click", timeout: float = 3.0, sample_interval: float = 0.2
+    ) -> dict:
+        """0.8 Playwright 式 actionability 前置谓词（等待条件，不等待时间）。
+
+        谓词链（映射到 UIA）：
+          Visible   → IsOffscreen == False
+          Enabled   → IsEnabled == True
+          Stable    → 连续两次采样（间隔 sample_interval）bbox 不变（动画停）
+          ReceivesEvents → GetClickablePoint 可得且落在 bbox 内（不被遮挡，仅点击类）
+        任一谓词不满足时在 timeout 内轮询；超时返回缺失项。
+        """
+        deadline = time.time() + timeout
+        last_bbox: Optional[List[int]] = None
+        while True:
+            try:
+                offscreen = bool(ctrl.IsOffscreen)
+            except Exception:
+                offscreen = False
+            try:
+                enabled = bool(ctrl.IsEnabled)
+            except Exception:
+                enabled = True
+            bbox = _control_bbox(ctrl)
+            stable = bbox is not None and last_bbox is not None and bbox == last_bbox
+            obscured = False
+            if action in ("click", "double_click"):
+                get_cp = getattr(ctrl, "GetClickablePoint", None)
+                if callable(get_cp):
+                    try:
+                        cp = get_cp()
+                        if cp is not None and bbox is not None:
+                            if not (
+                                bbox[0] <= cp[0] <= bbox[2]
+                                and bbox[1] <= cp[1] <= bbox[3]
+                            ):
+                                obscured = True
+                    except Exception:
+                        obscured = True
+            if bbox is not None and not offscreen and enabled and stable and not obscured:
+                return {"actionable": True}
+            last_bbox = bbox
+            if time.time() >= deadline:
+                missing = []
+                if offscreen:
+                    missing.append("visible")
+                if not enabled:
+                    missing.append("enabled")
+                if not stable:
+                    missing.append("stable")
+                if obscured:
+                    missing.append("receives_events")
+                if bbox is None:
+                    missing.append("bbox")
+                return {
+                    "actionable": False,
+                    "missing": missing,
+                    "waited_ms": int(timeout * 1000),
+                }
+            time.sleep(sample_interval)
+
     def act(
         self,
         element_id: str,
@@ -448,6 +509,7 @@ class UIABridge:
         expect: Optional[str] = None,
         verify_timeout: float = 3.0,
         expect_timeout: float = 4.0,
+        action_timeout: float = 3.0,
     ) -> dict:
         """对指定元素执行动作，并接线执行后校验。
 
@@ -465,6 +527,43 @@ class UIABridge:
                 "error": f"uia element '{element_id}' not found",
                 "via": None,
                 "action_ok": False,
+            }
+
+        # 0.8 唯一解析软校验：同名多控件提醒（不阻断，由 agent/LLM 消歧）
+        result_meta = {}
+        try:
+            target_name = (getattr(ctrl, "Name", "") or "").strip()
+            if target_name:
+                dup = sum(
+                    1
+                    for p in self._last_projection
+                    if p.get("name") == target_name
+                )
+                if dup > 1:
+                    result_meta["ambiguous_same_name"] = dup
+        except Exception:
+            pass
+
+        # 0.8 actionability 前置谓词链：不满足 → 拒发动作并回报缺失谓词
+        chk = self._check_actionable(ctrl, action=action, timeout=action_timeout)
+        if not chk.get("actionable"):
+            missing = chk.get("missing", [])
+            return {
+                "success": False,
+                "action_ok": False,
+                "via": None,
+                "error_code": "not_actionable",
+                "error": (
+                    f"element not actionable: missing={'+'.join(missing)} "
+                    f"(waited {chk.get('waited_ms', 0)}ms)"
+                ),
+                "missing_predicates": missing,
+                "hint": (
+                    "控件未就绪（" + "/".join(missing) + "）。这是时机或目标问题："
+                    "若界面在加载/动画，稍后重试；若元素不可用或被遮挡，"
+                    "get_screen_info 换 enabled=true 的同功能控件，勿硬点。"
+                ),
+                **result_meta,
             }
 
         before = self._props(ctrl)
@@ -487,6 +586,7 @@ class UIABridge:
 
         if not r.get("success"):
             r["action_ok"] = False
+            r.update(result_meta)
             return r
 
         # ── 动作后验证链（0.2）：控件状态校验 + 属性 diff + 期望条件轮询 ──
@@ -509,6 +609,7 @@ class UIABridge:
         else:
             r["expect_ok"] = None
 
+        r.update(result_meta)
         return r
 
     def _act_click(self, ctrl, element_id: str) -> dict:
