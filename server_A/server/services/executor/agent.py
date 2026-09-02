@@ -79,6 +79,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - 桌面图标、文件操作使用 double_click 而非 click
 
 ## 异常处理
+- 工具失败时返回固定结构 {ok:false, error_code, message, hint}——先读 hint，按它的建议自纠，不要无视错误码原样重试
 - 点击后无反应 → wait(1) 后重试
 - 元素始终找不到 → 尝试 press_key("tab") 切换焦点再试
 - 意外弹窗 → 优先点击关闭/取消按钮（content 为 "关闭"/"取消"/"跳过"/"×" 的元素）
@@ -1247,8 +1248,98 @@ class ExecutionAgent:
 
     # ── Tool dispatcher ──
 
+    # 0.6 错误契约：error_code → 面向 LLM 下一轮自纠的默认 hint
+    _ERROR_HINTS = {
+        "element_not_found": (
+            "element_id 不在当前快照（每次观察后旧 id 全部失效）。"
+            "先 get_screen_info，再基于最新列表的 id+name 重新选择目标。"
+        ),
+        "name_mismatch": (
+            "目标 id 与名称不符：按回报的真实名称换 id，"
+            "或 get_screen_info 后按 name/type/bbox 重新定位。禁止换 id 碰运气。"
+        ),
+        "blocked_redline": (
+            "该动作命中红线，重试不会改变结果。改用不触碰红线的路径；"
+            "若任务必须此操作，调用 report_infeasible 说明原因。"
+        ),
+        "confirm_required": (
+            "黄线动作需要用户确认。先尝试无风险的替代路径；"
+            "确属必要时调用 ask_user 请求用户批准，不要绕过。"
+        ),
+        "action_failed": (
+            "动作下发失败。get_screen_info 确认控件仍存在，"
+            "然后换交互方式（double_click / press_key / 菜单展开）再试。"
+        ),
+        "unknown_tool": "工具名不存在，只能使用工具列表中列出的工具。",
+        "tool_exception": (
+            "工具执行抛出异常。换一条更简单的路径完成本步骤"
+            "（避免同一调用重复触发该异常）。"
+        ),
+        "unknown_error": (
+            "查看返回的 message 定位原因；必要时 get_screen_info 重新观察后调整策略。"
+        ),
+    }
+
+    @staticmethod
+    def _classify_error_code(err_text: str) -> str:
+        e = (err_text or "").lower()
+        if "not found in current screen" in e or "not found" in e and "element" in e:
+            return "element_not_found"
+        if "name_mismatch" in e:
+            return "name_mismatch"
+        if "zone: red" in e or "blocked (zone" in e:
+            return "blocked_redline"
+        if "zone: yellow" in e or "requires confirmation" in e:
+            return "confirm_required"
+        if "uia 操作失败" in err_text or "uia 输入失败" in err_text or "failed:" in e:
+            return "action_failed"
+        if "unknown tool" in e:
+            return "unknown_tool"
+        if "tool exception" in e:
+            return "tool_exception"
+        return "unknown_error"
+
+    def _normalize_tool_result(self, tool_name: str, result) -> dict:
+        """统一工具返回契约：{ok, error_code, message, hint} + 原有字段。
+
+        成功：ok=true、error_code/message/hint 为 None。
+        失败：error_code 枚举分类，hint 给出下一轮自纠建议（面向 LLM）。
+        保留 success 字段作向后兼容别名。
+        """
+        if result is None:
+            result = {"success": False, "error": f"tool '{tool_name}' returned None"}
+        if not isinstance(result, dict):
+            result = {"success": True, "action_summary": str(result)[:300]}
+        ok = bool(result.get("success"))
+        result["ok"] = ok
+        # 控制信号（done/failed/infeasible/ask_user 判定等）不算错误
+        if ok or result.get("__step_failed__") or result.get("__step_infeasible__") or result.get("__ask_user__"):
+            result.setdefault("error_code", None)
+            result.setdefault("message", None)
+            result.setdefault("hint", None)
+            return result
+        err = result.get("error") or result.get("reason") or ""
+        code = result.get("error_code") or self._classify_error_code(str(err))
+        result["error_code"] = code
+        result["message"] = str(err)
+        hint = result.get("hint")  # 底层已给更具体的 hint 时不覆盖
+        result["hint"] = hint or self._ERROR_HINTS.get(code, self._ERROR_HINTS["unknown_error"])
+        return result
+
     def dispatch_tool(self, tool_name: str, tool_args: dict) -> dict:
-        """Execute a tool call and return the result dict."""
+        """Execute a tool call. 0.6：所有出口统一 {ok, error_code, message, hint} 契约。"""
+        try:
+            result = self._dispatch_tool_inner(tool_name, tool_args or {})
+        except Exception as exc:
+            logger.exception("tool %s raised", tool_name)
+            result = {
+                "success": False,
+                "error": f"tool exception: {type(exc).__name__}: {exc}",
+                "error_code": "tool_exception",
+            }
+        return self._normalize_tool_result(tool_name, result)
+
+    def _dispatch_tool_inner(self, tool_name: str, tool_args: dict) -> dict:
         if tool_name == "get_screen_info":
             return self._do_get_screen_info()
         elif tool_name == "launch_app":
@@ -1521,6 +1612,8 @@ class ExecutionAgent:
                             "action_summary": result.get("action_summary"),
                             "duration_ms": duration_ms,
                             "error": result.get("error"),
+                            "error_code": result.get("error_code"),
+                            "hint": result.get("hint"),
                         },
                     )
                 except Exception:

@@ -668,3 +668,65 @@ def test_get_screen_info_no_global_esc(monkeypatch):
 
     src = inspect.getsource(agent_mod.ExecutionAgent._do_get_screen_info)
     assert 'press("esc")' not in src and "press('esc')" not in src
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 0.6 统一错误契约 {ok, error_code, message, hint}
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_dispatch_unknown_tool_contract():
+    a = _make_agent_with_fake_bridge(_BridgeStub({"success": True}))
+    r = a.dispatch_tool("no_such_tool", {})
+    assert r["ok"] is False
+    assert r["error_code"] == "unknown_tool"
+    assert r["message"] and "hint" in r and r["hint"]
+
+
+def test_dispatch_element_not_found_contract():
+    a = _make_agent_with_fake_bridge(_BridgeStub({"success": True}))
+    r = a.dispatch_tool("click", {"element_id": "u99", "name": "x"})
+    assert r["ok"] is False and r["error_code"] == "element_not_found"
+    assert "get_screen_info" in r["hint"]
+
+
+def test_dispatch_name_mismatch_contract():
+    a = _make_agent_with_fake_bridge(_BridgeStub({"success": True}))
+    r = a.dispatch_tool("click", {"element_id": "u1", "name": "完全不同的名字"})
+    assert r["ok"] is False and r["error_code"] == "name_mismatch"
+    assert r["actual_name"] == "确定"
+
+
+def test_dispatch_success_contract_and_control_signal_passthrough():
+    a = _make_agent_with_fake_bridge(_click_ok_bridge())
+    r = a.dispatch_tool("click", {"element_id": "u1", "name": "确定"})
+    assert r["ok"] is True and r["success"] is True
+    assert r["error_code"] is None and r["message"] is None
+    # mark_step_failed（无 success 字段但属控制信号）不被误判为错误
+    f = a.dispatch_tool("mark_step_failed", {"reason": "尽力了"})
+    assert f["ok"] is False and f["error_code"] is None and f["__step_failed__"]
+
+
+def test_dispatch_exception_becomes_tool_exception_contract(monkeypatch):
+    a = _make_agent_with_fake_bridge(_BridgeStub({"success": True}))
+    monkeypatch.setattr(
+        a, "_dispatch_tool_inner",
+        lambda name, args: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    r = a.dispatch_tool("wait", {"seconds": 1})
+    assert r["ok"] is False and r["error_code"] == "tool_exception"
+    assert "boom" in r["message"] and r["hint"]
+    # 循环不崩：dispatch 永不抛异常、永不返回 None
+
+
+def test_dispatch_yellow_zone_contract(monkeypatch):
+    a = _make_agent_with_fake_bridge(_BridgeStub({"success": True}))
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        agent_mod, "check_step",
+        lambda text: SimpleNamespace(level="yellow", reason="发送类操作"),
+    )
+    r = a.dispatch_tool("click", {"element_id": "u1", "name": "确定"})
+    assert r["ok"] is False and r["error_code"] == "confirm_required"
+    assert "ask_user" in r["hint"] or "确认" in r["hint"]
