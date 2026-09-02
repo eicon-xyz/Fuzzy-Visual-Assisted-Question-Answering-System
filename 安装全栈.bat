@@ -4,17 +4,17 @@ setlocal EnableExtensions
 cd /d %~dp0
 
 echo ============================================================
-echo  HAJIMI L4+L5 å…¨æ ˆå®‰è£…ï¼ˆæ–¹æ¡ˆä¸€ï¼šæºç äº¤ä»˜åŒ…ï¼‰
-echo  å°†é…ç½® B ç«¯ + A ç«¯(8010) + L5 Sidecar(8011) ä¸‰ä¸ª venv
+echo  HAJIMI L4+L5 È«Õ»°²×°£¨·½°¸Ò»£ºÔ´Âë½»¸¶°ü£©
+echo  ½«ÅäÖÃ B ¶Ë + A ¶Ë(8010) + L5 Sidecar(8011) Èı¸ö venv
 echo ============================================================
 
 if not exist "HAJIMI_UI\main.py" (
-    echo [ERROR] è¯·åœ¨ä»“åº“æ ¹ç›®å½•è¿è¡Œï¼ˆéœ€å« HAJIMI_UI\ï¼‰
+    echo [ERROR] ÇëÔÚ²Ö¿â¸ùÄ¿Â¼ÔËĞĞ£¨Ğèº¬ HAJIMI_UI\£©
     goto fail
 )
 if not exist "server_A\scripts\start_server.bat" (
-    echo [ERROR] ç¼ºå°‘ server_A\ â€” L5 è‡ªåŠ¨æ‰§è¡Œæ— æ³•å·¥ä½œ
-    echo   è¯·ç¡®ä¿ç›®å½•ç»“æ„:
+    echo [ERROR] È±ÉÙ server_A\ ¡ª L5 ×Ô¶¯Ö´ĞĞÎŞ·¨¹¤×÷
+    echo   ÇëÈ·±£Ä¿Â¼½á¹¹:
     echo     repo\HAJIMI_UI\
     echo     repo\server_A\
     goto fail
@@ -22,29 +22,29 @@ if not exist "server_A\scripts\start_server.bat" (
 
 where python >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] æœªæ‰¾åˆ° python â€” è¯·å…ˆå®‰è£… Python 3.12+
+    echo [ERROR] Î´ÕÒµ½ python ¡ª ÇëÏÈ°²×° Python 3.12+
     goto fail
 )
 
 cd HAJIMI_UI
 
 echo.
-echo [1/4] B ç«¯ UI ç¯å¢ƒ ...
+echo [1/4] B ¶Ë UI »·¾³ ...
 call scripts\ensure_ui_env.bat
 if errorlevel 1 goto fail
 
 echo.
-echo [2/4] A ç«¯ :8010 ç¯å¢ƒ ...
+echo [2/4] A ¶Ë :8010 »·¾³ ...
 call scripts\ensure_server_env.bat
 if errorlevel 1 goto fail
 
 echo.
-echo [3/4] L5 Sidecar :8011 ç¯å¢ƒ ^(å« torchï¼Œå¯èƒ½ 10-30 åˆ†é’Ÿ^) ...
+echo [3/4] L5 Sidecar :8011 »·¾³ ^(º¬ torch£¬¿ÉÄÜ 10-30 ·ÖÖÓ^) ...
 call scripts\ensure_l5_sidecar_env.bat
 if errorlevel 1 goto fail
 
 echo.
-echo [4/4] åˆå§‹åŒ– .env å¹¶åŒæ­¥ 8010 -^> 8011 ...
+echo [4/4] ³õÊ¼»¯ .env ²¢Í¬²½ 8010 -^> 8011 ...
 if exist server\.venv\Scripts\python.exe (
     set PYTHON=server\.venv\Scripts\python.exe
 ) else (
@@ -55,11 +55,11 @@ if errorlevel 1 goto fail
 
 echo.
 echo ============================================================
-echo  å®‰è£…å®Œæˆ
-echo  ä¸‹ä¸€æ­¥:
-echo    1. ç¼–è¾‘ HAJIMI_UI\server\.env  å¡«å…¥ LLM_API_KEY ^(Vision æ¨¡å‹^)
-echo    2. åŒå‡» å¯åŠ¨å…¨æ ˆ.bat
-echo    3. éªŒæ”¶: éªŒæ”¶.bat
+echo  °²×°Íê³É
+echo  ÏÂÒ»²½:
+echo    1. ±à¼­ HAJIMI_UI\server\.env  ÌîÈë LLM_API_KEY ^(Vision Ä£ĞÍ^)
+echo    2. Ë«»÷ Æô¶¯È«Õ».bat
+echo    3. ÑéÊÕ: ÑéÊÕ.bat
 echo ============================================================
 cd ..
 endlocal
@@ -67,7 +67,7 @@ exit /b 0
 
 :fail
 echo.
-echo [ERROR] å®‰è£…å¤±è´¥ â€” è§ä¸Šæ–¹æç¤º
+echo [ERROR] °²×°Ê§°Ü ¡ª ¼ûÉÏ·½ÌáÊ¾
 cd /d %~dp0
 pause
 endlocal

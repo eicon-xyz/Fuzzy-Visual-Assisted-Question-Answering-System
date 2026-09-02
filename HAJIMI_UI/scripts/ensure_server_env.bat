@@ -24,7 +24,7 @@ if "%NEED_SETUP%"=="1" (
 if not exist "server\.env" (
     if exist "server\.env.example" (
         copy /y "server\.env.example" "server\.env" >nul
-        echo [HAJIMI] WARN: created server\.env from example â€” fill LLM_API_KEY if needed.
+        echo [HAJIMI] WARN: created server\.env from example ¡ª fill LLM_API_KEY if needed.
     )
 )
 

@@ -4,7 +4,7 @@ setlocal EnableExtensions
 call "%~dp0resolve_omni_root.bat"
 if "%OMNI_ROOT_RESOLVED%"=="0" (
     set "OMNI_ROOT=%~dp0..\OmniParser"
-    echo [1/5] OmniParser not found â€” will clone to %OMNI_ROOT%
+    echo [1/5] OmniParser not found ¡ª will clone to %OMNI_ROOT%
 )
 
 if not exist "%OMNI_ROOT%\omnitool\omniparserserver" (

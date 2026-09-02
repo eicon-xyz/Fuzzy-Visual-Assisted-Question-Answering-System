@@ -21,5 +21,5 @@ start "HAJIMI-A-end" cmd /k "set HAJIMI_PORT=%HAJIMI_PORT%&& %~dp0start_server.b
 timeout /t 2 /nobreak >nul
 start "HAJIMI-B-end" cmd /k "set HAJIMI_PORT=%HAJIMI_PORT%&& set HAJIMI_API_URL=%HAJIMI_API_URL%&& %~dp0start_client.bat"
 
-echo [HAJIMI] Launched. A-end http://127.0.0.1:%HAJIMI_PORT% â€” pure vision LLM mode.
+echo [HAJIMI] Launched. A-end http://127.0.0.1:%HAJIMI_PORT% ¡ª pure vision LLM mode.
 endlocal

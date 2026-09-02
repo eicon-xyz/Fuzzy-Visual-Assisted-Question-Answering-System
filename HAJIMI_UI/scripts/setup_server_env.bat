@@ -13,7 +13,7 @@ if /I "%HAJIMI_RECREATE_VENV%"=="1" (
         echo [HAJIMI] Removing server\.venv ...
         rmdir /s /q server\.venv 2>nul
         if exist server\.venv (
-            echo [HAJIMI] ERROR: Cannot remove server\.venv â€” stop A-end server first:
+            echo [HAJIMI] ERROR: Cannot remove server\.venv ¡ª stop A-end server first:
             echo   - Press Ctrl+C in the server terminal, OR
             echo   - scripts\stop_server.bat
             echo   Then run: set HAJIMI_RECREATE_VENV=1 ^&^& scripts\setup_server_env.bat
@@ -23,7 +23,7 @@ if /I "%HAJIMI_RECREATE_VENV%"=="1" (
 )
 
 if exist "%VENV_PY%" (
-    echo [HAJIMI] server\.venv already exists â€” skip create, refresh dependencies.
+    echo [HAJIMI] server\.venv already exists ¡ª skip create, refresh dependencies.
     goto install_deps
 )
 
@@ -37,13 +37,13 @@ if errorlevel 1 (
     echo   2. Close other terminals using server\.venv
     echo   3. Delete folder manually: rmdir /s /q server\.venv
     echo   4. Retry: scripts\setup_server_env.bat
-    echo   Or reuse existing venv if present â€” start_server.bat works without re-setup.
+    echo   Or reuse existing venv if present ¡ª start_server.bat works without re-setup.
     exit /b 1
 )
 
 :install_deps
 echo [HAJIMI] Installing server dependencies into server\.venv ...
-REM Temporarily disable Windows IE proxy (127.0.0.1:7890) when Clash/V2Ray is off â€” pip uses it otherwise
+REM Temporarily disable Windows IE proxy (127.0.0.1:7890) when Clash/V2Ray is off ¡ª pip uses it otherwise
 set "_HAJIMI_PROXY_ENABLE="
 for /f "tokens=3" %%A in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings" /v ProxyEnable 2^>nul ^| findstr ProxyEnable') do set "_HAJIMI_PROXY_ENABLE=%%A"
 if /I "%_HAJIMI_PROXY_ENABLE%"=="0x1" (
@@ -78,4 +78,4 @@ if errorlevel 1 (
 
 echo.
 echo [HAJIMI] Done. Start A-end with: scripts\start_server.bat
-echo [HAJIMI] PyQt client can stay in videorag â€” no need to install server deps there.
+echo [HAJIMI] PyQt client can stay in videorag ¡ª no need to install server deps there.

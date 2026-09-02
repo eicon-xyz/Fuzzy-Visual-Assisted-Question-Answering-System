@@ -3,7 +3,7 @@ setlocal EnableExtensions
 
 cd /d %~dp0..
 
-echo [HAJIMI] LAN client setup â€” remote 8010 + L5 (hotspot / intranet)
+echo [HAJIMI] LAN client setup ¡ª remote 8010 + L5 (hotspot / intranet)
 python scripts\setup_lan_client.py
 if errorlevel 1 (
     echo [HAJIMI] Setup failed. UI not started.

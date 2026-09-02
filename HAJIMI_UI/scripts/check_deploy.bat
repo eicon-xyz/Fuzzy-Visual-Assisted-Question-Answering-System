@@ -8,13 +8,10 @@ if exist server\.venv\Scripts\python.exe (
     set PYTHON=python
 )
 
-echo [HAJIMI] Ensuring local venv / UI deps (install if missing) ...
-call "%~dp0ensure_hajimi_gpu_prereqs.bat"
-if errorlevel 1 (
-    echo [HAJIMI] Environment setup failed.
-    pause
-    exit /b 1
-)
+echo [HAJIMI] Ensuring venv deps (install if missing) ...
+call "%~dp0ensure_ui_env.bat"
+call "%~dp0ensure_server_env.bat"
+call "%~dp0ensure_l5_sidecar_env.bat"
 
 if exist server\.venv\Scripts\python.exe (
     set PYTHON=server\.venv\Scripts\python.exe
@@ -27,9 +24,9 @@ echo.
 if "%ERR%"=="0" (
     echo [HAJIMI] Deploy check: all OK.
 ) else if "%ERR%"=="2" (
-    echo [HAJIMI] Deploy check: env OK, GPU/A-end links not ready.
+    echo [HAJIMI] Deploy check: env OK, backend links not ready.
 ) else (
-    echo [HAJIMI] Deploy check: environment issues — see above.
+    echo [HAJIMI] Deploy check: environment issues - see above.
 )
 pause
 endlocal

@@ -22,7 +22,7 @@ echo [HAJIMI] Stopping L5 Sidecar :%L5_API_PORT% ...
 "%PYTHON%" scripts\kill_port.py %L5_API_PORT%
 
 if /i "%DEPLOY_MODE%"=="gpu_api" (
-    echo [HAJIMI] gpu_api mode â€” skip local OmniParser :%OMNI_PORT% ^(uses GPU API :9800 tunnel^)
+    echo [HAJIMI] gpu_api mode ¡ª skip local OmniParser :%OMNI_PORT% ^(uses GPU API :9800 tunnel^)
 ) else (
     echo [HAJIMI] Stopping OmniParser :%OMNI_PORT% ...
     "%PYTHON%" scripts\kill_port.py %OMNI_PORT%

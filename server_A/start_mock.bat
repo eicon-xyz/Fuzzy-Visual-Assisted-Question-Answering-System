@@ -21,5 +21,5 @@ timeout /t 2 /nobreak >nul
 :: Start B-end
 start "HAJIMI-B-end" cmd /k "set HAJIMI_PORT=%HAJIMI_PORT%&& set HAJIMI_API_URL=%HAJIMI_API_URL%&& set HAJIMI_MOCK_FALLBACK=1&& python main.py"
 
-echo [HAJIMI] Launched. A-end: %HAJIMI_API_URL%  (Mock mode â€” no OmniParser)
+echo [HAJIMI] Launched. A-end: %HAJIMI_API_URL%  (Mock mode ¡ª no OmniParser)
 endlocal

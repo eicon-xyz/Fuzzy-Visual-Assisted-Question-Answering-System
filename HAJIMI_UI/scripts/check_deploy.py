@@ -129,17 +129,8 @@ def main() -> int:
     env8011 = l5 / "server" / ".env"
     rows.append(("8011 L5 server/.env", env8011.is_file(), str(env8011) if env8011.is_file() else "missing — copy .env.example"))
 
-    try:
-        sys.path.insert(0, str(SCRIPTS))
-        from check_gpu_api_tunnel import check as tunnel_check
-
-        ok, detail = tunnel_check()
-        rows.append((":9800 GPU tunnel", ok, str(detail)[:120] if not ok else "ready"))
-        if not ok:
-            link_fail = True
-    except Exception as exc:
-        rows.append((":9800 GPU tunnel", False, str(exc)[:120]))
-        link_fail = True
+    # 无 :9800 纯视觉模式：不再探测 GPU 隧道（OMNIPARSER_ENABLED=false）
+    rows.append((":9800 GPU tunnel", True, "not_required (local_vision mode)"))
 
     port = int(os.environ.get("HAJIMI_PORT", "8010"))
     ok, detail, health = _http_json(f"http://127.0.0.1:{port}/api/demo/health", timeout=3.0)
@@ -168,11 +159,11 @@ def main() -> int:
     print("=" * 60)
 
     if env_fail:
-        print("[check_deploy] Environment not ready — run 启动HAJIMI.bat or scripts\\ensure_hajimi_gpu_prereqs.bat")
+        print("[check_deploy] Environment not ready — run 启动HAJIMI.bat or scripts\\安装全栈.bat (creates venvs)")
         return 1
     if link_fail:
         print("[check_deploy] Environment OK; backend links not ready (exit 2).")
-        print("  Fix: connect campus network and run 启动HAJIMI.bat, or start tunnel manually.")
+        print("  Fix: run 启动全栈.bat and check HAJIMI-A-end / HAJIMI-L5-Sidecar windows.")
         return 2
     print("[check_deploy] All checks passed.")
     return 0

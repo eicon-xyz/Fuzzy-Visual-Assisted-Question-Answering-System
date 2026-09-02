@@ -4,13 +4,13 @@ setlocal EnableExtensions
 cd /d %~dp0
 
 if not exist "HAJIMI_UI\scripts\verify_all.bat" (
-    echo [ERROR] ç¼ºå°‘ HAJIMI_UI\scripts\verify_all.bat
+    echo [ERROR] È±ÉÙ HAJIMI_UI\scripts\verify_all.bat
     pause
     exit /b 1
 )
 
 echo ============================================================
-echo  HAJIMI å…¨æ ˆéªŒæ”¶ â€” éœ€å…ˆè¿è¡Œ å¯åŠ¨å…¨æ ˆ.bat
+echo  HAJIMI È«Õ»ÑéÊÕ ¡ª ĞèÏÈÔËĞĞ Æô¶¯È«Õ».bat
 echo ============================================================
 echo.
 
@@ -21,9 +21,9 @@ cd ..
 
 echo.
 if %ERR% EQU 0 (
-    echo [OK] éªŒæ”¶é€šè¿‡ â€” L4 + L5 ç«¯ç‚¹å°±ç»ª
+    echo [OK] ÑéÊÕÍ¨¹ı ¡ª L4 + L5 ¶Ëµã¾ÍĞ÷
 ) else (
-    echo [FAIL] éªŒæ”¶æœªé€šè¿‡ â€” ç¡®è®¤ 8010 / 8011 å·²å¯åŠ¨ä¸” server\.env å·²é…ç½® LLM_API_KEY
+    echo [FAIL] ÑéÊÕÎ´Í¨¹ı ¡ª È·ÈÏ 8010 / 8011 ÒÑÆô¶¯ÇÒ server\.env ÒÑÅäÖÃ LLM_API_KEY
 )
 pause
 endlocal

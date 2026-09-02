@@ -17,7 +17,7 @@ if errorlevel 1 exit /b 1
 echo [upgrade] Verifying CUDA arch list ...
 "%OMNI_PY%" -c "import torch; print('cuda:', torch.cuda.is_available()); print('arch:', torch.cuda.get_arch_list())"
 echo.
-echo Done. Re-run scripts\start_omniparser.bat â€” should show cuda mode if kernel test passes.
+echo Done. Re-run scripts\start_omniparser.bat ¡ª should show cuda mode if kernel test passes.
 echo To force cuda: set OMNI_FORCE_CUDA=1 ^&^& scripts\start_omniparser.bat
 
 endlocal

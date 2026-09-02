@@ -2,8 +2,8 @@
 setlocal EnableExtensions
 cd /d %~dp0..\..
 
-echo [HAJIMI] CPU é™çº§æ¨¡å¼ â€” æœ¬æœº OmniParser :8002 + 8010 + 8011 + UI
-echo [HAJIMI] æ— æ ¡å›­ç½‘/GPU æ—¶ä½¿ç”¨ï¼›é»˜è®¤è¯·ç”¨æ ¹ç›®å½• å¯åŠ¨æœ¬åœ°.bat
+echo [HAJIMI] CPU ½µ¼¶Ä£Ê½ ¡ª ±¾»ú OmniParser :8002 + 8010 + 8011 + UI
+echo [HAJIMI] ÎŞĞ£Ô°Íø/GPU Ê±Ê¹ÓÃ£»Ä¬ÈÏÇëÓÃ¸ùÄ¿Â¼ Æô¶¯±¾µØ.bat
 
 if exist server\.venv\Scripts\python.exe (
     set PYTHON=server\.venv\Scripts\python.exe

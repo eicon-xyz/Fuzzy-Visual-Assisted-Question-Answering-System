@@ -283,11 +283,15 @@ def start_backend_services() -> None:
 
 
 def run_gpu_one_click_bat() -> None:
-    """Launch scripts/start_gpu_one_click.bat in a new console."""
-    bat = SCRIPTS / "start_gpu_one_click.bat"
+    """启动全栈（local_vision 模式，无 :9800 GPU 隧道）。
+
+    原 scripts/start_gpu_one_click.bat（:9800 隧道）已随 GPU 模式移除，
+    现委托给 start_release_fullstack.bat。
+    """
+    bat = SCRIPTS / "start_release_fullstack.bat"
     if not bat.is_file():
         raise FileNotFoundError(str(bat))
-    subprocess.Popen(f'start "HAJIMI-GPU-OneClick" cmd /k "{bat}"', shell=True, cwd=str(ROOT))
+    subprocess.Popen(f'start "HAJIMI-FullStack" cmd /k "{bat}"', shell=True, cwd=str(ROOT))
 
 
 def format_stop_summary(

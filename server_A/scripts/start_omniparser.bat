@@ -75,7 +75,7 @@ if not defined OMNI_DEVICE set "OMNI_DEVICE=cpu"
 cd /d "%OMNI_SERVER%"
 
 if /i "%OMNI_DEVICE%"=="cpu" (
-    echo [OmniParser] CPU mode â€” parse ~2-4 min per screenshot.
+    echo [OmniParser] CPU mode ¡ª parse ~2-4 min per screenshot.
 )
 echo [OmniParser] Starting http://%OMNI_HOST%:%OMNI_PORT% (%OMNI_DEVICE% mode) ...
 "%OMNI_PY%" -m omniparserserver --som_model_path ../../weights/icon_detect/model.pt --caption_model_name florence2 --caption_model_path ../../weights/icon_caption_florence --device %OMNI_DEVICE% --BOX_TRESHOLD 0.05 --host %OMNI_HOST% --port %OMNI_PORT%

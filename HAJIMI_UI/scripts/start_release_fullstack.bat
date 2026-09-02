@@ -4,7 +4,7 @@ cd /d %~dp0..
 
 echo ============================================================
 echo  HAJIMI release fullstack: A-end :8010 + L5 :8011 + B UI
-echo  L4 Vision + L5 auto-execute (no MOCK)
+echo  local_vision mode (no OmniParser, no :9800 tunnel)
 echo ============================================================
 
 if not exist "..\server_A\scripts\start_server.bat" (
@@ -31,7 +31,13 @@ if exist server\.venv\Scripts\python.exe (
     set PYTHON=server\.venv\Scripts\python.exe
 )
 
+echo.
+echo [HAJIMI] Bootstrapping env (create .env from example if missing) ...
 "%PYTHON%" scripts\bootstrap_release_env.py
+if errorlevel 1 goto fail
+
+echo [HAJIMI] Writing local_vision settings (deployment_mode=local_vision, routing=fast) ...
+"%PYTHON%" scripts\apply_local_vision_settings.py
 if errorlevel 1 goto fail
 
 if not defined HAJIMI_PORT set HAJIMI_PORT=8010
@@ -41,18 +47,8 @@ set NO_PROXY=127.0.0.1,localhost
 set no_proxy=127.0.0.1,localhost
 
 echo.
-echo [HAJIMI] Probing OmniParser GPU tunnel :9800 ...
-"%PYTHON%" scripts\check_gpu_api_tunnel.py >nul 2>&1
-if errorlevel 1 (
-    echo [HAJIMI] WARN: :9800 not ready — L4 Vision still works; precision/inspect need OmniParser.
-    echo [HAJIMI]       To enable GPU API: scripts\start_tunnel_9800.bat or 启动本地.bat
-) else (
-    echo [HAJIMI] Tunnel OK — applying gpu_api settings
-    "%PYTHON%" scripts\setup_gpu_api_mode.py
-    if errorlevel 1 goto fail
-)
+echo [HAJIMI] local_vision: no :9800 tunnel needed (L4 vision + UIA execution)
 
-echo.
 echo [HAJIMI] Starting A-end on :%HAJIMI_PORT% ...
 start "HAJIMI-A-end" cmd /k "set HAJIMI_PORT=%HAJIMI_PORT%&& call %~dp0start_server.bat"
 timeout /t 2 /nobreak >nul
@@ -81,7 +77,7 @@ set /a WAIT_L5=0
 :wait_l5
 set /a WAIT_L5+=1
 if %WAIT_L5% GTR 45 (
-    echo [HAJIMI] ERROR: L5 Sidecar not ready — L5 auto-execute will fail.
+    echo [HAJIMI] ERROR: L5 Sidecar not ready - L5 auto-execute will fail.
     echo [HAJIMI] Check HAJIMI-L5-Sidecar window; try: cd server_A ^&^& scripts\repair_l5_venv.bat
     goto fail
 )
@@ -99,7 +95,7 @@ if not defined VIDEO_RAG_PY if exist "%~dp0..\.venv\Scripts\python.exe" (
 start "HAJIMI-B-end" cmd /k "set PYTHON=&& set HAJIMI_PORT=%HAJIMI_PORT%&& set HAJIMI_API_URL=%HAJIMI_API_URL%&& if defined VIDEO_RAG_PY set VIDEO_RAG_PY=%VIDEO_RAG_PY%&& call %~dp0start_client.bat"
 
 echo.
-echo [HAJIMI] Full stack launched.
+echo [HAJIMI] Full stack launched (local_vision mode).
 echo   L4: Settings - routing fast/balanced/auto
 echo   L5: Settings - routing l5 + enable auto-execute
 echo   Verify: scripts\verify_all.bat --require-a
@@ -107,7 +103,7 @@ endlocal
 exit /b 0
 
 :fail
-echo [HAJIMI] Startup failed — see messages above.
+echo [HAJIMI] Startup failed - see messages above.
 pause
 endlocal
 exit /b 1

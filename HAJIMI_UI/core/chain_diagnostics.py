@@ -308,7 +308,7 @@ def _analyze_issues(
     for check in report.checks:
         if check.name.startswith("gpu_health [expected]") and not check.ok:
             issues.append(f"GPU OmniParser 不可达: {check.detail}")
-            recs.append("运行根目录 启动HAJIMI.bat 或 scripts\\start_tunnel_9800.bat")
+            recs.append("运行根目录 启动HAJIMI.bat 或 scripts\\start_release_fullstack.bat")
         if check.name == "A-end /health/live" and not check.ok:
             issues.append(f"A 端 event loop 阻塞或崩溃: {check.detail}")
             recs.append("重启 A 端 scripts\\start_server.bat；避免并发多次检测")
@@ -331,7 +331,7 @@ def _analyze_issues(
             else:
                 issues.append(f"Parse 探针失败: {check.detail}")
                 recs.append(
-                    "确认远程 GPU 上 omniparser_api 已启动 (gpu_group2_remote.py start-9800)"
+                    "确认远程 GPU 上 omniparser_api 已启动 (local_vision 模式（GPU 隧道已移除）)"
                 )
         if check.name == "LLM API probe (OpenAI)" and not check.ok:
             issues.append(f"OpenAI LLM 不可达: {check.detail}")

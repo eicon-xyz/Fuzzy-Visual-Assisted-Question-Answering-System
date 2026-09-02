@@ -1,6 +1,6 @@
 """Write user_settings for local_vision mode: 无 OmniParser + L4 视觉 + UIA 执行。
 
-与 apply_local_gpu_settings.py 相对：
+替代已删除的 apply_local_gpu_settings.py：
   - deployment_mode = local_vision（env_sync 不再写 :9800 / 本地 :8002）
   - routing_mode     = fast（L4 视觉，跳过 L3/OmniParser）
   - llm 置空（保留 server/.env 中已有 LLM_API_KEY / DEEPSEEK_API_KEY）

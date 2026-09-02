@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 cd /d %~dp0..
 
-echo [HAJIMI] Local demo mode â€” OmniParser will use CPU (OMNI_FORCE_CPU=1)
+echo [HAJIMI] Local demo mode ¡ª OmniParser will use CPU (OMNI_FORCE_CPU=1)
 set OMNI_FORCE_CPU=1
 
 if exist server\.venv\Scripts\python.exe (
