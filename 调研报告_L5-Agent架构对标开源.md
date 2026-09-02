@@ -1,6 +1,6 @@
 # HAJIMI L5 执行引擎架构对标开源调研报告
 
-> 调研日期：2026-09-02 · 作者：HAJIMI 工程 · 状态：v2.1（A/B/C/D 四组全部汇入并定稿；数字采取"可在原文核对"原则）
+> 调研日期：2026-09-02 · 作者：HAJIMI 工程 · 状态：v3（四组均为代理/直查终稿；论文表格级数字，快照存 /tmp/research、/tmp/gui、/tmp/ufo_src）
 > 目的：HAJIMI L5（UIA 自动执行）在**复杂多步任务**上成功率低，对标开源桌面/GUI/浏览器 Agent 的架构设计，产出可落地的改造路线。
 > 结论速览：**瓶颈不在"模型不够聪明"，而在 agent 骨架的四个缺件——感知被截扁、动作后零验证、偏航无账本、经验不可回放。** 四项全部可用现有 deepseek-chat + UIA 落地，不需新模型；「模型不动、只换骨架」的对照实验收益（+3×/-31%/3.8→12.5）远大于换模型的边际。
 
@@ -147,16 +147,38 @@ checkpoint/time-travel/interrupt 的本质=状态外置+每步落盘+可回滚�
 - [Cognition《Don't Build Multi-Agents》](https://cognition.ai/blog/dont-build-multi-agents)、[Anthropic building effective agents](https://www.anthropic.com/engineering/building-effective-agents)（最简优先）、CrewAI 生产端自己用确定性 Flows 取代自主 Crews。
 - ⇒ planner/critic 的价值应**降维为同循环内的账本字段、judge 调用、规则检测**，而非新增 agent。
 
-### 2.3 B 组：GUI 模型与框架——「模型贡献 vs 骨架贡献」定量分离（定稿：数字采取"可在原文核对"原则，未直接验证的百分比一律指向出处）
+### 2.3 B 组：GUI 模型与框架——骨架 vs 模型的归因问题（代理终稿，论文表格级数字）
 
-> 本组关键用途：回答"复杂任务差，该怪 deepseek-chat 还是怪骨架？"——学界恰好做了把模型固定换骨架、把骨架固定换模型的对照实验。
+> 一句话：**「纯文本 planner + 结构化定位」不是瓶颈；缺每步验证/回滚、缺可复用 workflow 记忆才是。接视觉 grounding 的预期收益远小于加 reflector + 经验库**（数字见下与 §四 2.3 折算）。
 
-- **Agent-S / Agent-S2（[arXiv:2410.08164](https://www.sciencestack.ai/paper/2410.08164v1)，[simular-ai/Agent-S](https://github.com/simular-ai/Agent-S)）**：模型不变（GPT-4o），仅加"**经验增强分层规划**"（Manager 语义子目标 + Worker 执行 + **从成功轨迹离线归纳 workflow 存入 Reasoning Memory，在线 top-k 检索复用**）→ OSWorld 成功率据官方 README/论文（数字请以其 Highlights 表为准，量级为此前 GPT-4o 基线的约 3 倍）。⇒ 纯骨架+经验库贡献，模型零改动。**这直接是 §1.3-6（经验不可回放）与 §四 2.1 的最强背书**；AWM 的 WebArena 相对 +51.1%（§2.4④）是同一机制在 web 域的镜像。
-- **UI-TARS / UI-TARS-2（[arXiv:2501.12326](https://ar5iv.labs.arxiv.org/html/2501.12326) / [arXiv:2509.02544](https://ar5iv.labs.arxiv.org/html/2509.02544)）**：端到端原生 GUI 模型路线（感知/grounding/规划内化于 VLM）。两点与 HAJIMI 相关：① 论文自省"真实部署中 agent 常因**缺乏自我反思**而卡死（get stuck due to a lack of self-reflection）"→ 其训练数据专门合成反思轨迹——**反思/重规划被模型厂当作一等能力训练**；我们没有训练条件，就必须用账本+熔断在 scaffold 层补（§2.2①/③）。② UI-TARS-2 把架构拆成"推理模块 + **解耦的视觉 grounding 模块** + 异步 RL + 统一动作空间"——即使端到端模型也在把 grounding 独立成可替换模块，与"UIA 主 + 视觉兜底"双通道同构。其"思考-规划-行动-**反思上一步是否生效**"四段式可在纯文本层复刻（反思改读 UIA diff 而非截图）。
-- **Mobile-Agent-v2 / v3-GUI-Owl（[arXiv:2406.01014](https://ar5iv.labs.arxiv.org/html/2406.01014) / [arXiv:2508.15144](https://hdsdev.hebis.de/main/ubffm/EdsRecord/edsarx%252Cedsarx.2508.15144)）**：v2 四 agent 分工（Planning/Decision/**Reflection**/Memory），**Reflection 用前后截图对比检查"操作是否真生效"，不生效即纠偏**——消融显示该模块是导航成功率主要贡献之一；v3/GUI-Owl 则统一模型族+该 scaffold，宣称在 10+ GUI 基准取 SoTA。HAJIMI 平价替代：Reflection 读 **UIA 属性 diff**（§四 0.2/0.8 的 before/after diff），不需 VLM、成本更低。注意 v2 论文自认"即使有感知模块仍会产生非预期操作"——**反思是减损不是保险**。
-- **UGround（[arXiv:2410.05243](https://osu-nlp-group.github.io/UGround/)）+ OS-Atlas（[arXiv:2410.23218](https://huggingface.co/buckets/huggingchat/papers-content/tree/2410/2410.23218.md)）**：纯视觉通用 grounding 组件族（UGround 主张"像人一样只用像素"，论文报告其接入后纯视觉 agent 胜过依赖结构树的同基线 agent；OS-Atlas 提供跨平台可插拔 grounding+动作空间）。**解读要平衡**：其结论成立于"结构树残缺/跨平台泛化"场景；与 D 组 Minitap 100%（结构+验证路线）、WAA a11y 模式数据共同构成完整图景——**结构信息充足时语义路由更准更省，结构盲区（UWP/自绘/画布）才需要视觉 grounding**。HAJIMI 正确姿势：视觉 grounding 只作为 element_id 体系的**数据源之一**（§四 2.3），不推翻 UIA 主通道。[WebSight(arXiv:2508.16987)](https://arxiv.org/abs/2508.16987) 与 UFO² 62% 的双向证据见 §2.2②。参考：诊断研究 ["Weak grounding or inadequate planning?"(arXiv:2506.04135)](http://web3.arxiv.org/pdf/2506.04135v1)（开源 VLM-agent 的失败归因对照）。
+**① Agent-S / S2 / S2.5 / S3**（[simular-ai/Agent-S](https://github.com/simular-ai/Agent-S) 12.2k★ 活跃；S1 [arXiv:2410.08164](https://arxiv.org/abs/2410.08164) ICLR'25 · S2 [arXiv:2504.00906](https://arxiv.org/abs/2504.00906) · S3 [arXiv:2510.02250](https://arxiv.org/abs/2510.02250)）——"骨架贡献"最全消融证据集
+- **S1（GPT-4o 不动，加层级规划+双记忆+自评器）**：OSWorld 11.21% → **20.58%（相对 +83.6%）**；65 题消融基线 26.15：去 episodic 记忆 **-7.7pt**、去层级规划净贡献 -6.15、去 Self-Evaluator -7.7、去自监督探索 -10.8。
+- **S1 的 macro 形态可直接抄进 §四 2.1**（`s1/core/ProceduralMemory.py`）：子任务摘要**只保留通过验证的步骤**、grounded 动作把具体控件 **参数化为 `elementN_id` 占位符**（天然跨窗口复用）；失败任务写"原因+可执行建议（禁空话）"；完成判定用**首/末帧 a11y 树 diff**；Manager 明令"计划里不要写验证步骤"（防步数膨胀）。
+- **S2（Mixture-of-Grounding + Proactive Hierarchical Planning）**：OSWorld 27.0(15步)/34.5(50步)，WAA 29.8 vs NAVI 19.5；**PHP 每子目标完成后重写剩余计划 +4.62/+6.15pt**；MoG +3.1/+4.6pt；"小开源 grounding 专家当外挂，好过 Claude 自猜坐标"；**定性拐点：接上 MoG 后 planning 取代 grounding 成为首要失败因**。
+- **S3（最激进三连）**：去层级改 flat policy **+9.1pt（LLM 调用还 -43.8%）**；加原生 code-agent 动作 → 62.6（**调用 -52.3%**）；**Behavior Judge**（同任务 N 条 rollout→每步生成"行为事实叙述"（before 画点击标记/after 放大裁剪）→多选比较选优）→ 69.9；多模型混合 → **72.6，首次超人类 72.36**。Pass@10 上限 80.5% vs 单次 66-70% ⇒ **"生成够好、选不出来"，Best-of-N 选优是十个百分点级空间**。
 
-**小结（模型 vs 骨架的归因）**：Agent-S（模型不动、换骨架+经验库 → 基线约 3×）、Minitap（多组件系统 100% vs 端到端模型上限 80.2%，§2.4⑥）、Magentic 消融（去账本 -31%）、SWE-agent（换接口 3.8→12.5%）——四个实验模型都没动；HAJIMI 连"模型上限"都还没触到：UIA 语义桥给足了结构化信息，deepseek-chat 的规划/写码能力被 §1.3 断点白白浪费。**结论：先把 P0/P1 工程件做完，再评估是否需要 VLM/grounding 投入。**
+**② UI-TARS 系**（[bytedance/UI-TARS](https://github.com/bytedance/UI-TARS) 11.4k★，UI-TARS-1.5-7B 权重开源；桌面载体 [UI-TARS-desktop](https://github.com/bytedance/UI-TARS-desktop) 38.8k★；UI-TARS-2 [arXiv:2509.02544](https://arxiv.org/abs/2509.02544)）——端到端路线，对我们的价值是"边界感"
+- 感知/grounding/规划/反思内化于 VLM；UI-TARS-2 反而把 **grounding 解耦成独立模块**、加 **GUI+SDK 混合动作**（BrowseComp-en 7.0→**29.6**）与 Working/Episodic 分层记忆；Reflection Tuning（错误步+纠正步成对训练）。
+- 三个可迁移点：① 反思被当一等能力训练（原文自白 "get stuck due to a lack of self-reflection"）⇒ 我们无训练条件，必须在 scaffold 补（账本/熔断/expect）；② 显式 `finished()/**call_user()**` 终止与求助动作（把"不可行/需登录"显式化，防耗步）；③ GUI+SDK 混合动作 = 我们 P1-1.7 代码快通道的外科依据（S3 同向 +4.7pt）。
+- **反例警示（别抄的部分）**：极薄 prompt+纯截图路线不可复制——性能在模型内化：Mobile-Agent-v3 Table 8 把 UI-TARS-1.5 塞进别人框架 AndroidWorld 只剩 **14.1**；且消融显示长 CoT 只在 Best-of-16/64 才反超、RL 反而缩短思考——"多想"不是免费杠杆。
+
+**③ Mobile-Agent 系**（[X-PLUG/MobileAgent](https://github.com/X-PLUG/MobileAgent) 9.2k★；v2 [arXiv:2406.01014](https://arxiv.org/abs/2406.01014) · E [arXiv:2501.11733](https://arxiv.org/abs/2501.11733) · v3/GUI-Owl [arXiv:2508.15144](https://arxiv.org/abs/2508.15144) · v3.5 [arXiv:2602.16855](https://arxiv.org/abs/2602.16855)）——反思/进度压缩/自进化三件套的消融金标准
+- **v2 三角色**（Planning=**纯文本 LLM 进度压缩**/Decision/Reflection 对比前后两截图，三分类：A 对 / B 进错页→回退 / C 无变化→保持，**B/C 失败步不写入历史防污染**）。消融 Table 4（基础/高级 SR）：完整 **88.6/61.4**；**去 planning（即不做进度压缩）→ 59.1/29.5，最致命**；去 memory unit → 77.3/45.5；去 reflection → 86.4/54.5。
+- **"框架 >> 模型"最直白证明**：同一 v2 骨架，GPT-4V 裸用 **2.7** → 装进框架 **92.7**。
+- **E = 移动端 AWM**：**Shortcuts（带 precondition 的可复用算子序列，用前先校验当前屏幕满足前置）** + Tips，任务后由 Experience Reflector 更新；自进化本身 +6.5%，shortcut（`Tap_Type_and_Enter`）直接省决策轮。
+- v3：四角色含 **Reflector 输出 SUCCESS/FAILURE+诊断反馈**、**Notetaker 只在 SUCCESS 时抽瞬态关键信息**（验证码/文件名/路径）；GUI-Owl-7B 端到端 AndroidWorld 66.4 → **套 v3 框架 73.3**（纯 scaffold 再 +6.9pt）。v3.5 OSWorld 56.5 / ScreenSpot-Pro 80.3。
+- HAJIMI 平价替代：v2/v3 的 Reflection 读截图对，我们读 **UIA 属性 diff**（§四 0.2/0.8）——更便宜且确定性更高。
+
+**④ Grounding 模型族（"接模型收益多大"的定量回答）**：UGround [arXiv:2410.05243](https://osu-nlp-group.github.io/UGround/)（ICLR'25 Oral，[repo](https://github.com/OSU-NLP-Group/UGround) 2026-08 仍更新）· OS-Atlas [arXiv:2410.23218](https://huggingface.co/buckets/huggingchat/papers-content/tree/2410/2410.23218.md)（[repo](https://github.com/OS-Copilot/OS-Atlas) 已停滞 2025-04）· ShowUI · CogAgent
+- 单步定位：GPT-4o 自猜坐标 **18.3** vs UGround-V1-7B **86.3**（ScreenSpot）。
+- **E2E「planner 恒定只换 grounder」（关键表，OS-Atlas Table 3）**：OSWorld GPT-4o 自猜 5.03 → SoM 4.59 → SeeClick 9.21 → Atlas-7B **14.63（2.9×）**；AndroidWorld text-only 30.6 → +UGround **44.0**；WAA：像素检测器叠 UIA marker 相对 **+57%**。
+- **但 HAJIMI 起点不是"猜坐标"**：element_id→UIA ≈ 文献的 **Choice grounding**（MM-Mind2Web Choice 42.3 vs UGround 49.1 同量级；AndroidWorld text-only 30.6 **>** SoM 25.4；OSWorld a11y 12.24 **>** 纯截图 5.26）。⇒ **全面换视觉 grounding 收益很小；真收益只在"UIA 选不到→pyautogui 猜"兜底分支：保守折算整任务 SR +3~8pt（相对 +10~25%），不是文献 2.9× 那种"纯截图起步"的量级。**
+- 更优形态 = S2 式**多专家路由**而非单换模型：①结构专家=UIA（已有）②**OCR 词级 span 专家**（选文本/词编辑，S2 去之 -5.4pt 子任务成功率，实现=RapidOCR+现成 bbox，成本最低）③视觉专家只管自绘/canvas/图片区（**选 GUI-Owl（SSP 54.9）或 UI-TARS-1.5-7B（49.6），勿选 OS-Atlas——SSP 仅 18.9 高分辨率专业软件短板+仓库停滞**）④Office 结构写入专家（COM/ValuePattern，去之 -4.3pt）。接入路径已铺好：OSWorld 官方 `mm_agents/owl_agent.py` 走 OpenAI-compatible base_url（自托管 vLLM/DashScope 均可），HAJIMI `llm/providers.py` 直接复用。
+- 动作空间设计借鉴（OS-Atlas）：统一 basic/custom 动作表（17→10 类反而更准）、坐标一律归一化 0-1000、**Grounding Mode 与 Action Mode 双模式**（前者=给现有 agent 换零件的用法）。
+
+**⑤ 建评测台的口径警示（来自 B 组一手数字）**：AndroidWorld 同任务集换参数种子 SR **27.6/26.3/33.2**——单 seed 评测会骗人，**≥3 seeds 起步**；UI-TARS 的 Bo1 vs Bo16/64 说明"单次成功率"与"Best-of 上限"要分开报（对齐 D 组 All-Pass@4：生产看稳定性）；WAA 实测 **UIA 查询耗时可达秒~分钟级**——snapshot 要加延迟遥测与浅树策略（uiacli `--depth 2` 按需下钻同理）。
+
+**小结（骨架 vs 模型，全部为已核实数字）**：Agent-S1 +83.6% 相对（模型不动）· Mobile-Agent-v2 2.7→92.7（backbone 不动）· Magentic 去账本 -31% · SWE-agent 换接口 3.8→12.5 · Minitap 80.2→100 · 而给 HAJIMI 换 grounding 模型的折算仅 +3~8pt。**优先级判据由此确立：P0/P1 工程件先行（收益量级 10×），视觉 grounding 只作为 P2 兜底件按专家路由接入。**
 
 ### 2.4 D 组：可靠性工程、失败量化归因与技能库（一手来源：论文原文/官方 README，快照存 /tmp/research/）
 
@@ -211,10 +233,10 @@ checkpoint/time-travel/interrupt 的本质=状态外置+每步落盘+可回滚�
 | ①感知截扁、同名义肢 | 控件树投影序列化（type/patterns/enabled/路径）+ 10 类白名单 + 语义 top-k 过滤；**id×name 交叉验证**；平面编号+SoM 引用 | UFO inspector/`_verify_id`（[docs](https://github.com/microsoft/UFO/blob/main/documents/docs/ufo2/overview.md)）；Windows-MCP Snapshot；browser-use DOM 索引（WebVoyager 89.1% vs 纯截图 ~59%） | 低（0.1/0.3 项） |
 | ②动作后零验证 | `verify()` 接线 + **WaitFor 后置条件断言**；done 需 `complete_criterion` 独立判据；收尾 judge | Windows-MCP `WaitFor`；Skyvern block criterion；UFO"动作后不得立刻 FINISH"；WAA env-check 判据 | 低（0.2 项，代码已存在） |
 | ③无 Replan / 偏航即死 | **Progress Ledger + stall 计数器 → 清历史保账本强制重规划**；7 态 FSM 分级降级；首败即停防放大 | Magentic-One [arXiv:2411.04468](https://arxiv.org/abs/2411.04468)（去账本消融 **-31%**）；UFO FSM；Anthropic batch 首败即停 | 中（1.1/1.2 项） |
-| ④长上下文漂移 | 40k 触发式 `<compacted_memory>` 增量重写；8 段模板（含 ERRORS AND FIXES 防重蹈）；外置 TODO.md；观测 masking | browser-use 参数；OpenHands condenser；[Anthropic best-practices](https://claude.com/blog/best-practices-for-computer-and-browser-use-with-claude) | 低-中（1.3/1.5 项） |
+| ④长上下文漂移 | 40k 触发式 `<compacted_memory>` 增量重写；**每步压成一句 conclusion/进度文本**；8 段模板（含 ERRORS AND FIXES 防重蹈）；外置 TODO.md；观测 masking | browser-use 参数；OpenHands condenser；[Anthropic best-practices](https://claude.com/blog/best-practices-for-computer-and-browser-use-with-claude)；**Mobile-Agent-v2 去进度压缩 88.6→59.1（其消融最致命项）** | 低-中（1.3/1.5 项） |
 | ⑤动作空间缺口 | ExpandCollapse/右键/拖拽/窗口动作入 API；菜单路径选择器；**投机批量（前置校验+早停）**；错误带 hint | UFO² Algorithm 1（LLM 调用 **-51%**）；mcp-windows `ui_select/ui_batch`；uiacli 错误契约；[API vs GUI arXiv:2501.05446](https://arxiv.org/abs/2501.05446)（API 型 +15-30%） | 低→中（0.5/1.4/1.6） |
-| ⑥经验不可回放 | 成功轨迹→参数化 workflow 库（UIA 路径非坐标）+ 确定性回放 + self-heal mini-run | AWM/Voyager/Agent-S（待 B 组补数字）；Skyvern self-heal；[microsoft/cua_skill](https://github.com/microsoft/cua_skill) | 中-高（2.1 项） |
-| （天花板校准） | UIA 盲区（UWP/自绘，UFO²：**62% 失败源于控件检测**）→ 二期接 grounding 小模型，主通道仍是 UIA | UFO² [arXiv:2504.14603](https://arxiv.org/abs/2504.14603)；[WebSight](https://arxiv.org/abs/2508.16987)（DOM/AX 残缺镜像证据） | 高（2.3 项，放最后） |
+| ⑥经验不可回放 | 成功轨迹→参数化 workflow 库（**elementN 占位符化+precondition 校验**，UIA 路径非坐标）+ 确定性回放 + self-heal mini-run | **Agent-S 去 episodic -7.7pt（基线26.15）；AWM WebArena 相对 +51.1% 且省步数（规则归纳≈LLM归纳，35.6 vs 35.5）；Mobile-Agent-E 自进化 +6.5%、Shortcut 带前置校验回放**；Skyvern self-heal；[microsoft/cua_skill](https://github.com/microsoft/cua_skill) | 中-高（2.1 项） |
+| （天花板校准） | UIA 盲区（UWP/自绘，UFO²：62% 失败源于控件检测）→ 只给"UIA 选不到→猜坐标"兜底分支接**视觉专家**（多专家路由，非全面替换）；**HAJIMI 折算仅 +3~8pt（vs 纯截图系统 2.9×），且选 GUI-Owl/UI-TARS-7B 勿选 OS-Atlas（SSP 18.9+停滞）** | UFO² [arXiv:2504.14603](https://arxiv.org/abs/2504.14603)；[WebSight](https://arxiv.org/abs/2508.16987)；OS-Atlas Table 3 / UGround / Agent-S2 MoG（§2.3④） | 高（2.3 项，放最后） |
 
 **结构性结论**：六大断点中五个的对策是"纯文本 LLM + UIA 即可落地"的工程件（且 HAJIMI 栈上已有半成品），仅 grounding 盲区需要模型投入——这决定优先级排布：先做 P0/P1 接线，用 2.4 评测台量化，再决定是否为 2.3 花钱。
 
@@ -234,7 +256,7 @@ checkpoint/time-travel/interrupt 的本质=状态外置+每步落盘+可回滚�
 | 0.4 | **零 LLM 卡死检测**：动作哈希滑窗 + 观测指纹停滞（UIA id 集合 sha256，连续 N 步不变→分级 nudge）；同动作同观测 4×/同动作皆错 3× → 回滚到循环起点或熔断 | §1.3-3 局部 | OpenHands stuck 五规则、browser-use 5/8/12 阈值 | `agent.execute_step` 内 ~100 行 |
 | 0.5 | **ExpandCollapse/右键/拖拽入动作空间**；删 `get_screen_info` 前全局 ESC 副作用（改为可选 close_popup 显式动作）；`double_click/act` 用 UIA 路径 | §1.3-5 | uiacli 坑单、cwin 三层栈 | `uia_bridge.act` + 工具定义 |
 | 0.6 | **错误结构化带 hint**：所有工具返回 `{ok, error_code, message, hint}`，hint 面向 LLM 下一轮自纠 | §1.3-2/3 | uiacli、Skyvern error_code_mapping（业务失败不重试） | `agent.dispatch_tool` 统一包装 |
-| 0.7 | **done 证据化 + 防过早放弃**：`mark_step_done` 必带证据（UIA prop diff/文件 stat），无证据拒收；`mark_step_failed` 前必须先给一次"换策略"机会（防 WebArena 54.9% 式提前躺平） | §1.3-2 | WebArena 数据、tinyfish"click landed≠done"、Anthropic durable result | 工具 schema + agent 循环两处小改 |
+| 0.7 | **done 证据化 + 防过早放弃**：`mark_step_done` 必带证据（UIA prop diff/文件 stat），无证据拒收；`mark_step_failed` 前先给一次"换策略"机会；**新增显式 `report_infeasible/ask_user` 终止动作**（防 WebArena 54.9% 式提前躺平，UI-TARS `finished()/call_user()` 同款） | §1.3-2 | WebArena 数据、tinyfish"click landed≠done"、Anthropic durable result、UI-TARS2/Minitap 的 ASK_USER 维度 | 工具 schema + agent 循环两处小改 |
 | 0.8 | **Playwright 式 actionability 前置检查**：动作前校验"唯一解析/可见/Stable(bbox 200ms 不变)/可点(不被遮挡)/启用"，不满足→等待或换目标，**等待条件不等待时间** | §1.3-5 | Playwright actionability、V-Droid 预校验(+17pp 级) | `uia_bridge.act` 入口加谓词链 |
 
 ### P1 —— 骨架升级（1-2 周，解决"复杂任务"结构性问题）
@@ -242,22 +264,22 @@ checkpoint/time-travel/interrupt 的本质=状态外置+每步落盘+可回滚�
 | # | 改造 | 命中断点 | 依据 | 说明 |
 |---|---|---|---|---|
 | 1.1 | **engine FSM 化 + 单 agent 双账本**：外层 step 循环改为显式状态机（EXECUTE/VERIFY/REPLAN/FAIL_UP 分级，FAIL→账本记录 root cause→重规划，ERROR→终止）；每步收尾 5 字段 JSON 自评（progress/in-loop/next…），stall>3 → **清消息历史、保留账本、强制重规划** | §1.3-3 | Magentic-One（消融 -31%）、UFO 7 态 FSM | 计划不再是静态一次性：replan prompt 抄 UFO"先述 root cause，新计划特别避免重蹈覆辙" + 账本"已试败方案"段 |
-| 1.2 | **重规划真正接入**：失败步把 `(goal, plan_so_far, ledger: actions_taken/errors_and_fixes/current_state)` 喂回 planner 生成"剩余步计划修订"，取代同指令盲重试 | §1.3-3 | UFO 滚动重规划 + Anthropic 8 段 compaction 模板 | engine.py 内新函数即可，复用现有 plan_steps |
-| 1.3 | **长任务上下文治理**：40k 字符触发 `<compacted_memory>` 增量重写（keep_last 6 条）；巨型观测 masking；每步压成 `<step N>` | §1.3-4 | browser-use/OpenHands condenser | agent.py messages 管理 |
+| 1.2 | **重规划真正接入（proactive，不止失败时）**：**每个子目标完成后就用新观测重写剩余计划**；失败步把 `(goal, plan_so_far, ledger: actions_taken/errors_and_fixes/current_state)` 喂回 planner；**计划里禁止出现"验证类步骤"**（验证是回路的事，否则步数膨胀撞轮次上限） | §1.3-3 | **Agent-S2 PHP 消融 +4.62(15步)/+6.15(50步)pt**、UFO 滚动重规划、Anthropic 8 段模板、S2 Manager 提示词原文 | engine.py 内新函数即可，复用现有 plan_steps |
+| 1.3 | **长任务上下文治理**：40k 字符触发 `<compacted_memory>` 增量重写（keep_last 6）；**每步只留 ≤100 字 conclusion/进度文本**（失败步不写入）；巨型观测 masking | §1.3-4 | browser-use/OpenHands condenser；**Mobile-Agent-v2 去进度压缩 88.6→59.1、GUI-Owl conclusion-only 历史** | agent.py messages 管理 |
 | 1.4 | **投机批量动作**：同构低依赖子序列（如表单多字段）一次 LLM 调用产 k 个动作，逐个 UIA `is_enabled/visible` 前置校验后执行，**首败即停→报 partial→触发重规划** | 效率+§1.3-3 | UFO² Algorithm 1（LLM 调用 -51%）、Anthropic batch（探索性流程禁用） | 新工具 `perform_batch([...])`，内部仍走 uia_bridge |
 | 1.5 | **外置 TODO.md（任务级）+ 步骤窗口注入**：≥N 步任务把计划落盘文件，每步只注入"当前步+前后各1步+勾选状态"，迷路时读文件 | §1.3-3/4 | Anthropic best-practices | sidecar 工作目录即可 |
 | 1.6 | **动作前置条件语义**：`type_text` 目标断言 Edit+enabled；菜单=ExpandCollapse 展开→自动重观察→再选择（消灭菜单坐标盲点） | §1.3-5 | UFO/mcp-windows ui_select | uia_bridge 专用动作 `select_menu_path(items[])` |
-| 1.7 | **`run_ui_script` CodeAct 快通道**：批量/表单类步骤让 LLM 生成受限 pywinauto 脚本（白名单 API）→ dry-run 枚举"将操作 N 元素"→过红线→逐步执行带 expect；失败回退逐步循环 | §1.3-5/效率 | CodeAct +20%（17 LLM）、deepseek 写码强于点击 | 新工具 + 受限执行沙箱 |
+| 1.7 | **`run_ui_script` 代码快通道**：批量/表单/文件类步骤让 LLM 生成受限 pywinauto/PowerShell 脚本（白名单 API）→ dry-run 枚举"将操作 N 元素"→过红线→逐步执行带 expect；失败回退逐步循环。**注意 deepseek 写代码强于精确点击，此路专打 L5 软肋** | §1.3-5/效率 | CodeAct +20%（17 LLM 平均）；**Agent-S3 code-agent 动作 +4.7pt 且 LLM 调用 -52.3%**；UI-TARS-2 GUI+SDK BrowseComp 7.0→29.6 | 新工具 + 受限执行沙箱 |
 | 1.8 | **红线层升级为 L0-L3 分级交互**：L0 静默(可逆低影响)/L1 执行后报告/L2 展示操作清单先确认(发送/删除/购买/系统设置)/L3 拒绝；确认卡片带"本会话同类免确认"防疲劳 | 安全×可用性 | Anthropic/OpenAI/Copilot Vision 产品化实践、OSWorld2.0 ASK_USER 维度 | `safety.py` 出口改造 + 事件协议加 step_blocked 真发射 |
 
 ### P2 —— 能力扩展（1-2 月，含模型/新模块）
 
 | # | 改造 | 依据 | 备注 |
 |---|---|---|---|
-| 2.1 | **工作流宏库（AWM/Voyager 式）**：成功轨迹→参数化 JSON workflow（automationId 相对路径+控件文本，非坐标）；同类任务检索→确定性回放，失败→self-heal mini-run（Skyvern 模式）| UFO experience/AWM/Skyvern self-heal；microsoft/cua_skill 同方向 | 替换现有 {app,path,summary} 记忆；B/D 组数字支撑 |
+| 2.1 | **工作流宏库（AWM/Agent-S 式，证据最强的一项）**：成功轨迹→JSON workflow `{when_to_use, precondition(屏幕须含 content≈X), steps[{tool, elementN_id 占位符}, expect, on_fail]}`；**入库前按验证输出过滤错误/重复步**；检索键 ⟨任务,子任务,上下文⟩；回放失败→self-heal mini-run→回炉修模板 | **Agent-S ProceduralMemory 逐字规格可抄**（§2.3①）；去 episodic -7.7pt；AWM +51.1% 相对且规则归纳就够；Mobile-Agent-E Shortcut+precondition | 替换现有 {app,path,summary}，复用 embedder/retriever |
 | 2.2 | **语义函数层（API 优先）**：高频 app（Excel/Word/文件管理/浏览器）建类型化 MCP 风格工具（COM/pywinauto 快车道），GUI 动作降为兜底 | arXiv:2501.05446（+15-30%）、UFO hybrid | 每 app 一个 module，safety 层按函数级放行（比"按文本猜测动作"更好审） |
-| 2.3 | **grounding 兜底服务**：UIA 稀疏（UWP/自绘）才走视觉模型（OS-Atlas/GUI-Owl 2B 级 API，SoM 输出接回 element_id 体系）；局部 zoom | UFO² 62% 数据=盲区确实存在；WebSight 镜像 | 唯一需要外部模型依赖的项，放最后 |
-| 2.4 | **回归评测台（建议提前到 P1 并行做）**：移植 WAA 任务 schema（初始断言+成功判据 env-check oracle），30-50 个真实失败任务+VM 快照沙箱；验收口径用 **All-Pass@4**（RoTS 提出的生产稳定性指标，单次数字不可信） | cua harness（同任务跨环境 90%→9%）、WAA、RoTS All-Pass@4 | **没有它，上面所有改进无法归因**；改进项先在此集上 A/B |
+| 2.3 | **多专家 grounding 路由（非全面换模型）**：结构=UIA(已有)/OCR 词 span(最便宜，先做)/视觉专家(仅自绘区，**选 GUI-Owl-7B 或 UI-TARS-1.5-7B，OS-Atlas 因 SSP18.9+仓库停排除**)/Office 结构写入(COM)；输出统一回 element_id 体系 | **折算收益仅 +3~8pt（我们起点是 Choice 级不是猜坐标级，§2.3④）**；S2 MoG 各专家去一 -4~5pt；WAA UIA+像素相对+57% | 唯一需外部模型依赖的项，放最后、按分支占比再决策 |
+| 2.4 | **回归评测台（建议提前到 P1 并行做）**：移植 WAA 任务 schema（初始断言+成功判据 env-check oracle），30-50 个真实失败任务+VM 快照沙箱；口径=**≥3 参数种子 + All-Pass@4**（单 seed 会骗人：AndroidWorld 同集 27.6/26.3/33.2；单次÷稳定性=生产折扣）；失败按 planning/grounding-coverage/execution/recovery 四类打标（对齐文献口径）；snapshot 加延迟遥测（WAA：UIA 查询可达秒~分钟级） | cua harness（同任务跨环境 90%→9%）、RoTS、AndroidWorld seed 方差 | **没有它，上面所有改进无法归因** |
 | 2.5 | **自我错误分布蒸馏**：把评测台/线上的失败轨迹按 RoTS 11 类打标，生成"本 agent 常见坑"注入（占比≤0.1 防过度反思） | RoTS：自我分布数据 +5.3 vs 人工 +0.6 | 复用 2.4 的数据管道 |
 
 ### 反模式（明确不做）
