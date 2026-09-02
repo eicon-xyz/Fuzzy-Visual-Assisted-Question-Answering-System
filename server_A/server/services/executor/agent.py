@@ -8,6 +8,7 @@ executes via element_id (never coordinates), verifies, and marks step done/faile
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import threading
@@ -452,6 +453,121 @@ def _build_context_for_llm(
     parts.append("\n请完成当前步骤。你可以调用工具。每次只调用一个工具。")
 
     return "\n".join(parts)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 0.4 零 LLM 卡死检测（browser-use 阈值分级 + OpenHands stuck 规则子集）
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class _LoopDetector:
+    """动作哈希滑窗重复检测 + UIA 观测指纹停滞检测 + 连续失败计数。
+
+    纯代码零 LLM 成本；触阈值后不改写执行结果，只分级改写回灌给
+    LLM 的 nudge 提示（提醒不阻断，与 browser-use 同策略）。
+    """
+
+    WINDOW = 20            # 动作滑窗（browser-use window=20）
+    REPEAT_L1 = 5          # 同一动作重复 5 次：提示换思路
+    REPEAT_L2 = 8          # 8 次：强制换策略
+    REPEAT_L3 = 12         # 12 次：熔断级 nudge
+    STAGNATION_OBS = 5     # 观测指纹连续 N 次不变 = 界面停滞
+    FAIL_STREAK = 3        # 连续 N 次工具失败（OpenHands 3×Error 规则）
+
+    def __init__(self) -> None:
+        from collections import deque
+
+        self._recent = deque(maxlen=self.WINDOW)
+        self._last_fp: Optional[str] = None
+        self._same_obs = 0
+        self._fail_streak = 0
+
+    @staticmethod
+    def action_key(tool: str, args: dict) -> str:
+        try:
+            payload = json.dumps(
+                {tool: args}, sort_keys=True, ensure_ascii=False, default=str
+            )
+        except Exception:
+            payload = str(tool)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+    @staticmethod
+    def observation_fingerprint(elements: list) -> str:
+        """观测指纹：元素语义内容（type/name/bbox 或 id/content）的 sha256。
+
+        比「id 集合」更稳——UIA element_id 每次快照重编号（u1..uN），
+        内容不变时指纹不变，正是停滞检测所需。
+        """
+        rows = sorted(
+            "{}|{}|{}".format(
+                e.get("type", ""),
+                e.get("name", e.get("content", "")),
+                e.get("bbox", ""),
+            )
+            for e in elements
+        )
+        return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()[:16]
+
+    def record_action(self, tool: str, args: dict, success: bool) -> None:
+        if tool == "wait":  # 纯等待不是无效重复
+            return
+        self._recent.append(self.action_key(tool, args))
+        self._fail_streak = self._fail_streak + 1 if not success else 0
+
+    def record_observation(self, elements: Optional[list]) -> None:
+        if not elements:
+            return
+        fp = self.observation_fingerprint(elements)
+        if fp == self._last_fp:
+            self._same_obs += 1
+        else:
+            self._same_obs = 0
+        self._last_fp = fp
+
+    def repeat_count(self) -> int:
+        """最近一次动作在滑窗内连续出现的次数（从尾部数）。"""
+        if not self._recent:
+            return 0
+        last = self._recent[-1]
+        n = 0
+        for h in reversed(self._recent):
+            if h != last:
+                break
+            n += 1
+        return n
+
+    def build_nudge(self) -> str:
+        """当前轮应注入的 nudge 文本；无异常返回空串。"""
+        parts: list[str] = []
+        n = self.repeat_count()
+        if n >= self.REPEAT_L3:
+            parts.append(
+                f"⛔ 同一动作已重复 {n} 次，已判定卡死。禁止再次调用相同工具与参数："
+                "要么换完全不同的路径（不同控件/press_key/菜单），要么立即 "
+                "mark_step_failed 并说明尝试过什么。"
+            )
+        elif n >= self.REPEAT_L2:
+            parts.append(
+                f"⚠️ 同一动作已连续 {n} 次且任务未推进。下一步必须改变方案："
+                "换目标元素、换交互方式（double_click/press_key/type_text）或重新观察。"
+            )
+        elif n >= self.REPEAT_L1:
+            parts.append(
+                f"注意：同一动作已连续 {n} 次。若上次返回 state_changed=false 或 "
+                "expect_ok=false，请勿原样重复，先换策略。"
+            )
+        if self._same_obs >= self.STAGNATION_OBS:
+            parts.append(
+                f"界面观测指纹已连续 {self._same_obs + 1} 次观察完全相同——环境停滞。"
+                "反复观察不会改变画面，执行一个完全不同的动作或承认步骤失败。"
+            )
+        if self._fail_streak >= self.FAIL_STREAK:
+            parts.append(
+                f"连续 {self._fail_streak} 次工具调用失败（OpenHands 级联失败规则）。"
+                "REPLAN SUGGESTED：不要在失效假设上继续，重新观察并重排本步骤做法。"
+            )
+        return "\n".join(parts)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1167,6 +1283,7 @@ class ExecutionAgent:
         """
         step.status = "executing"
         self.clear_element_map()
+        loop_detector = _LoopDetector()  # 0.4 卡死检测（每步独立）
 
         current_step_info = {"index": step.step_index, "instruction": step.instruction}
         context = _build_context_for_llm(goal, current_step_info, previous_steps)
@@ -1208,12 +1325,15 @@ class ExecutionAgent:
                 step.action_summary = "cancelled by user"
                 return step
 
-            # On subsequent rounds, nudge the LLM to continue
+            # On subsequent rounds, nudge the LLM to continue.
+            # 0.4: 若检测到重复动作/观测停滞/级联失败，改写为分级纠偏 nudge。
             if round_num > 0:
+                corrective = loop_detector.build_nudge()
                 messages.append(
                     {
                         "role": "user",
-                        "content": "继续。你还可以调用工具。每次只调用一个工具。",
+                        "content": corrective
+                        or "继续。你还可以调用工具。每次只调用一个工具。",
                     }
                 )
                 time.sleep(1.5)  # throttle OmniParser load
@@ -1297,6 +1417,12 @@ class ExecutionAgent:
             result = self.dispatch_tool(tool_name, tool_args)
             if result is None:
                 result = {"success": False, "error": "tool dispatch returned None"}
+            # 0.4 卡死检测记账：动作哈希滑窗 + 观测指纹（观察类工具记录界面状态）
+            loop_detector.record_action(
+                tool_name, tool_args or {}, bool(result.get("success"))
+            )
+            if tool_name == "get_screen_info" and isinstance(result, dict):
+                loop_detector.record_observation(result.get("elements"))
             duration_ms = int((time.perf_counter() - t0) * 1000)
             if on_tool_event and result:
                 try:

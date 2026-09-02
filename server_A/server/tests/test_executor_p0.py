@@ -430,3 +430,82 @@ def test_prioritize_projection_caps_and_orders():
     interactive_kept = [i for i in kept_ids if int(i[1:]) > 20]
     assert len(interactive_kept) == 30
     assert kept_ids == sorted(kept_ids, key=lambda s: int(s[1:]))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 0.4 零 LLM 卡死检测
+# ═══════════════════════════════════════════════════════════════════════════
+
+LD = agent_mod._LoopDetector
+
+
+def _el(name, bbox=(0, 0, 10, 10)):
+    return {"type": "button", "name": name, "bbox": list(bbox)}
+
+
+def test_repeat_thresholds_tiered_nudge():
+    d = LD()
+    for i in range(4):
+        d.record_action("click", {"element_id": "u1"}, True)
+    assert d.build_nudge() == ""  # 4 次未触阈值
+    d.record_action("click", {"element_id": "u1"}, True)  # 5
+    assert "已连续 5 次" in d.build_nudge()
+    for i in range(3):  # 8 → 强制换策略级
+        d.record_action("click", {"element_id": "u1"}, True)
+    n2 = d.build_nudge()
+    assert "连续 8 次" in n2 and "改变方案" in n2
+    for i in range(4):  # 12 → 熔断级
+        d.record_action("click", {"element_id": "u1"}, True)
+    n3 = d.build_nudge()
+    assert "已判定卡死" in n3
+    # 不同参数 = 不同动作哈希，重复计数被打断
+    d.record_action("click", {"element_id": "u2"}, True)
+    assert d.build_nudge() == ""
+
+
+def test_window_slides():
+    d = LD()
+    for _ in range(d.WINDOW + 5):
+        d.record_action("click", {"element_id": "u1"}, True)
+    # 滑窗 maxlen=20，重复计数封顶在窗口大小
+    assert d.repeat_count() == d.WINDOW
+
+
+def test_wait_not_counted():
+    d = LD()
+    for _ in range(10):
+        d.record_action("wait", {"seconds": 2}, True)
+    assert d.repeat_count() == 0
+
+
+def test_observation_stagnation_detection():
+    d = LD()
+    snap = [_el("确定"), _el("取消", (60, 0, 10, 10))]
+    for _ in range(5):  # 前 5 次：4 次「不变」，未触阈值
+        d.record_observation(snap)
+    assert "环境停滞" not in d.build_nudge()
+    d.record_observation(snap)  # 第 6 次 → 连续 5 次不变，触发
+    assert "环境停滞" in d.build_nudge()
+    # 界面变化 → 计数清零
+    d.record_observation([_el("新页面")])
+    assert "环境停滞" not in d.build_nudge()
+
+
+def test_observation_fingerprint_ignores_id_renumbering():
+    """UIA id 每次重编号（u1..uN），指纹只看内容：内容不变 → 停滞可检出。"""
+    fp1 = LD.observation_fingerprint([{"id": "u1", "type": "button", "name": "确定", "bbox": [0, 0, 5, 5]}])
+    fp2 = LD.observation_fingerprint([{"id": "u7", "type": "button", "name": "确定", "bbox": [0, 0, 5, 5]}])
+    assert fp1 == fp2
+    fp3 = LD.observation_fingerprint([{"id": "u1", "type": "button", "name": "取消", "bbox": [0, 0, 5, 5]}])
+    assert fp1 != fp3
+
+
+def test_fail_streak_replan_suggestion():
+    d = LD()
+    d.record_action("click", {"element_id": "u1"}, False)
+    d.record_action("click", {"element_id": "u2"}, False)
+    assert "REPLAN" not in d.build_nudge()
+    d.record_action("type_text", {"element_id": "u3", "text": "x"}, False)
+    assert "REPLAN SUGGESTED" in d.build_nudge()
+    d.record_action("click", {"element_id": "u4"}, True)  # 成功清零
+    assert "REPLAN" not in d.build_nudge()
