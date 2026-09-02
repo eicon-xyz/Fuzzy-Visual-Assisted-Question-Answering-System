@@ -38,10 +38,10 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 ## 可用工具
 - launch_app(app_name): 通过系统级命令启动应用（Win+搜索）。当步骤为打开应用时，优先使用此工具。
 - get_screen_info(): 获取当前屏幕控件投影列表，字段：id / type(控件类型) / name(控件文本) / class(框架类名) / enabled(是否可用) / patterns(可用交互模式: invoke,value,toggle,selectionitem,expandcollapse) / bbox(相对窗口左上角 [左,上,宽,高] 像素)。附带 window_title 与 window_size
-- click(element_id[, expect]): 单击指定元素（UIA 绑定优先：Invoke/Select 等精确模式；失败回退坐标点击）。自动动作后验证，可选 expect 声明期望界面变化
-- double_click(element_id[, expect]): 双击指定元素。桌面图标、文件通常需要双击打开。
+- click(element_id, name[, expect]): 单击指定元素（UIA 绑定优先：Invoke/Select 等精确模式；失败回退坐标点击）。name 必填=该元素的 name 字段，服务端交叉验证防幻觉点击；expect 可选，声明期望的界面变化
+- double_click(element_id, name[, expect]): 双击指定元素。桌面图标、文件通常需要双击打开。
 - paste_text(text[, expect]): 将文本粘贴到当前获得焦点的位置（通过剪贴板）。启动应用后或点击输入框后，文本会自动粘贴到光标所在位置，不需要 element_id。用于无法检测到输入框的场景（如记事本文本区、聊天输入框等纯文本区域）。
-- type_text(element_id, text[, expect]): 向输入元素输入文本（UIA 绑定优先：ValuePattern.SetValue 精确设置）
+- type_text(element_id, name, text[, expect]): 向输入元素输入文本（UIA 绑定优先：ValuePattern.SetValue 精确设置）
 - press_key(keys): 按键盘组合键，如 "enter", "ctrl+v", "win"
 - scroll(direction, amount): 滚轮滚动
 - wait(seconds): 等待指定秒数，让界面响应
@@ -67,6 +67,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - 跳过 enabled=false 的控件（点了不会生效）
 - 同名多控件时用 bbox 区分：bbox=[左,上,宽,高] 为相对窗口左上角像素，"左边的按钮"→ 取左值小者，"顶部菜单"→ 取上值小者，"第 N 行"→ 按上值排序
 - 找不到时，先 wait(2) 再重新 get_screen_info
+- 调用 click/double_click/type_text 时必须同时传 name 参数（你选定条目的 name 值）：服务端会拿它与快照核对，若该 id 实际不是你说的控件会拒绝执行并回报真实名称——按真名重新决策，不要重复同一个错误 id
 
 ## 验证标准
 - 动作工具（click/double_click/type_text/paste_text）会自动做动作后验证，返回：
@@ -156,7 +157,7 @@ def _build_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "click",
-                "description": "单击指定元素。传入element_id而非坐标。返回含动作后验证结果（action_ok/verified/state_changed/prop_diff），若界面未变化会自动重观察并返回新元素列表。",
+                "description": "单击指定元素。传入element_id而非坐标，并同时传入该元素在get_screen_info中的name（服务端与快照交叉核对，不符则拒绝执行并回报真实名称，防止幻觉点击）。返回含动作后验证结果（action_ok/verified/state_changed/prop_diff），若界面未变化会自动重观察并返回新元素列表。",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -164,12 +165,16 @@ def _build_tool_definitions() -> list[dict]:
                             "type": "string",
                             "description": "元素ID，来自get_screen_info返回列表中的id字段",
                         },
+                        "name": {
+                            "type": "string",
+                            "description": "你认为该元素的名称（列表中对应条目的 name），用于 id×name 交叉验证",
+                        },
                         "expect": {
                             "type": "string",
                             "description": "可选：点击后期望出现的界面文本（新控件名/窗口标题片段），服务端在调用内轮询验证（WaitFor 语义），不满足会自动重观察",
                         },
                     },
-                    "required": ["element_id"],
+                    "required": ["element_id", "name"],
                 },
             },
         },
@@ -177,17 +182,21 @@ def _build_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "double_click",
-                "description": "双击指定元素。桌面图标和文件通常需要双击。返回含动作后验证结果。",
+                "description": "双击指定元素。桌面图标和文件通常需要双击。name 用于 id×name 交叉验证。返回含动作后验证结果。",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "element_id": {"type": "string", "description": "元素ID"},
+                        "name": {
+                            "type": "string",
+                            "description": "该元素在列表中的 name（交叉验证）",
+                        },
                         "expect": {
                             "type": "string",
                             "description": "可选：双击后期望出现的界面文本（如新窗口标题片段），服务端轮询验证",
                         },
                     },
-                    "required": ["element_id"],
+                    "required": ["element_id", "name"],
                 },
             },
         },
@@ -216,7 +225,7 @@ def _build_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "type_text",
-                "description": "向指定输入元素输入文本（UIA ValuePattern.SetValue 优先，失败回退剪贴板粘贴）。返回含动作后验证结果（state_changed 即输入框 value 变化）。",
+                "description": "向指定输入元素输入文本（UIA ValuePattern.SetValue 优先，失败回退剪贴板粘贴）。name 用于 id×name 交叉验证。返回含动作后验证结果（state_changed 即输入框 value 变化）。",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -224,13 +233,17 @@ def _build_tool_definitions() -> list[dict]:
                             "type": "string",
                             "description": "目标输入框的元素ID",
                         },
+                        "name": {
+                            "type": "string",
+                            "description": "该输入元素在列表中的 name（交叉验证）",
+                        },
                         "text": {"type": "string", "description": "要输入的文本"},
                         "expect": {
                             "type": "string",
                             "description": "可选：输入后期望出现的界面文本（如联想词条），服务端轮询验证",
                         },
                     },
-                    "required": ["element_id", "text"],
+                    "required": ["element_id", "text", "name"],
                 },
             },
         },
@@ -703,6 +716,40 @@ class ExecutionAgent:
             self._uia = UIABridge()
         return self._uia
 
+    @staticmethod
+    def _names_match(expected: str, actual: str) -> bool:
+        """0.3 id×name 交叉验证的匹配规则：精确/双向包含（大小写不敏感）。"""
+        e = (expected or "").strip().lower()
+        a = (actual or "").strip().lower()
+        if not e:
+            return True
+        return e == a or e in a or a in e
+
+    def _name_guard(self, element_id: str, name: Optional[str]) -> Optional[dict]:
+        """防幻觉点击（UFO _verify_id 同款）：动作参数带的 name 与最新快照
+        实际控件名核对，不符返回拒绝结果并回报真名；通过返回 None。"""
+        if not name:
+            return None  # 未提供 name 不阻断（schema 已引导必带）
+        element = self.element_map.get(element_id)
+        actual = (element.text or "").strip() if element is not None else ""
+        if not actual:
+            # 无名控件：无法交叉验证，放行但提醒
+            return {"name_unverifiable": f"控件 '{element_id}' 无文本名，未做 id×name 核对"}
+        if self._names_match(name, actual):
+            return None
+        return {
+            "success": False,
+            "error": (
+                f"NAME_MISMATCH: element_id '{element_id}' 的实际名称是「{actual}」，"
+                f"不是「{name}」——目标定位与实际控件不符，动作已拒绝执行。"
+            ),
+            "actual_name": actual,
+            "hint": (
+                f"请核对元素列表：'{name}' 可能对应其它 id，"
+                f"或调用 get_screen_info 重新观察后再选择；不要改用 id 碰运气。"
+            ),
+        }
+
     def _post_action_result(
         self,
         base: dict,
@@ -945,7 +992,13 @@ class ExecutionAgent:
             "action_summary": f"launched app '{app_name}' (tier {result.get('tier', '?')})",
         }
 
-    def _do_click(self, element_id: str, double: bool = False, expect: Optional[str] = None) -> dict:
+    def _do_click(
+        self,
+        element_id: str,
+        double: bool = False,
+        expect: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> dict:
         element = self.element_map.get(element_id)
         if element is None:
             return {
@@ -953,6 +1006,14 @@ class ExecutionAgent:
                 "error": f"element_id '{element_id}' not found in current screen. "
                 f"Please call get_screen_info() again.",
             }
+
+        # 0.3 id×name 交叉验证：拒绝幻觉点击
+        guard = self._name_guard(element_id, name)
+        name_warning = None
+        if guard is not None:
+            if guard.get("success") is False:
+                return guard
+            name_warning = guard.get("name_unverifiable")
 
         safety = check_step(f"click element {element.text}")
         if safety.level == "red":
@@ -981,6 +1042,8 @@ class ExecutionAgent:
                     "via": via,
                     "action_summary": f"{label} 元素 '{element.text}'（{via}）",
                 }
+                if name_warning:
+                    base["warning"] = name_warning
                 return self._post_action_result(base, r, expect)
             return {
                 "success": False,
@@ -1061,7 +1124,13 @@ class ExecutionAgent:
                     )
         return base
 
-    def _do_type_text(self, element_id: str, text: str, expect: Optional[str] = None) -> dict:
+    def _do_type_text(
+        self,
+        element_id: str,
+        text: str,
+        expect: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> dict:
         element = self.element_map.get(element_id)
         if element is None:
             return {
@@ -1069,6 +1138,11 @@ class ExecutionAgent:
                 "error": f"element_id '{element_id}' not found in current screen. "
                 f"Please call get_screen_info() again.",
             }
+
+        # 0.3 id×name 交叉验证：拒绝幻觉输入
+        guard = self._name_guard(element_id, name)
+        if guard is not None and guard.get("success") is False:
+            return guard
 
         cx, cy = element.center
         safety = check_step(f"type '{text}' into element")
@@ -1172,19 +1246,23 @@ class ExecutionAgent:
             return self._do_launch_app(tool_args.get("app_name", ""))
         elif tool_name == "click":
             return self._do_click(
-                tool_args.get("element_id", ""), expect=tool_args.get("expect")
+                tool_args.get("element_id", ""),
+                expect=tool_args.get("expect"),
+                name=tool_args.get("name"),
             )
         elif tool_name == "double_click":
             return self._do_click(
                 tool_args.get("element_id", ""),
                 double=True,
                 expect=tool_args.get("expect"),
+                name=tool_args.get("name"),
             )
         elif tool_name == "type_text":
             return self._do_type_text(
                 tool_args.get("element_id", ""),
                 tool_args.get("text", ""),
                 expect=tool_args.get("expect"),
+                name=tool_args.get("name"),
             )
         elif tool_name == "paste_text":
             return self._do_paste_text(

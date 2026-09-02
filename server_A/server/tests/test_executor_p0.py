@@ -509,3 +509,78 @@ def test_fail_streak_replan_suggestion():
     assert "REPLAN SUGGESTED" in d.build_nudge()
     d.record_action("click", {"element_id": "u4"}, True)  # 成功清零
     assert "REPLAN" not in d.build_nudge()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 0.3 id×name 交叉验证（UFO _verify_id）
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _click_ok_bridge():
+    return _BridgeStub(
+        {"success": True, "via": "uia_invoke", "action_ok": True,
+         "verified": True, "state_changed": True}
+    )
+
+
+def test_name_guard_rejects_mismatch_and_reports_real_name():
+    """id 指向「确定」但 LLM 说要点「取消」→ 拒绝执行并回报真名。"""
+    bridge = _click_ok_bridge()
+    a = _make_agent_with_fake_bridge(bridge)
+    r = a._do_click("u1", name="取消")
+    assert r["success"] is False
+    assert "NAME_MISMATCH" in r["error"]
+    assert r["actual_name"] == "确定"
+    assert "hint" in r
+    assert bridge.calls == []  # 动作未被下发
+
+
+def test_name_guard_accepts_exact_contains_and_case():
+    a = _make_agent_with_fake_bridge(_click_ok_bridge())
+    assert a._do_click("u1", name="确定")["success"] is True
+    assert a._do_click("u1", name="确")["success"] is True      # 部分包含
+    a.element_map["u1"].text = "OK 确定"
+    assert a._do_click("u1", name="确定")["success"] is True    # 双向包含
+
+
+def test_name_guard_skipped_without_name_and_warns_on_unnamed():
+    a = _make_agent_with_fake_bridge(_click_ok_bridge())
+    r1 = a._do_click("u1")  # 不带 name：不阻断（向后兼容）
+    assert r1["success"] is True
+    a.element_map["u1"].text = ""  # 无名控件 + 带 name → 放行但提醒无法核对
+    a._uia = _click_ok_bridge()
+    r2 = a._do_click("u1", name="保存")
+    assert r2["success"] is True and "未做 id×name 核对" in str(r2.get("warning", ""))
+
+
+def test_name_guard_applies_to_type_text():
+    a = _make_agent_with_fake_bridge(_click_ok_bridge())
+    r = a._do_type_text("u1", "hello", name="提交按钮")
+    assert r["success"] is False and "NAME_MISMATCH" in r["error"]
+    assert r["actual_name"] == "确定"
+
+
+def test_dispatch_click_forwards_name(monkeypatch):
+    """dispatch_tool 把 name 参数透传到 _do_click。"""
+    a = _make_agent_with_fake_bridge(_click_ok_bridge())
+    seen = {}
+    real = a._do_click
+
+    def spy(element_id, double=False, expect=None, name=None):
+        seen["name"] = name
+        seen["expect"] = expect
+        return real(element_id, double, expect, name)
+
+    monkeypatch.setattr(a, "_do_click", spy)
+    a.dispatch_tool("click", {"element_id": "u1", "name": "确定", "expect": "x"})
+    assert seen == {"name": "确定", "expect": "x"}
+
+
+def test_schemas_require_name_for_element_actions():
+    """click/double_click/type_text 的 schema 均要求 name 参数。"""
+    a = agent_mod.ExecutionAgent()
+    tools = {t["function"]["name"]: t["function"] for t in a.tools}
+    for name in ("click", "double_click", "type_text"):
+        fn = tools[name]
+        assert "name" in fn["parameters"]["properties"], name
+        assert "name" in fn["parameters"]["required"], name
