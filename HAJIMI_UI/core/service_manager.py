@@ -1,4 +1,7 @@
-"""Windows 后端服务进程管理：按端口停止 / 新窗口启动 OmniParser 与 A 端。"""
+"""Windows 后端服务进程管理：L5 Sidecar (:8011) 按端口停止 / 新窗口启动。
+
+L4/旧 A 端 (:8010) 与 OmniParser (:8002/:9800) 管理已随 L4 指引模式移除。
+"""
 from __future__ import annotations
 
 import json
@@ -15,9 +18,7 @@ SCRIPTS = ROOT / "scripts"
 
 try:
     from config import L5_DEFAULT_PORT as _DEFAULT_L5_PORT
-    from config import SERVER_DEFAULT_PORT as _DEFAULT_A_PORT
 except Exception:
-    _DEFAULT_A_PORT = 8010
     _DEFAULT_L5_PORT = 8011
 
 
@@ -91,52 +92,11 @@ def resolve_l5_root() -> Path:
     return _resolve()
 
 
-def stop_backend_services(
-    a_port: int | None = None,
-    omni_port: int = 8002,
-    l5_port: int | None = None,
-) -> Dict[str, List[int]]:
-    """停止 A 端、L5 Sidecar 与 OmniParser（按端口）。"""
-    if a_port is None:
-        a_port = _DEFAULT_A_PORT
+def stop_backend_services(l5_port: int | None = None) -> Dict[str, List[int]]:
+    """停止 L5 Sidecar（按端口）。"""
     if l5_port is None:
         l5_port = _DEFAULT_L5_PORT
-    return {
-        "a_end": stop_port(a_port),
-        "l5_sidecar": stop_port(l5_port),
-        "omniparser": stop_port(omni_port),
-    }
-
-
-def _resolve_omni_py() -> str:
-    omni_py = os.environ.get("OMNI_PY", "")
-    if omni_py and Path(omni_py).is_file():
-        return omni_py
-    for candidate in (
-        Path(r"E:\CodingSoftwards\Anaconda\envs\omni\python.exe"),
-    ):
-        if candidate.is_file():
-            return str(candidate)
-    return sys.executable
-
-
-def _local_omni_device() -> str:
-    script = SCRIPTS / "detect_omni_device.py"
-    if not script.is_file():
-        return "cpu"
-    py = _resolve_omni_py()
-    try:
-        r = subprocess.run(
-            [py, str(script)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            cwd=str(ROOT),
-        )
-        device = (r.stdout or "").strip().lower()
-        return device if device in ("cpu", "cuda") else "cpu"
-    except Exception:
-        return "cpu"
+    return {"l5_sidecar": stop_port(l5_port)}
 
 
 def _start_in_new_console(title: str, bat_path: Path, env_prefix: str = "") -> None:
@@ -144,29 +104,6 @@ def _start_in_new_console(title: str, bat_path: Path, env_prefix: str = "") -> N
         raise FileNotFoundError(str(bat_path))
     cmd = f'{env_prefix}start "{title}" cmd /k "{bat_path}"'
     subprocess.Popen(cmd, shell=True, cwd=str(ROOT))
-
-
-def is_remote_omni_url(url: str) -> bool:
-    """True when OmniParser is remote GPU API (e.g. SSH tunnel :9800)."""
-    text = (url or "").strip().rstrip("/")
-    return text.endswith(":9800") or ":9800/" in text
-
-
-def start_omniparser_window() -> None:
-    env_prefix = ""
-    try:
-        from core.user_settings import load_user_settings
-
-        if load_user_settings().get("deployment_mode") == "local":
-            if _local_omni_device() == "cpu":
-                env_prefix = "set OMNI_FORCE_CPU=1&& "
-    except Exception:
-        pass
-    _start_in_new_console("HAJIMI-OmniParser", SCRIPTS / "start_omniparser.bat", env_prefix)
-
-
-def start_a_end_window() -> None:
-    _start_in_new_console("HAJIMI-A-end", SCRIPTS / "start_server.bat")
 
 
 def start_l5_sidecar_window() -> None:
@@ -201,120 +138,24 @@ def wait_l5_sidecar_live(timeout_sec: float = 30.0, poll_sec: float = 1.5) -> bo
     return False
 
 
-def wait_a_end_live(timeout_sec: float = 30.0, poll_sec: float = 1.5) -> bool:
-    """轮询 /api/demo/health/live，确认 A 端 FastAPI 已就绪。"""
-    try:
-        from config import SERVER_DEFAULT_PORT
-    except Exception:
-        SERVER_DEFAULT_PORT = _DEFAULT_A_PORT  # type: ignore[misc, assignment]
-
-    url = f"http://127.0.0.1:{SERVER_DEFAULT_PORT}/api/demo/health/live"
-    deadline = time.monotonic() + timeout_sec
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3) as resp:
-                if resp.status == 200:
-                    data = json.loads(resp.read().decode("utf-8"))
-                    if data.get("status") == "ok":
-                        return True
-        except Exception:
-            pass
-        time.sleep(poll_sec)
-    return False
-
-
-def ensure_a_end_running(wait_timeout: float = 30.0) -> bool:
-    """L4 等轻量模式：端口无监听则启动 A 端并等待 /health/live。"""
-    if not _is_windows():
-        return False
-    try:
-        from core.user_settings import is_intranet_mode
-
-        if is_intranet_mode():
-            return False
-    except Exception:
-        pass
-
-    if find_port_pids(_DEFAULT_A_PORT):
-        return wait_a_end_live(wait_timeout)
-
-    start_a_end_window()
-    return wait_a_end_live(wait_timeout)
-
-
-def restart_local_a_end() -> None:
-    """Stop and restart local A-end only (picks up new server/.env)."""
-    stop_port(_DEFAULT_A_PORT)
-    start_a_end_window()
-
-
 def restart_l5_sidecar() -> None:
     """Stop and restart server_A L5 Sidecar (:8011) to load new server/.env."""
     stop_port(_DEFAULT_L5_PORT)
     start_l5_sidecar_window()
 
 
-def start_gpu_api_services() -> None:
-    """GPU API mode: local A-end only; OmniParser runs on GPU via :9800 tunnel."""
-    stop_port(_DEFAULT_A_PORT)
-    start_a_end_window()
-
-
-def start_backend_services() -> None:
-    """先停旧进程，再在新窗口启动 OmniParser 与 A 端（或仅 A 端）。"""
-    try:
-        from core.user_settings import load_user_settings
-
-        settings = load_user_settings()
-        mode = settings.get("deployment_mode", "gpu_api")
-        omni_url = (settings.get("omniparser") or {}).get("url", "")
-    except Exception:
-        mode = "local"
-        omni_url = ""
-
-    # local_vision：只启动 A 端（纯视觉模式，不启动本地 OmniParser）
-    if mode in ("gpu_api", "local_vision") or is_remote_omni_url(omni_url):
-        start_gpu_api_services()
-        return
-
-    stop_backend_services()
-    start_omniparser_window()
-    start_a_end_window()
-
-
 def run_gpu_one_click_bat() -> None:
-    """启动全栈（local_vision 模式，无 :9800 GPU 隧道）。
-
-    原 scripts/start_gpu_one_click.bat（:9800 隧道）已随 GPU 模式移除，
-    现委托给 start_release_fullstack.bat。
-    """
+    """启动全栈（L5 自动执行模式）。委托给 start_release_fullstack.bat。"""
     bat = SCRIPTS / "start_release_fullstack.bat"
     if not bat.is_file():
         raise FileNotFoundError(str(bat))
     subprocess.Popen(f'start "HAJIMI-FullStack" cmd /k "{bat}"', shell=True, cwd=str(ROOT))
 
 
-def format_stop_summary(
-    result: Dict[str, List[int]], a_port: int | None = None, l5_port: int | None = None
-) -> str:
-    if a_port is None:
-        a_port = _DEFAULT_A_PORT
+def format_stop_summary(result: Dict[str, List[int]], l5_port: int | None = None) -> str:
     if l5_port is None:
         l5_port = _DEFAULT_L5_PORT
-    a = result.get("a_end") or []
     l5 = result.get("l5_sidecar") or []
-    o = result.get("omniparser") or []
-    parts = []
-    if a:
-        parts.append(f"A 端 PID {a}")
-    else:
-        parts.append(f"A 端 :{a_port} 无监听")
     if l5:
-        parts.append(f"L5 Sidecar PID {l5}")
-    else:
-        parts.append(f"L5 Sidecar :{l5_port} 无监听")
-    if o:
-        parts.append(f"OmniParser PID {o}")
-    else:
-        parts.append("OmniParser :8002 无监听")
-    return "；".join(parts)
+        return f"L5 Sidecar PID {l5} 已停止"
+    return f"L5 Sidecar :{l5_port} 无监听"

@@ -3,7 +3,7 @@ setlocal EnableExtensions
 
 cd /d %~dp0..
 
-if not defined HAJIMI_PORT set HAJIMI_PORT=8010
+if not defined HAJIMI_PORT set HAJIMI_PORT=8011
 if not defined HAJIMI_HOST set HAJIMI_HOST=127.0.0.1
 
 set "PYTHON=server\.venv\Scripts\python.exe"

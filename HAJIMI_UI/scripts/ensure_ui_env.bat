@@ -20,7 +20,7 @@ if defined CLIENT_PY (
     if not errorlevel 1 exit /b 0
 )
 
-echo [HAJIMI] First run: B-end UI missing PyQt5 etc. ¡ª auto install ^(about 1-3 min^) ...
+echo [HAJIMI] First run: B-end UI missing PyQt5 - auto install (about 1-3 min) ...
 echo [HAJIMI] After install the UI will start. For videorag: conda activate videorag ^&^& pip install -r requirements.txt
 
 call "%~dp0setup.bat"

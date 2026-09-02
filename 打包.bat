@@ -9,7 +9,7 @@ if not exist "HAJIMI_UI\scripts\package_release.py" (
     exit /b 1
 )
 
-echo [HAJIMI] 正在生成 L4+L5 源码交付 zip ...
+echo [HAJIMI] 正在生成 L5 自动执行模式源码交付 zip ...
 python HAJIMI_UI\scripts\package_release.py %*
 set ERR=%ERRORLEVEL%
 if %ERR% NEQ 0 pause

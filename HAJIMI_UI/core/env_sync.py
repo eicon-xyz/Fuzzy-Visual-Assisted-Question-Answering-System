@@ -1,4 +1,9 @@
-"""将 B 端用户设置合并写入 server/.env（本地部署模式）。"""
+"""将 B 端用户设置合并写入 L5 Sidecar (server_A/server/.env)。
+
+L4/旧 A 端 (HAJIMI_UI/server) 已删除：本模块只服务 :8011 Sidecar。
+注意：OMNIPARSER_* / ROUTING_MODE 不在同步键内 —— 由启动脚本
+apply_l5_settings.py 直接写 Sidecar .env，防止 user_settings 回滚部署配置。
+"""
 from __future__ import annotations
 
 import os
@@ -10,17 +15,8 @@ from core.defaults import (
     DEFAULT_DEMO_KEY,
     DEFAULT_L5_HOST,
     DEFAULT_L5_PORT,
-    DEFAULT_OMNI_GPU_API_URL,
-    DEFAULT_OMNI_LOCAL_URL,
 )
 
-ROOT = Path(__file__).resolve().parent.parent
-ENV_PATH = ROOT / "server" / ".env"
-EXAMPLE_PATH = ROOT / "server" / ".env.example"
-
-# 注：OMNIPARSER_* 与 ROUTING_MODE 已从同步键中剔除 —— 它们由
-# 启动脚本（apply_local_vision_settings.py / start_local_vision.bat）按
-# 部署模式直接写入两端 .env，避免 user_settings 把配置回滚到旧的 :9800/precision。
 _L5_SIDECAR_SYNC_KEYS = (
     "DEEPSEEK_API_KEY",
     "DEEPSEEK_BASE_URL",
@@ -32,10 +28,7 @@ _L5_SIDECAR_SYNC_KEYS = (
     "HAJIMI_DEMO_KEY",
     "HAJIMI_HOST",
     "HAJIMI_PORT",
-    "LLM_SPEED_MODE",
 )
-
-_CANONICAL_MIRROR_KEYS = _L5_SIDECAR_SYNC_KEYS
 
 
 def _parse_env_lines(text: str) -> list[str]:
@@ -77,20 +70,11 @@ def _parse_env_dict(text: str) -> Dict[str, str]:
 
 def resolve_l5_root() -> Path | None:
     """Resolve L5 Sidecar root (same priority as scripts/_resolve_l5_root.bat)."""
-    custom = os.environ.get("HAJIMI_L5_ROOT", "").strip()
-    if custom:
-        root = Path(custom)
-        if (root / "scripts" / "start_server.bat").is_file():
-            return root
+    from core.paths import resolve_l5_root as _resolve
 
-    repo = ROOT.parent
-    for candidate in (
-        repo / "server_A",
-        repo / "server_A" / "server_A",
-        repo / "new_JIMI" / "HAJIMI_UI",
-    ):
-        if (candidate / "scripts" / "start_server.bat").is_file():
-            return candidate
+    root = _resolve()
+    if (root / "scripts" / "start_server.bat").is_file():
+        return root
     return None
 
 
@@ -101,43 +85,21 @@ def resolve_l5_env_path() -> Path | None:
     return root / "server" / ".env"
 
 
-def _l5_sidecar_env_updates(data: dict | None) -> Dict[str, str]:
-    """Build server_A/server/.env updates — user settings are authoritative."""
-    if not data:
-        return {}
-
-    updates = _settings_to_env_updates(data)
-    # L5 Sidecar (server_A) always binds :8011 locally; a_end_url is for 8010 / intranet.
-    updates["HAJIMI_HOST"] = DEFAULT_L5_HOST
-    updates["HAJIMI_PORT"] = str(DEFAULT_L5_PORT)
-
-    env_path = resolve_l5_env_path()
-    if env_path and env_path.is_file():
-        existing = _parse_env_dict(env_path.read_text(encoding="utf-8"))
-        for key in _CANONICAL_MIRROR_KEYS:
-            if key not in updates or not str(updates.get(key, "")).strip():
-                val = (existing.get(key) or "").strip()
-                if val:
-                    updates[key] = val
-
-    if not updates.get("LLM_PROVIDER"):
-        updates["LLM_PROVIDER"] = "deepseek"
+def _settings_to_l5_updates(data: dict) -> Dict[str, str]:
+    """LLM/模型设置 → Sidecar .env 更新项（用户设置优先）。"""
+    llm = data.get("llm") or {}
+    updates: Dict[str, str] = {
+        "HAJIMI_DEMO_KEY": (data.get("demo_key") or DEFAULT_DEMO_KEY).strip(),
+        "HAJIMI_HOST": DEFAULT_L5_HOST,
+        "HAJIMI_PORT": str(DEFAULT_L5_PORT),
+    }
+    if llm.get("api_key"):
+        updates["LLM_API_KEY"] = str(llm["api_key"]).strip()
+        if llm.get("base_url"):
+            updates["LLM_BASE_URL"] = str(llm["base_url"]).strip()
+        if llm.get("model"):
+            updates["LLM_MODEL"] = str(llm["model"]).strip()
     return updates
-
-
-def routing_needs_legacy_a_end(data: dict | None) -> bool:
-    """True when L3/L4 still uses HAJIMI_UI/server on :8010."""
-    if not data:
-        return False
-    routing = (data.get("routing_mode") or data.get("llm_speed_mode") or "l5").lower()
-    return routing in ("auto", "fast", "balanced", "precision")
-
-
-def sync_backend_env(data: dict) -> tuple[Path | None, Path | None]:
-    """Primary: server_A L5 .env; optional legacy: HAJIMI_UI/server/.env for L4."""
-    l5_path = sync_l5_sidecar_env(data)
-    legacy_path = sync_server_env(data) if routing_needs_legacy_a_end(data) else None
-    return l5_path, legacy_path
 
 
 def sync_l5_sidecar_env(data: dict | None = None) -> Path | None:
@@ -145,18 +107,30 @@ def sync_l5_sidecar_env(data: dict | None = None) -> Path | None:
     env_path = resolve_l5_env_path()
     if env_path is None:
         return None
+    if not data:
+        return None
 
-    updates = _l5_sidecar_env_updates(data)
+    updates = _settings_to_l5_updates(data)
     if not updates:
         return None
 
     example_path = env_path.parent / ".env.example"
     if env_path.is_file():
         text = env_path.read_text(encoding="utf-8")
+        existing = _parse_env_dict(text)
+        # 空设置不覆盖 Sidecar 已有 key（防止清空模型配置）
+        for key in _L5_SIDECAR_SYNC_KEYS:
+            if key not in updates or not str(updates.get(key, "")).strip():
+                val = (existing.get(key) or "").strip()
+                if val:
+                    updates[key] = val
     elif example_path.is_file():
         text = example_path.read_text(encoding="utf-8")
     else:
         text = ""
+
+    if not updates.get("LLM_PROVIDER"):
+        updates["LLM_PROVIDER"] = "deepseek"
 
     lines = _parse_env_lines(text)
     merged = _upsert_env_lines(lines, updates)
@@ -167,99 +141,3 @@ def sync_l5_sidecar_env(data: dict | None = None) -> Path | None:
     os.replace(tmp, env_path)
     print(f"[L5] synced Sidecar env -> {env_path}")
     return env_path
-
-
-def _default_omni_url(data: dict) -> str:
-    mode = data.get("deployment_mode", "gpu_api")
-    omni = data.get("omniparser") or {}
-    if mode == "local_vision":
-        return ""  # 无 OmniParser：忽略 omniparser.url（默认值可能是旧 :9800）
-    if omni.get("url"):
-        return str(omni["url"]).strip()
-    if mode == "gpu_api":
-        return DEFAULT_OMNI_GPU_API_URL
-    if mode == "local":
-        return DEFAULT_OMNI_LOCAL_URL
-    return ""
-
-
-def _omni_timeout(data: dict) -> str:
-    mode = data.get("deployment_mode", "gpu_api")
-    if mode in ("gpu_api", "intranet"):
-        return "120"
-    if mode == "local":
-        return "360"
-    return "10"  # local_vision：OmniParser 未启用，超时收紧避免阻塞
-
-
-def _settings_to_env_updates(data: dict) -> Dict[str, str]:
-    llm = data.get("llm") or {}
-    omni_url = _default_omni_url(data)
-    omni_timeout = _omni_timeout(data)
-    updates: Dict[str, str] = {
-        "OMNIPARSER_URL": omni_url,
-        "OMNIPARSER_LOCAL_URL": omni_url,
-        "OMNIPARSER_TIMEOUT": omni_timeout,
-        "OMNIPARSER_LOCAL_TIMEOUT": omni_timeout,
-        "HAJIMI_DEMO_KEY": (data.get("demo_key") or DEFAULT_DEMO_KEY).strip(),
-    }
-    mode = data.get("deployment_mode", "gpu_api")
-    speed = (data.get("llm_speed_mode") or "fast").strip().lower()
-    routing = (data.get("routing_mode") or speed or "fast").strip().lower()
-    if speed in ("fast", "balanced", "precision"):
-        updates["LLM_SPEED_MODE"] = speed
-    if routing in ("auto", "fast", "balanced", "precision", "l5"):
-        # l5 不是 route_selector.py 的合法值；无 :9800 模式下统一落到 fast（L4 视觉）
-        updates["ROUTING_MODE"] = "fast" if routing == "l5" else routing
-    elif speed in ("fast", "balanced", "precision"):
-        updates["ROUTING_MODE"] = speed
-    # 部署模式开关：local_vision（无 OmniParser）/ gpu_api / local
-    updates["OMNIPARSER_ENABLED"] = "false" if mode == "local_vision" else "true"
-    if mode == "gpu_api":
-        updates["OMNIPARSER_RETRY"] = "0"
-    if llm.get("api_key"):
-        updates["LLM_API_KEY"] = llm["api_key"].strip()
-        if llm.get("base_url"):
-            updates["LLM_BASE_URL"] = llm["base_url"].strip()
-        if llm.get("model"):
-            updates["LLM_MODEL"] = llm["model"].strip()
-    a_url = (data.get("a_end_url") or "").strip()
-    if a_url:
-        from urllib.parse import urlparse
-
-        parsed = urlparse(a_url)
-        if parsed.port:
-            updates["HAJIMI_PORT"] = str(parsed.port)
-        if parsed.hostname:
-            updates["HAJIMI_HOST"] = parsed.hostname
-
-    l4 = data.get("l4") or {}
-    if isinstance(l4, dict):
-        updates["L4_PLANNER_MODEL"] = str(l4.get("planner_model") or "").strip()
-        updates["L4_LOCATOR_MODEL"] = str(l4.get("locator_model") or "").strip()
-        updates["L4_PLANNER_USE_VISION"] = (
-            "true" if l4.get("planner_use_vision") else "false"
-        )
-        updates["L4_STRICT_LOCATE"] = "true" if l4.get("strict_locate", True) else "false"
-        updates["L4_PIPELINE_ENABLED"] = (
-            "true" if l4.get("pipeline_enabled", True) else "false"
-        )
-    return updates
-
-
-def sync_server_env(data: dict) -> Path:
-    """合并写入 server/.env，保留未在 updates 中的既有键。"""
-    updates = _settings_to_env_updates(data)
-    if ENV_PATH.is_file():
-        text = ENV_PATH.read_text(encoding="utf-8")
-    elif EXAMPLE_PATH.is_file():
-        text = EXAMPLE_PATH.read_text(encoding="utf-8")
-    else:
-        text = ""
-    lines = _parse_env_lines(text)
-    merged = _upsert_env_lines(lines, updates)
-    content = "\n".join(merged).rstrip() + "\n"
-    tmp = ENV_PATH.with_suffix(".env.tmp")
-    tmp.write_text(content, encoding="utf-8")
-    os.replace(tmp, ENV_PATH)
-    return ENV_PATH

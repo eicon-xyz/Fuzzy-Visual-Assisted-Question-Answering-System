@@ -1,4 +1,9 @@
-"""用户系统设置持久化（部署模式 + API 配置）。"""
+"""用户系统设置持久化（L5 自动执行模式 + 模型 key + 外观 + 语音）。
+
+L4 指引模式相关字段（deployment_mode / a_end_url / omniparser / l4 /
+routing_mode / llm_speed_mode）已随 L4 移除；模型设置只同步到
+server_A L5 Sidecar 的 server/.env。
+"""
 from __future__ import annotations
 
 import json
@@ -7,19 +12,11 @@ from copy import deepcopy
 from typing import Any, Dict
 
 from core.defaults import (
-    DEFAULT_A_URL,
     DEFAULT_DEMO_KEY,
-    DEFAULT_DEPLOYMENT_MODE,
-    DEFAULT_L5_URL,
-    DEFAULT_LLM_BASE_URL,
-    DEFAULT_LLM_MODEL,
-    DEFAULT_OMNI_GPU_API_URL,
-    DEFAULT_OMNI_LOCAL_URL,
     DEFAULT_VOICE_SETTINGS,
 )
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
-    "deployment_mode": DEFAULT_DEPLOYMENT_MODE,
     "ui_theme": "current",
     "shell_style": "qss",
     "shell_alpha_medium": 89,
@@ -40,33 +37,18 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "orange_cat_splash_audio": "",
     "orange_cat_ai_avatar": "",
     "orange_cat_user_avatar": "",
-    "a_end_url": DEFAULT_A_URL,
     "demo_key": DEFAULT_DEMO_KEY,
     "llm": {
-        # 留空 = 使用 server/.env 中已有配置（LLM_API_KEY / DEEPSEEK_API_KEY）
+        # 留空 = 使用 server_A/server/.env 中已有配置（DEEPSEEK_API_KEY 等）
         "base_url": "",
         "api_key": "",
         "model": "deepseek-chat",
     },
-    "omniparser": {
-        "url": DEFAULT_OMNI_GPU_API_URL,
-        "gpu_url": "",
-    },
-    "llm_speed_mode": "fast",
-    "routing_mode": "l5",
     "l5_consent_accepted": False,
     "l5_desktop_overlay": True,
     "shortcut_l5_approve": "H",
     "shortcut_l5_stop": "J",
     "shortcut_l5_pause": "P",
-    "l4": {
-        # 无 :9800 纯视觉模式默认：文本规划 deepseek-chat（已验证可用）
-        "planner_model": "deepseek-chat",
-        "locator_model": "deepseek-chat",
-        "planner_use_vision": False,
-        "strict_locate": False,
-        "pipeline_enabled": True,
-    },
     "voice": dict(DEFAULT_VOICE_SETTINGS),
     "proxy_enabled": False,
     "http_proxy": "http://127.0.0.1:7890",
@@ -84,12 +66,6 @@ def _settings_path() -> str:
 
 
 def _merge_core_settings(out: dict, data: dict) -> None:
-    if data.get("deployment_mode") in ("local", "intranet", "gpu_api", "local_vision"):
-        out["deployment_mode"] = data["deployment_mode"]
-    if data.get("llm_speed_mode") in ("fast", "balanced", "precision"):
-        out["llm_speed_mode"] = data["llm_speed_mode"]
-    if data.get("routing_mode") in ("auto", "fast", "balanced", "precision", "l5"):
-        out["routing_mode"] = data["routing_mode"]
     if "l5_consent_accepted" in data:
         out["l5_consent_accepted"] = bool(data["l5_consent_accepted"])
     if "l5_desktop_overlay" in data:
@@ -99,9 +75,8 @@ def _merge_core_settings(out: dict, data: dict) -> None:
             val = str(data[key]).strip().upper()
             if val:
                 out[key] = val[:1]
-    for key in ("a_end_url", "demo_key"):
-        if data.get(key):
-            out[key] = str(data[key]).strip()
+    if data.get("demo_key"):
+        out["demo_key"] = str(data["demo_key"]).strip()
     if "proxy_enabled" in data:
         out["proxy_enabled"] = bool(data["proxy_enabled"])
     for key in ("http_proxy", "https_proxy"):
@@ -112,19 +87,6 @@ def _merge_core_settings(out: dict, data: dict) -> None:
         for k in ("base_url", "api_key", "model"):
             if llm.get(k) is not None:
                 out["llm"][k] = str(llm[k]).strip()
-    omni = data.get("omniparser") or {}
-    if isinstance(omni, dict):
-        for k in ("url", "gpu_url"):
-            if omni.get(k) is not None:
-                out["omniparser"][k] = str(omni[k]).strip()
-    l4 = data.get("l4") or {}
-    if isinstance(l4, dict):
-        for k in ("planner_model", "locator_model"):
-            if k in l4:
-                out["l4"][k] = str(l4[k] or "").strip()
-        for k in ("planner_use_vision", "strict_locate", "pipeline_enabled"):
-            if k in l4:
-                out["l4"][k] = bool(l4[k])
     voice = data.get("voice") or {}
     if isinstance(voice, dict):
         _merge_voice_settings(out["voice"], voice)
@@ -285,7 +247,7 @@ def _merge_ui_settings(out: dict, data: dict) -> None:
 def _merge_ui_settings_headless(out: dict, data: dict) -> None:
     """Copy UI keys without PyQt when running headless setup scripts."""
     for key, default in DEFAULT_SETTINGS.items():
-        if key in ("deployment_mode", "a_end_url", "demo_key", "llm", "omniparser"):
+        if key in ("demo_key", "llm"):
             continue
         if key not in data:
             continue
@@ -326,10 +288,10 @@ def load_user_settings() -> dict:
 
 
 def _deep_merge_fragment(base: dict, fragment: dict) -> dict:
-    """Merge fragment onto disk snapshot; nested llm/omniparser/l4/voice are deep-merged."""
+    """Merge fragment onto disk snapshot; nested llm/voice are deep-merged."""
     out = deepcopy(base)
     for key, val in fragment.items():
-        if key in ("llm", "omniparser", "l4", "voice") and isinstance(val, dict):
+        if key in ("llm", "voice") and isinstance(val, dict):
             nested = out.get(key)
             if not isinstance(nested, dict):
                 nested = {}
@@ -391,76 +353,18 @@ def apply_user_settings(data: dict | None = None) -> dict:
     """写入 os.environ 并刷新 config / api_client 模块变量。"""
     settings = _merge_defaults(data) if data is not None else load_user_settings()
 
-    os.environ["HAJIMI_DEPLOYMENT_MODE"] = settings["deployment_mode"]
-    os.environ["HAJIMI_API_URL"] = settings["a_end_url"]
     os.environ["HAJIMI_DEMO_KEY"] = settings["demo_key"]
-
-    llm = settings.get("llm") or {}
-    if llm.get("base_url"):
-        os.environ["LLM_BASE_URL"] = llm["base_url"]
-    if llm.get("api_key"):
-        os.environ["LLM_API_KEY"] = llm["api_key"]
-    if llm.get("model"):
-        os.environ["LLM_MODEL"] = llm["model"]
-    # DeepSeek 官方 fallback 仅由 server/.env 管理，勿被 B 端 LLM 设置覆盖
-
-    speed = settings.get("llm_speed_mode", "fast")
-    routing = settings.get("routing_mode") or speed
-    if routing in ("auto", "fast", "balanced", "precision"):
-        os.environ["ROUTING_MODE"] = routing
-    if speed in ("fast", "balanced", "precision"):
-        os.environ["LLM_SPEED_MODE"] = speed
-
-    omni = settings.get("omniparser") or {}
-    mode = settings.get("deployment_mode", DEFAULT_DEPLOYMENT_MODE)
-    if mode == "gpu_api":
-        default_omni = DEFAULT_OMNI_GPU_API_URL
-    elif mode == "local":
-        default_omni = DEFAULT_OMNI_LOCAL_URL
-    else:
-        default_omni = ""  # local_vision：无 OmniParser
-    omni_url = (omni.get("url") or default_omni).strip()
-    if omni_url:
-        os.environ["OMNIPARSER_LOCAL_URL"] = omni_url
-        os.environ["OMNIPARSER_URL"] = omni_url
-    elif "OMNIPARSER_URL" in os.environ:
-        os.environ.pop("OMNIPARSER_URL", None)
-        os.environ.pop("OMNIPARSER_LOCAL_URL", None)
-    gpu_url = (omni.get("gpu_url") or "").strip()
-    if gpu_url:
-        os.environ["OMNIPARSER_GPU_URL"] = gpu_url
-    elif "OMNIPARSER_GPU_URL" in os.environ and not gpu_url:
-        os.environ.pop("OMNIPARSER_GPU_URL", None)
-
-    os.environ.setdefault("DETECTOR_BACKEND", "auto")
 
     _apply_proxy_environ(settings)
 
-    routing_mode = (settings.get("routing_mode") or "").lower()
-    if routing_mode == "l5":
-        os.environ["ROUTING_MODE"] = "l5"
-
+    # L5 Sidecar 固定本机 :8011
+    os.environ["L5_API_URL"] = "http://127.0.0.1:8011"
     try:
         from core.paths import resolve_l5_root
 
         l5_root = resolve_l5_root()
         if l5_root.is_dir():
             os.environ["HAJIMI_L5_ROOT"] = str(l5_root)
-    except Exception:
-        pass
-
-    deployment = settings.get("deployment_mode", DEFAULT_DEPLOYMENT_MODE)
-    if deployment == "intranet" and routing_mode == "l5":
-        os.environ["L5_API_URL"] = settings["a_end_url"]
-    elif deployment != "intranet":
-        os.environ["L5_API_URL"] = DEFAULT_L5_URL
-
-    try:
-        from core.routing_config import _read_env_file
-
-        l4_side = (_read_env_file("L4_UPLOAD_MAX_SIDE") or "1280").strip()
-        if l4_side.isdigit():
-            os.environ["HAJIMI_L4_UPLOAD_MAX_SIDE"] = l4_side
     except Exception:
         pass
 
@@ -476,11 +380,3 @@ def apply_user_settings(data: dict | None = None) -> dict:
         pass
 
     return settings
-
-
-def is_intranet_mode() -> bool:
-    return os.environ.get("HAJIMI_DEPLOYMENT_MODE", DEFAULT_DEPLOYMENT_MODE) == "intranet"
-
-
-def is_gpu_api_mode() -> bool:
-    return os.environ.get("HAJIMI_DEPLOYMENT_MODE", DEFAULT_DEPLOYMENT_MODE) == "gpu_api"
