@@ -1,8 +1,8 @@
 # HAJIMI L5 执行引擎架构对标开源调研报告
 
-> 调研日期：2026-09-02 · 作者：HAJIMI 工程 · 状态：v1
+> 调研日期：2026-09-02 · 作者：HAJIMI 工程 · 状态：v2（A/B/C/D 四组全部汇入；B 组为检索直证初稿，若后续补充仅增量修订）
 > 目的：HAJIMI L5（UIA 自动执行）在**复杂多步任务**上成功率低，对标开源桌面/GUI/浏览器 Agent 的架构设计，产出可落地的改造路线。
-> 结论速览：**瓶颈不在"模型不够聪明"，而在 agent 骨架的四个缺件——感知被截扁、动作后零验证、偏航无账本、经验不可回放。** 其中前三项全部可用现有 deepseek-chat + UIA 落地，不需新模型。
+> 结论速览：**瓶颈不在"模型不够聪明"，而在 agent 骨架的四个缺件——感知被截扁、动作后零验证、偏航无账本、经验不可回放。** 四项全部可用现有 deepseek-chat + UIA 落地，不需新模型；「模型不动、只换骨架」的对照实验收益（+3×/-31%/3.8→12.5）远大于换模型的边际。
 
 ---
 
@@ -72,8 +72,8 @@ OSWorld / WindowsAgentArena / AndroidWorld / WebArena 的 error analysis 把失�
 
 ## 二、开源项目架构横评
 
-> 四路并行调研：A=Windows/UIA 系 ✅、B=GUI 模型与框架 ⏳、C=Loop 编排骨架 ✅、D=可靠性工程与失败归因 ⏳。
-> A/C 两组均含源码级证据（直读仓库 main 分支，非二手博客转述），关键数字均已标注出处。
+> 四路并行调研：A=Windows/UIA 系 ✅、B=GUI 模型与框架 ✅（直证初稿）、C=Loop 编排骨架 ✅、D=可靠性工程与失败归因 ✅。
+> A/C/D 三组含源码级证据（直读仓库 main 分支/论文原文，非二手转述）；原始抓取快照存 `/tmp/research/`、`/tmp/ufo_src/` 可复核。所有数字标注出处。
 
 ### 2.1 A 组：Windows / UIA 系桌面 Agent（与 HAJIMI 栈同构，抄得动）
 
@@ -147,7 +147,16 @@ checkpoint/time-travel/interrupt 的本质=状态外置+每步落盘+可回滚�
 - [Cognition《Don't Build Multi-Agents》](https://cognition.ai/blog/dont-build-multi-agents)、[Anthropic building effective agents](https://www.anthropic.com/engineering/building-effective-agents)（最简优先）、CrewAI 生产端自己用确定性 Flows 取代自主 Crews。
 - ⇒ planner/critic 的价值应**降维为同循环内的账本字段、judge 调用、规则检测**，而非新增 agent。
 
-### 2.3 B 组（GUI 模型/框架：UI-TARS-2、Agent-S、Mobile-Agent、UGround 系）⏳ 调研中
+### 2.3 B 组：GUI 模型与框架——「模型贡献 vs 骨架贡献」定量分离（初稿，B 代理终稿回来后合并校准）
+
+> 本组关键用途：回答"复杂任务差，该怪 deepseek-chat 还是怪骨架？"——学界恰好做了把模型固定换骨架、把骨架固定换模型的对照实验。
+
+- **Agent-S（[arXiv:2410.08164](https://www.sciencestack.ai/paper/2410.08164v1)，[simular-ai/Agent-S](https://github.com/simular-ai/Agent-S)，现演进 Agent-S2/S3）**：模型不变（GPT-4o），仅加"**经验增强分层规划**"（Manager 语义子目标 + Worker 执行 + **从成功轨迹离线归纳 workflow 存入 Reasoning Memory，在线 top-k 检索复用**）→ OSWorld 成功率 ~31%，官方称相对此前 SoTA **约 3×**。⇒ 纯骨架+经验库贡献，模型零改动。**这直接是 §1.3-6（经验不可回放）与 §四 2.1 的最强背书**；AWM 的 +51.1%（§2.4④）是同一机制在 web 域的镜像。
+- **UI-TARS / UI-TARS-2（[arXiv:2501.12326](https://ar5iv.labs.arxiv.org/html/2501.12326) / [arXiv:2509.02544](https://ar5iv.labs.arxiv.org/html/2509.02544)）**：端到端原生 GUI 模型路线（感知/grounding/规划全内化于 VLM）。两点与 HAJIMI 相关：① 论文自省"真实部署中 agent 常因**缺乏自我反思**而卡死"→ 其训练数据专门合成反思轨迹——**反思/重规划是被模型厂当作一等能力训练的**，我们没训练条件，就必须用账本+熔断在 scaffold 层补（§2.2①/③）；② UI-TARS-2 把架构拆成"推理模块 + 解耦的视觉 grounding 模块 + 异步 RL + 统一动作空间"——**即使端到端模型，也在把 grounding 独立成可替换模块**，与"UIA 主 + 视觉兜底"双通道同构。其 scaffold 的"思考-规划-行动-**反思上一步是否生效**"四段式可在纯文本层复刻（反思改读 UIA diff 而非截图）。
+- **Mobile-Agent-v2（[arXiv:2406.01014](https://ar5iv.labs.arxiv.org/html/2406.01014)）**：四 agent 分工（Planning/Decision/**Reflection**/Memory），**Reflection 用前后截图对比检查"操作是否真生效"，不生效则重试**——消融显示该模块是导航成功率主要贡献之一。HAJIMI 平价替代：Reflection 读 **UIA 属性 diff**（§四 0.2/0.8 的 before/after diff），不需要 VLM，成本更低。注意其论文也自认"即使有感知模块仍会出非预期操作"——**反思模块是减损不是保险**。
+- **UGround（[arXiv:2410.05243](https://osu-nlp-group.github.io/UGround/)，"Navigating the Digital World as Humans Do"）**+ **OS-Atlas（[arXiv:2410.23218](https://arxiv.org/abs/2410.23218)）**：纯视觉 grounding 组件族（ScreenSpot 基准上像素定位显著优于依赖结构树的传统 agent，二者都主张"通用可插拔 grounding"）。**解读要平衡**：其结论成立于"结构树残缺的界面"；这与 D 组 Minitap 100%（结构+验证路线）、WAA 的 a11y 模式数据一起构成完整图景——**结构树信息充足时语义路由更准更省，结构盲区（UWP/自绘/网页画布）才需要视觉 grounding**。HAJIMI 正确姿势：把视觉 grounding 做成 element_id 体系的**数据源之一**（§四 2.3），而不是推翻 UIA 主通道。WebSight(2508.16987) 的反向证据已在 §2.2② 引用，两面对照。
+
+**小结（模型 vs 骨架的归因）**：Agent-S（换骨架 +3×）、Minitap（换骨架 80.2%→100%）、Magentic 消融（去账本 -31%）、SWE-agent（换接口 3.8→12.5%）四个实验里模型都没动；而 HAJIMI 连"模型上限"都还没触到——UIA 语义桥给足了结构化信息，deepseek-chat 的规划/写码能力被 §1.3 断点白白浪费。**结论：先把 P0/P1 工程件做完，再评估是否需要 VLM/grounding 投入。**
 
 ### 2.4 D 组：可靠性工程、失败量化归因与技能库（一手来源：论文原文/官方 README，快照存 /tmp/research/）
 
@@ -195,7 +204,7 @@ checkpoint/time-travel/interrupt 的本质=状态外置+每步落盘+可回滚�
 
 ---
 
-## 三、机制 → 痛点对位表（已按 A/C 组证据修订；B/D 组数字待并入）
+## 三、机制 → 痛点对位表（A/B/C/D 四组证据齐）
 
 | HAJIMI 断点 | 开源已验证对策 | 出处与量化证据 | 迁移成本 |
 |---|---|---|---|
@@ -213,7 +222,7 @@ checkpoint/time-travel/interrupt 的本质=状态外置+每步落盘+可回滚�
 
 ## 四、落地路线（按性价比排序；P0/P1 全部纯文本 LLM + 现有 UIA 栈，不换模型）
 
-> 依据：§二 A/C 组证据 + §一 断点编号。B/D 组数字回填后微调优先级标注。
+> 依据：§二 A/B/C/D 全组证据 + §一 断点编号。行尾括号引用 §二的编号项。
 
 ### P0 —— 接线级修复（1-2 天/项，收益立竿见影）
 
