@@ -150,8 +150,24 @@ class UIABridge:
     # ── 采集 ──
 
     def snapshot(self, max_depth: int = None, max_nodes: int = None) -> List[UIElement]:
-        """遍历前台窗口 UIA 树，返回 UIElement 列表（含空间/模式信息）。"""
+        """遍历前台窗口 UIA 树，返回 UIElement 列表（含空间/模式信息）。
+
+        注意：会重置 _last_controls 并重新编号 element_id（旧 id 全部失效）。
+        """
         self._last_controls = {}
+        return self._snapshot_into(self._last_controls, max_depth, max_nodes)
+
+    def _snapshot_into(
+        self,
+        store: Dict[str, object],
+        max_depth: int = None,
+        max_nodes: int = None,
+    ) -> List[UIElement]:
+        """遍历前台窗口 UIA 树，控件写入给定 store（不传则不动 _last_controls）。
+
+        供 wait_for_text 等「只读轮询」使用：临时 store 保证主快照的
+        element_id → 控件映射不被打乱。
+        """
         if not self._available:
             return []
         auto = self._auto
@@ -167,7 +183,7 @@ class UIABridge:
                 self._last_window_title = fg.Name or ""
             except Exception:
                 pass
-            self._walk(fg, 0, depth, budget, out)
+            self._walk(fg, 0, depth, budget, out, store)
         except Exception as exc:
             _log().debug("UIA snapshot failed: %s", exc)
         return out
@@ -179,9 +195,12 @@ class UIABridge:
         max_depth: int,
         budget: List[int],
         out: List[UIElement],
+        store: Optional[Dict[str, object]] = None,
     ) -> None:
         if depth > max_depth or budget[0] <= 0:
             return
+        if store is None:
+            store = self._last_controls
         budget[0] -= 1
         try:
             bbox = _control_bbox(control)
@@ -191,13 +210,13 @@ class UIABridge:
                 # 只保留有名字或可交互的控件，减少噪音
                 if name or ctrl_type in ("button", "input", "checkbox", "dropdown", "link"):
                     cx, cy = (bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2
-                    eid = f"u{len(self._last_controls) + 1}"
+                    eid = f"u{len(store) + 1}"
                     try:
                         enabled = bool(control.IsEnabled)
                     except Exception:
                         enabled = True
                     patterns = _available_patterns(control)
-                    self._last_controls[eid] = control
+                    store[eid] = control
                     out.append(
                         UIElement(
                             element_id=eid,
@@ -216,7 +235,7 @@ class UIABridge:
             for child in children:
                 if budget[0] <= 0:
                     break
-                self._walk(child, depth + 1, max_depth, budget, out)
+                self._walk(child, depth + 1, max_depth, budget, out, store)
         except Exception:
             return
 
@@ -225,22 +244,168 @@ class UIABridge:
 
     # ── 操作 ──
 
-    def act(self, element_id: str, action: str = "click", text: Optional[str] = None) -> dict:
-        """对指定元素执行动作。返回含 via 标记的结果。
+    @staticmethod
+    def _props(ctrl) -> Dict[str, object]:
+        """采集控件的可观测属性（动作前后 diff 用）。读取失败的键跳过。"""
+        props: Dict[str, object] = {}
+        try:
+            props["name"] = (ctrl.Name or "").strip()
+        except Exception:
+            pass
+        try:
+            props["enabled"] = bool(ctrl.IsEnabled)
+        except Exception:
+            pass
+        try:
+            props["offscreen"] = bool(ctrl.IsOffscreen)
+        except Exception:
+            pass
+        bbox = _control_bbox(ctrl)
+        if bbox is not None:
+            props["bbox"] = bbox
+        try:
+            ecp = ctrl.GetExpandCollapsePattern()
+            if ecp is not None:
+                props["expand"] = str(getattr(ecp, "ExpandCollapseState", ""))
+        except Exception:
+            pass
+        try:
+            vp = ctrl.GetValuePattern()
+            if vp is not None:
+                val = vp.Value or ""
+                # 截断长文本，diff 只需前缀区分
+                props["value"] = val[:80]
+        except Exception:
+            pass
+        try:
+            sp = ctrl.GetSelectionItemPattern()
+            if sp is not None:
+                props["selected"] = bool(sp.IsSelected)
+        except Exception:
+            pass
+        return props
 
-        action: click | double_click | type
+    @staticmethod
+    def _prop_diff(before: dict, after: dict) -> dict:
+        """属性差异：changed 列出变化键，before/after 只保留变化键的值。"""
+        keys = set(before) | set(after)
+        changed = [k for k in sorted(keys) if before.get(k) != after.get(k)]
+        return {
+            "changed": changed,
+            "before": {k: before.get(k) for k in changed},
+            "after": {k: after.get(k) for k in changed},
+        }
+
+    def wait_for_text(
+        self,
+        text: str,
+        timeout: float = 3.0,
+        interval: float = 0.4,
+    ) -> dict:
+        """在一次调用内轮询界面，等待包含 text 的控件/窗口标题出现。
+
+        Windows-MCP WaitFor 语义：动作后置条件断言。用独立临时快照轮询，
+        不触碰 _last_controls（当前 element_id 映射保持有效）。
+        """
+        if not self._available or not text:
+            return {"ok": False, "reason": "uia unavailable or empty expect"}
+        needle = text.strip().lower()
+        deadline = time.time() + timeout
+        last_title = ""
+        while True:
+            tmp: Dict[str, object] = {}
+            try:
+                elements = self._snapshot_into(tmp, max_nodes=120)
+            except Exception:
+                elements = []
+            last_title = self._last_window_title or ""
+            if needle in last_title.lower():
+                return {"ok": True, "matched": "window_title", "window_title": last_title}
+            for el in elements:
+                if needle in (el.text or "").lower():
+                    return {
+                        "ok": True,
+                        "matched": el.text,
+                        "matched_type": el.element_type,
+                        "window_title": last_title,
+                    }
+            if time.time() >= deadline:
+                break
+            time.sleep(interval)
+        return {
+            "ok": False,
+            "reason": f"no control/window containing '{text}' within {timeout:.1f}s",
+            "window_title": last_title,
+        }
+
+    def act(
+        self,
+        element_id: str,
+        action: str = "click",
+        text: Optional[str] = None,
+        expect: Optional[str] = None,
+        verify_timeout: float = 3.0,
+        expect_timeout: float = 4.0,
+    ) -> dict:
+        """对指定元素执行动作，并接线执行后校验。
+
+        返回统一附加字段（0.2 动作后验证）：
+          action_ok    —— 动作本身是否送达执行
+          verified     —— verify()（enabled/onscreen 轮询）是否通过
+          state_changed—— 控件可观测属性（name/enabled/bbox/expand/value/selected）是否变化
+          prop_diff    —— before/after 属性差异
+          expect_ok    —— 期望条件（wait_for_text）是否满足；未提供 expect 时为 None
         """
         ctrl = self._last_controls.get(element_id)
         if ctrl is None:
-            return {"success": False, "error": f"uia element '{element_id}' not found", "via": None}
+            return {
+                "success": False,
+                "error": f"uia element '{element_id}' not found",
+                "via": None,
+                "action_ok": False,
+            }
+
+        before = self._props(ctrl)
 
         if action == "click":
-            return self._act_click(ctrl, element_id)
-        if action == "double_click":
-            return self._act_coord(ctrl, element_id, clicks=2)
-        if action == "type":
-            return self._act_type(ctrl, element_id, text or "")
-        return {"success": False, "error": f"unsupported uia action: {action}", "via": None}
+            r = self._act_click(ctrl, element_id)
+        elif action == "double_click":
+            r = self._act_coord(ctrl, element_id, clicks=2)
+        elif action == "type":
+            r = self._act_type(ctrl, element_id, text or "")
+        else:
+            return {
+                "success": False,
+                "error": f"unsupported uia action: {action}",
+                "via": None,
+                "action_ok": False,
+            }
+
+        if not r.get("success"):
+            r["action_ok"] = False
+            return r
+
+        # ── 动作后验证链（0.2）：控件状态校验 + 属性 diff + 期望条件轮询 ──
+        action_ok = True
+        r["action_ok"] = action_ok
+
+        v = self.verify(element_id, timeout=verify_timeout)
+        r["verified"] = bool(v.get("success"))
+        r["verify_reason"] = v.get("reason", "")
+
+        after = self._props(ctrl)
+        diff = self._prop_diff(before, after)
+        r["state_changed"] = bool(diff["changed"])
+        r["prop_diff"] = diff
+
+        if expect:
+            w = self.wait_for_text(expect, timeout=expect_timeout)
+            r["expect_ok"] = bool(w.get("ok"))
+            r["expect_detail"] = w
+        else:
+            r["expect_ok"] = None
+
+        return r
 
     def _act_click(self, ctrl, element_id: str) -> dict:
         # 1) Invoke —— 最确定

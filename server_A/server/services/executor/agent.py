@@ -37,10 +37,10 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 ## 可用工具
 - launch_app(app_name): 通过系统级命令启动应用（Win+搜索）。当步骤为打开应用时，优先使用此工具。
 - get_screen_info(): 获取当前屏幕的元素列表（返回 id, content, left_ids, right_ids, top_ids, bottom_ids）
-- click(element_id): 单击指定元素（UIA 绑定优先：Invoke/Select 等精确模式；失败回退坐标点击）
-- double_click(element_id): 双击指定元素。桌面图标、文件通常需要双击打开。
-- paste_text(text): 将文本粘贴到当前获得焦点的位置（通过剪贴板）。启动应用后或点击输入框后，文本会自动粘贴到光标所在位置，不需要 element_id。用于无法通过 OmniParser 检测到输入框的场景（如记事本文本区、聊天输入框等纯文本区域）。
-- type_text(element_id, text): 点击元素后输入文本（UIA 绑定优先：ValuePattern.SetValue 精确设置）
+- click(element_id[, expect]): 单击指定元素（UIA 绑定优先：Invoke/Select 等精确模式；失败回退坐标点击）。自动动作后验证，可选 expect 声明期望界面变化
+- double_click(element_id[, expect]): 双击指定元素。桌面图标、文件通常需要双击打开。
+- paste_text(text[, expect]): 将文本粘贴到当前获得焦点的位置（通过剪贴板）。启动应用后或点击输入框后，文本会自动粘贴到光标所在位置，不需要 element_id。用于无法检测到输入框的场景（如记事本文本区、聊天输入框等纯文本区域）。
+- type_text(element_id, text[, expect]): 向输入元素输入文本（UIA 绑定优先：ValuePattern.SetValue 精确设置）
 - press_key(keys): 按键盘组合键，如 "enter", "ctrl+v", "win"
 - scroll(direction, amount): 滚轮滚动
 - wait(seconds): 等待指定秒数，让界面响应
@@ -67,9 +67,11 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - 找不到时，先 wait(2) 再重新 get_screen_info
 
 ## 验证标准
-- type_text 成功后（返回 success=true），这本身就是验证——不需要再次 get_screen_info
-- click 后验证：观察屏幕元素列表是否有变化（新元素出现、元素消失、content 变化）
-- 如果连续 2 次 get_screen_info 结果完全相同，说明上一步操作可能无效，应尝试替代方案
+- 动作工具（click/double_click/type_text/paste_text）会自动做动作后验证，返回：
+  action_ok（动作是否送达）、verified（控件是否仍可用且在屏内）、state_changed（控件属性是否变化）、prop_diff（变化明细）
+- 对界面状态有把握的动作用 expect 参数声明期望（如 click(确定, expect="已发送")），服务端在调用内轮询验证；expect_ok=false 时结果会附 new_elements（自动重观察），旧 id 全部失效
+- type_text 返回 state_changed=true 即输入已生效（value 属性变化），无需再次 get_screen_info
+- 若动作返回 verified=false 且 state_changed=false（界面毫无变化），说明点击/输入未生效：基于返回的 new_elements 换目标或换策略，不要原样重试
 - 桌面图标、文件操作使用 double_click 而非 click
 
 ## 异常处理
@@ -152,14 +154,18 @@ def _build_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "click",
-                "description": "单击指定元素。传入element_id而非坐标。",
+                "description": "单击指定元素。传入element_id而非坐标。返回含动作后验证结果（action_ok/verified/state_changed/prop_diff），若界面未变化会自动重观察并返回新元素列表。",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "element_id": {
                             "type": "string",
                             "description": "元素ID，来自get_screen_info返回列表中的id字段",
-                        }
+                        },
+                        "expect": {
+                            "type": "string",
+                            "description": "可选：点击后期望出现的界面文本（新控件名/窗口标题片段），服务端在调用内轮询验证（WaitFor 语义），不满足会自动重观察",
+                        },
                     },
                     "required": ["element_id"],
                 },
@@ -169,11 +175,15 @@ def _build_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "double_click",
-                "description": "双击指定元素。桌面图标和文件通常需要双击。",
+                "description": "双击指定元素。桌面图标和文件通常需要双击。返回含动作后验证结果。",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "element_id": {"type": "string", "description": "元素ID"}
+                        "element_id": {"type": "string", "description": "元素ID"},
+                        "expect": {
+                            "type": "string",
+                            "description": "可选：双击后期望出现的界面文本（如新窗口标题片段），服务端轮询验证",
+                        },
                     },
                     "required": ["element_id"],
                 },
@@ -183,14 +193,18 @@ def _build_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "paste_text",
-                "description": "将文本粘贴到当前获得焦点的位置（通过剪贴板）。不需要 element_id，适用于记事本文本区、聊天输入框等 OmniParser 检测不到输入框的场景。",
+                "description": "将文本粘贴到当前获得焦点的位置（通过剪贴板）。不需要 element_id，适用于记事本文本区、聊天输入框等检测不到输入框的场景。",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "text": {
                             "type": "string",
                             "description": "要粘贴的文本",
-                        }
+                        },
+                        "expect": {
+                            "type": "string",
+                            "description": "可选：粘贴后期望出现的界面文本，服务端轮询验证",
+                        },
                     },
                     "required": ["text"],
                 },
@@ -200,7 +214,7 @@ def _build_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "type_text",
-                "description": "点击元素获取焦点后，通过剪贴板粘贴文本（支持中文输入）。",
+                "description": "向指定输入元素输入文本（UIA ValuePattern.SetValue 优先，失败回退剪贴板粘贴）。返回含动作后验证结果（state_changed 即输入框 value 变化）。",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -209,6 +223,10 @@ def _build_tool_definitions() -> list[dict]:
                             "description": "目标输入框的元素ID",
                         },
                         "text": {"type": "string", "description": "要输入的文本"},
+                        "expect": {
+                            "type": "string",
+                            "description": "可选：输入后期望出现的界面文本（如联想词条），服务端轮询验证",
+                        },
                     },
                     "required": ["element_id", "text"],
                 },
@@ -568,6 +586,45 @@ class ExecutionAgent:
             self._uia = UIABridge()
         return self._uia
 
+    def _post_action_result(
+        self,
+        base: dict,
+        r: dict,
+        expect: Optional[str] = None,
+    ) -> dict:
+        """把 uia_bridge.act 的验证链结果并入工具返回（0.2 动作后验证接线）。
+
+        验证失败（verify 未过且属性无变化，或 expect 未满足）→ 自动重观察，
+        返回新元素列表让 LLM 基于最新状态决策，而不是带着失效假设继续。
+        """
+        base["action_ok"] = bool(r.get("action_ok"))
+        base["verified"] = r.get("verified")
+        base["state_changed"] = r.get("state_changed")
+        if r.get("prop_diff"):
+            base["prop_diff"] = r["prop_diff"]
+        if expect:
+            base["expect_ok"] = r.get("expect_ok")
+            base["expect_detail"] = r.get("expect_detail")
+
+        verify_failed = base["verified"] is False and not base.get("state_changed")
+        expect_failed = bool(expect) and r.get("expect_ok") is False
+        if verify_failed or expect_failed:
+            # 自动重观察：刷新 element_map，把新元素附在结果里
+            obs = self._do_get_screen_info()
+            base["reobserved"] = True
+            base["ids_refreshed"] = True
+            base["new_elements"] = obs.get("elements")
+            why = (
+                f"期望条件「{expect}」未出现"
+                if expect_failed
+                else f"动作后控件校验未通过（{r.get('verify_reason', '')}）"
+            )
+            base["hint"] = (
+                f"{why}，已自动重新观察屏幕（上方 new_elements 是最新元素列表，"
+                "旧 element_id 全部失效）。请基于新列表改变策略重试，或 mark_step_failed。"
+            )
+        return base
+
     def _do_get_screen_info(self) -> dict:
         """屏幕感知：UIA 结构化采集优先 → OmniParser 兜底 → 明确空结果。"""
         # Wake up potentially frozen RDP/remote GUI session before screenshot
@@ -732,7 +789,7 @@ class ExecutionAgent:
             "action_summary": f"launched app '{app_name}' (tier {result.get('tier', '?')})",
         }
 
-    def _do_click(self, element_id: str, double: bool = False) -> dict:
+    def _do_click(self, element_id: str, double: bool = False, expect: Optional[str] = None) -> dict:
         element = self.element_map.get(element_id)
         if element is None:
             return {
@@ -757,21 +814,23 @@ class ExecutionAgent:
         # UIA 绑定优先：Invoke/SelectionItem/Toggle → 坐标回退
         if getattr(self, "screen_source", None) == "uia":
             action = "double_click" if double else "click"
-            r = self._get_uia().act(element_id, action=action)
+            r = self._get_uia().act(element_id, action=action, expect=expect)
             if r.get("success"):
                 via = r.get("via") or "coord"
                 label = "双击" if double else "单击"
-                return {
+                base = {
                     "success": True,
                     "clicked": element_id,
                     "content": element.text,
                     "via": via,
                     "action_summary": f"{label} 元素 '{element.text}'（{via}）",
                 }
+                return self._post_action_result(base, r, expect)
             return {
                 "success": False,
                 "error": f"UIA 操作失败: {r.get('error')}",
                 "via": r.get("via"),
+                "action_ok": False,
             }
 
         cx, cy = element.center
@@ -781,15 +840,28 @@ class ExecutionAgent:
         pyautogui.click(clicks=clicks)
 
         label = "double-clicked" if double else "clicked"
-        return {
+        base = {
             "success": True,
             "clicked": element_id,
             "content": element.text,
             "via": "coord",
+            "action_ok": True,
             "action_summary": f"{label} element '{element.text}'",
         }
+        if expect:
+            uia = self._get_uia()
+            if uia.available:
+                w = uia.wait_for_text(expect, timeout=4.0)
+                base["expect_ok"] = bool(w.get("ok"))
+                base["expect_detail"] = w
+                if not w.get("ok"):
+                    base["hint"] = (
+                        f"坐标点击后期望「{expect}」未出现，请 get_screen_info 重观察"
+                        "并改变策略。"
+                    )
+        return base
 
-    def _do_paste_text(self, text: str) -> dict:
+    def _do_paste_text(self, text: str, expect: Optional[str] = None) -> dict:
         """Paste text via clipboard into the currently focused element.
         No element_id needed — uses the current window focus.
         """
@@ -815,13 +887,25 @@ class ExecutionAgent:
         finally:
             pyperclip.copy(old_clipboard)
 
-        return {
+        base = {
             "success": True,
             "text": text,
+            "action_ok": True,
             "action_summary": f"pasted text into focused window",
         }
+        if expect:
+            uia = self._get_uia()
+            if uia.available:
+                w = uia.wait_for_text(expect, timeout=4.0)
+                base["expect_ok"] = bool(w.get("ok"))
+                base["expect_detail"] = w
+                if not w.get("ok"):
+                    base["hint"] = (
+                        f"粘贴后期望「{expect}」未出现，请 get_screen_info 重观察并改变策略。"
+                    )
+        return base
 
-    def _do_type_text(self, element_id: str, text: str) -> dict:
+    def _do_type_text(self, element_id: str, text: str, expect: Optional[str] = None) -> dict:
         element = self.element_map.get(element_id)
         if element is None:
             return {
@@ -846,19 +930,21 @@ class ExecutionAgent:
 
         # UIA 绑定优先：ValuePattern.SetValue → 焦点+剪贴板
         if getattr(self, "screen_source", None) == "uia":
-            r = self._get_uia().act(element_id, action="type", text=text)
+            r = self._get_uia().act(element_id, action="type", text=text, expect=expect)
             if r.get("success"):
-                return {
+                base = {
                     "success": True,
                     "typed": text,
                     "into": element_id,
                     "via": r.get("via"),
                     "action_summary": f"typed '{text}' into '{element.text}'（{r.get('via')}）",
                 }
+                return self._post_action_result(base, r, expect)
             return {
                 "success": False,
                 "error": f"UIA 输入失败: {r.get('error')}",
                 "via": r.get("via"),
+                "action_ok": False,
             }
 
         old_clipboard = pyperclip.paste()
@@ -871,13 +957,25 @@ class ExecutionAgent:
         finally:
             pyperclip.copy(old_clipboard)
 
-        return {
+        base = {
             "success": True,
             "typed": text,
             "into": element_id,
             "via": "coord",
+            "action_ok": True,
             "action_summary": f"typed '{text}' into '{element.text}'",
         }
+        if expect:
+            uia = self._get_uia()
+            if uia.available:
+                w = uia.wait_for_text(expect, timeout=4.0)
+                base["expect_ok"] = bool(w.get("ok"))
+                base["expect_detail"] = w
+                if not w.get("ok"):
+                    base["hint"] = (
+                        f"输入后期望「{expect}」未出现，请 get_screen_info 重观察并改变策略。"
+                    )
+        return base
 
     def _do_press_key(self, keys: str) -> dict:
         safety = check_step(f"press key '{keys}'")
@@ -917,17 +1015,25 @@ class ExecutionAgent:
         elif tool_name == "launch_app":
             return self._do_launch_app(tool_args.get("app_name", ""))
         elif tool_name == "click":
-            return self._do_click(tool_args.get("element_id", ""))
+            return self._do_click(
+                tool_args.get("element_id", ""), expect=tool_args.get("expect")
+            )
         elif tool_name == "double_click":
-            return self._do_click(tool_args.get("element_id", ""), double=True)
+            return self._do_click(
+                tool_args.get("element_id", ""),
+                double=True,
+                expect=tool_args.get("expect"),
+            )
         elif tool_name == "type_text":
             return self._do_type_text(
                 tool_args.get("element_id", ""),
                 tool_args.get("text", ""),
+                expect=tool_args.get("expect"),
             )
         elif tool_name == "paste_text":
             return self._do_paste_text(
                 tool_args.get("text", ""),
+                expect=tool_args.get("expect"),
             )
         elif tool_name == "press_key":
             return self._do_press_key(tool_args.get("keys", "enter"))
