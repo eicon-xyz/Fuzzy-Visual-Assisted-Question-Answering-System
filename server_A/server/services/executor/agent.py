@@ -68,6 +68,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - 同名多控件时用 bbox 区分：bbox=[左,上,宽,高] 为相对窗口左上角像素，"左边的按钮"→ 取左值小者，"顶部菜单"→ 取上值小者，"第 N 行"→ 按上值排序
 - 找不到时，先 wait(2) 再重新 get_screen_info
 - 调用 click/double_click/type_text 时必须同时传 name 参数（你选定条目的 name 值）：服务端会拿它与快照核对，若该 id 实际不是你说的控件会拒绝执行并回报真实名称——按真名重新决策，不要重复同一个错误 id
+- 菜单/下拉框（type=menu/menuitem/combobox，或 patterns 含 expandcollapse）：直接 click 会自动走 ExpandCollapse 展开，并返回展开后的新选项列表（new_elements，旧 id 失效）——从中选第二级目标再 click，禁止用坐标盲点菜单
 
 ## 验证标准
 - 动作工具（click/double_click/type_text/paste_text）会自动做动作后验证，返回：
@@ -157,7 +158,7 @@ def _build_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "click",
-                "description": "单击指定元素。传入element_id而非坐标，并同时传入该元素在get_screen_info中的name（服务端与快照交叉核对，不符则拒绝执行并回报真实名称，防止幻觉点击）。返回含动作后验证结果（action_ok/verified/state_changed/prop_diff），若界面未变化会自动重观察并返回新元素列表。",
+                "description": "单击指定元素。传入element_id而非坐标，并同时传入该元素在get_screen_info中的name（服务端与快照交叉核对，不符则拒绝执行并回报真实名称，防止幻觉点击）。若元素是菜单/下拉（支持 ExpandCollapse），自动改为展开并返回展开后的新选项列表。返回含动作后验证结果（action_ok/verified/state_changed/prop_diff），若界面未变化会自动重观察并返回新元素列表。",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -826,16 +827,11 @@ class ExecutionAgent:
         return out
 
     def _do_get_screen_info(self) -> dict:
-        """屏幕感知：UIA 结构化采集优先 → OmniParser 兜底 → 明确空结果。"""
-        # Wake up potentially frozen RDP/remote GUI session before screenshot
-        try:
-            import pyautogui
+        """屏幕感知：UIA 结构化采集优先 → OmniParser 兜底 → 明确空结果。
 
-            pyautogui.press("esc")
-            time.sleep(0.2)
-        except Exception:
-            pass
-
+        0.5：删除观察前向系统按 ESC 的全局副作用——它会把刚展开的
+        菜单/下拉直接关掉；需要关弹窗时用显式 press_key("esc")。
+        """
         # 1) UIA 优先（主感知通道：结构化投影，非截扁的 id+content）
         uia = self._get_uia()
         if uia.available:
@@ -1044,7 +1040,20 @@ class ExecutionAgent:
                 }
                 if name_warning:
                     base["warning"] = name_warning
-                return self._post_action_result(base, r, expect)
+                base = self._post_action_result(base, r, expect)
+                # 0.5 菜单=展开→自动重观察→再选择：ExpandCollapse 展开后
+                # 浮层选项不在旧快照里，必须立刻刷新并把新列表交给 LLM。
+                if via == "uia_expand" and not base.get("reobserved"):
+                    obs = self._do_get_screen_info()
+                    base["expanded"] = True
+                    base["ids_refreshed"] = True
+                    base["new_elements"] = obs.get("elements")
+                    base["hint"] = (
+                        "已通过 ExpandCollapse 展开菜单/下拉框，下方 new_elements 是"
+                        "展开后的最新选项列表（旧 element_id 全部失效）。"
+                        "请从中选择目标项再次 click，不要点坐标。"
+                    )
+                return base
             return {
                 "success": False,
                 "error": f"UIA 操作失败: {r.get('error')}",

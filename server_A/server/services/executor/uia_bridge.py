@@ -475,6 +475,8 @@ class UIABridge:
             r = self._act_coord(ctrl, element_id, clicks=2)
         elif action == "type":
             r = self._act_type(ctrl, element_id, text or "")
+        elif action in ("expand", "collapse"):
+            r = self._act_expand(ctrl, element_id, expand=(action == "expand"))
         else:
             return {
                 "success": False,
@@ -534,8 +536,52 @@ class UIABridge:
                 return {"success": True, "via": "uia_toggle", "element": element_id}
         except Exception:
             pass
-        # 4) 坐标回退（UIA bbox 中心，比 OmniParser 框更准）
+        # 4) ExpandCollapse（菜单头/下拉框：点击=展开，0.5 动作空间补全）
+        try:
+            ep = ctrl.GetExpandCollapsePattern()
+            if ep is not None:
+                state = str(getattr(ep, "ExpandCollapseState", "") or "")
+                if "expanded" not in state.lower():
+                    ep.Expand()
+                return {
+                    "success": True,
+                    "via": "uia_expand",
+                    "element": element_id,
+                    "expand_from": state,
+                }
+        except Exception:
+            pass
+        # 5) 坐标回退（UIA bbox 中心，比像素检测框更准）
         return self._act_coord(ctrl, element_id, clicks=1)
+
+    def _act_expand(self, ctrl, element_id: str, expand: bool = True) -> dict:
+        """显式 ExpandCollapse.Expand()/Collapse()。"""
+        try:
+            ep = ctrl.GetExpandCollapsePattern()
+        except Exception:
+            ep = None
+        if ep is None:
+            return {
+                "success": False,
+                "error": "element has no ExpandCollapsePattern（它不是菜单/下拉/树节点？改用 click）",
+                "via": None,
+            }
+        try:
+            state = str(getattr(ep, "ExpandCollapseState", "") or "")
+            if expand:
+                ep.Expand()
+                via = "uia_expand"
+            else:
+                ep.Collapse()
+                via = "uia_collapse"
+            return {
+                "success": True,
+                "via": via,
+                "element": element_id,
+                "expand_from": state,
+            }
+        except Exception as exc:
+            return {"success": False, "error": f"expand/collapse failed: {exc}", "via": None}
 
     def _act_type(self, ctrl, element_id: str, text: str) -> dict:
         # 1) ValuePattern.SetValue —— 精确设置

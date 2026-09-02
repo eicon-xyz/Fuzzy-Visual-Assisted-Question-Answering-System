@@ -584,3 +584,87 @@ def test_schemas_require_name_for_element_actions():
         fn = tools[name]
         assert "name" in fn["parameters"]["properties"], name
         assert "name" in fn["parameters"]["required"], name
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 0.5 ExpandCollapse 入 act() + 菜单自动重观察 + 删全局 ESC
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def test_click_on_expandcollapse_control_expands(monkeypatch):
+    """无 Invoke/Select/Toggle 但有 ExpandCollapse 的菜单头：click=Expand。"""
+    submenu = FakeControl("新建", ctype="MenuItemControl", rect=(0, 50, 60, 70))
+    header = FakeControl("文件", ctype="MenuItemControl", rect=(0, 20, 50, 45))
+    header._patterns["expand"] = _FakeExpandPattern(header, children=[submenu])
+    root = FakeControl("记事本", ctype="WindowControl", rect=(0, 0, 800, 600),
+                       children=(header,))
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    els = b.snapshot()
+    r = b.act(find_el(els, "文件").element_id, action="click", verify_timeout=0.3)
+    assert r["success"] and r["via"] == "uia_expand"
+    assert "expand" in header.log
+    assert r["state_changed"] is True          # expand 属性 Collapsed→Expanded
+    assert r["prop_diff"]["after"]["expand"] == "Expanded"
+    # 再点一次：已展开则不重复 Expand（幂等）
+    header.log.clear()
+    r2 = b.act(find_el(els, "文件").element_id, action="click", verify_timeout=0.3)
+    assert r2["via"] == "uia_expand" and "expand" not in header.log
+
+
+def test_act_explicit_expand_and_collapse(monkeypatch):
+    combo = FakeControl("", ctype="ComboBoxControl", rect=(10, 10, 120, 40))
+    combo._patterns["expand"] = _FakeExpandPattern(combo)
+    plain = FakeControl("按钮", ctype="ButtonControl", rect=(0, 0, 10, 10))
+    root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 400, 300),
+                       children=(combo, plain))
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    els = b.snapshot()
+    combo_el = next(e for e in els if e.element_type == "dropdown")
+    r = b.act(combo_el.element_id, action="expand", verify_timeout=0.2)
+    assert r["success"] and r["via"] == "uia_expand"
+    r2 = b.act(combo_el.element_id, action="collapse", verify_timeout=0.2)
+    assert r2["success"] and r2["via"] == "uia_collapse"
+    # 无 ExpandCollapse pattern 的普通按钮显式 expand → 拒绝并给替代提示
+    btn_el = find_el(els, "按钮")
+    r3 = b.act(btn_el.element_id, action="expand", verify_timeout=0.2)
+    assert r3["success"] is False and "click" in r3["error"]
+
+
+def test_agent_menu_click_auto_reobserves(monkeypatch):
+    """agent 层：click 触发 uia_expand → 自动重观察附 new_elements + 选择指引。"""
+    bridge = _BridgeStub(
+        {"success": True, "via": "uia_expand", "action_ok": True,
+         "verified": True, "state_changed": True}
+    )
+    a = _make_agent_with_fake_bridge(bridge)
+    monkeypatch.setattr(
+        a, "_do_get_screen_info",
+        lambda: {"success": True, "elements": [
+            {"id": "u5", "type": "menuitem", "name": "新建", "enabled": True, "bbox": [1, 1, 1, 1]}
+        ]},
+    )
+    r = a._do_click("u1", name="确定")
+    assert r["success"] and r["expanded"] is True and r["ids_refreshed"] is True
+    assert r["new_elements"][0]["name"] == "新建"
+    assert "展开" in r["hint"] and "再次 click" in r["hint"]
+
+
+def test_get_screen_info_no_global_esc(monkeypatch):
+    """0.5 红线回归：观察屏幕不得再有全局 ESC 副作用（会关掉刚展开的菜单）。"""
+    root, btn, edit = _projection_tree()
+    install_fake_uia(monkeypatch, root)
+    import pyautogui as _pag
+
+    presses = []
+    monkeypatch.setattr(_pag, "press", lambda *a, **k: presses.append(a))
+    a = agent_mod.ExecutionAgent()
+    result = a._do_get_screen_info()
+    assert result["source"] == "uia"
+    assert presses == []
+    # 源码级双保险：函数体内不再引用 press("esc")
+    import inspect
+
+    src = inspect.getsource(agent_mod.ExecutionAgent._do_get_screen_info)
+    assert 'press("esc")' not in src and "press('esc')" not in src
