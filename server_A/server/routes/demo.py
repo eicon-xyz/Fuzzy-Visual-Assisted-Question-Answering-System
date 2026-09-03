@@ -20,6 +20,7 @@ from server.models.schemas import (
     DebugClickRequest,
     HealthResponse,
     ProcessRequest,
+    RedlineEvaluateRequest,
 )
 from server.services.executor.clicker import click_at
 from server.storage.memory import task_store
@@ -110,6 +111,32 @@ async def health_check():
         omniparser_url=settings.OMNIPARSER_URL,
         omniparser_ready=True,
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 红线只读评估（B 端第一层归一化的判定入口）
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.post("/redline/evaluate", summary="红线只读评估")
+async def redline_evaluate(
+    req: RedlineEvaluateRequest, demo_key: str = Depends(verify_demo_key)
+):
+    """对文本执行 check_redline 并返回判定结果（纯只读，不落库、不改红线逻辑）。
+
+    供 Electron B 端第一层归一化调用（等价于 PyQt 端 sidecar_modules 直接
+    import redline_service.check_redline 的现行机制）；端点不可达时客户端
+    降级语义与现行 _NoRedline 一致。
+    """
+    from server.services.redline_service import check_redline
+
+    r = check_redline(req.query)
+    return {
+        "triggered": bool(r.triggered),
+        "category": r.category or "",
+        "message": r.message or "",
+        "action": r.action,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
