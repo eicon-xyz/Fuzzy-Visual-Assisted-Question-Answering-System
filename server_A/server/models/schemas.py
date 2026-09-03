@@ -3,7 +3,7 @@ HAJIMI Demo API Pydantic 模型
 严格对应 docs/api-contract-demo.md 中的数据定义
 """
 
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -70,6 +70,10 @@ class ExecutedStep(BaseModel):
     params: Optional[dict] = None
     action_summary: Optional[str] = None
     status: str = Field("pending", pattern="^(pending|executing|done|failed)$")
+    # 0.7 done 证据化 + 显式终止语义
+    evidence: Optional[str] = None  # done 时成立的独立证据（prop diff/观察事实）
+    terminal_kind: Optional[str] = None  # None | "infeasible" | "ask_user"
+    user_question: Optional[str] = None  # ask_user 时提交给用户的问题
 
 
 class Annotation(BaseModel):
@@ -271,7 +275,8 @@ class HealthResponse(BaseModel):
     detector_active: Optional[str] = None
     detector_device: Optional[str] = None
     omniparser_url: Optional[str] = None
-    omniparser_ready: Optional[bool] = None
+    # 纯视觉模式（无 OmniParser）下返回字符串 "not_required"
+    omniparser_ready: Optional[Union[bool, str]] = None
 
 
 class RelocateRequest(BaseModel):

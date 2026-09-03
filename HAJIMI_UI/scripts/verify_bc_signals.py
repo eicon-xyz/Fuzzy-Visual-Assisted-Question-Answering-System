@@ -74,7 +74,7 @@ def _check_c_bind_optional() -> None:
     app = QApplication.instance() or QApplication(sys.argv)
     bus = BCIntegrationSignals()
     shared = {"voice_settings": {"tts_enabled": True, "asr_enabled": True}}
-    ctrl = VoiceIntegrationController(server_url="http://127.0.0.1:8010")
+    ctrl = VoiceIntegrationController(server_url="http://127.0.0.1:8011")
     ctrl.start()
     ctrl.bind_to(bus, shared)
 

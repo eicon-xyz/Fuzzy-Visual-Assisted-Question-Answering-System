@@ -21,7 +21,7 @@ from server.models.schemas import UIElement
 
 _OMNIPARSER_URL = settings.OMNIPARSER_URL.rstrip("/")
 _OMNIPARSER_TIMEOUT = settings.OMNIPARSER_TIMEOUT
-_OMNIPARSER_RETRY = getattr(settings, "OMNIPARSER_RETRY", 1)
+_OMNIPARSER_RETRY = max(getattr(settings, "OMNIPARSER_RETRY", 1), 1)  # At least 1 retry
 _OMNIPARSER_RETRY_DELAY = getattr(settings, "OMNIPARSER_RETRY_DELAY", 3.0)
 
 # Regex to strip data URI prefix, e.g. "data:image/png;base64,"
@@ -203,6 +203,8 @@ def parse_screenshot_full(
     """
     Call the local OmniParser V2 API and return a full ParseResult with metadata.
 
+    Note: 无 :9800 纯视觉模式（OMNIPARSER_ENABLED=false）时快速返回空结果。
+
     Args:
         image_base64: Base64 image, with or without a data URI prefix.
         compute_spatial: If True, compute spatial relations (left/right/top/bottom).
@@ -215,6 +217,8 @@ def parse_screenshot_full(
     """
     payload_base64 = _clean_base64(image_base64)
     if not payload_base64:
+        return ParseResult()
+    if not getattr(settings, "OMNIPARSER_ENABLED", True):
         return ParseResult()
 
     # ── Downscale to avoid 400 from oversized payload ──
@@ -267,7 +271,8 @@ def parse_screenshot_full(
                         break
             if data is not None:
                 break
-            raise httpx.HTTPError("no compatible /parse endpoint accepted request")
+            raise httpx.HTTPError(f"no compatible /parse endpoint accepted request"
+                f" [endpoints={endpoints} payloads={[list(p.keys()) for p in payloads]}]")
         except Exception as exc:
             last_exc = exc
             print(

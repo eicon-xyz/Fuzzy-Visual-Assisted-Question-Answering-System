@@ -1,7 +1,7 @@
 /**
  * HAJIMI Admin API 服务层
  * 全部 /api/admin/* 端点，真实 API 调用。
- * 新增 /api/auth/* 认证端点。
+ * 后端为 L5 Sidecar（server_A，:8011），经 vite proxy 转发；见 vite.config.js。
  */
 import api from './index'
 
@@ -13,21 +13,15 @@ export async function authLogin(username, password) {
   return api.post('/auth/login', { username, password })
 }
 
-export async function authRegister(username, password) {
-  return api.post('/auth/register', { username, password })
-}
-
-export async function authRefresh(refreshToken) {
-  return api.post('/auth/refresh', { refresh_token: refreshToken })
-}
-
-export async function authLogout(refreshToken) {
-  return api.post('/auth/logout', { refresh_token: refreshToken })
-}
+// 注：/auth/register、/auth/refresh、/auth/logout 在 L5 Sidecar 中均未实现
+// （refresh 原属已删除的旧 A 端 :8010），登出改为仅清理本地会话（AppLayout.vue）。
 
 // ═══════════════════════════════════════════
-//  用户管理 API（新增）
+//  用户管理 API
 // ═══════════════════════════════════════════
+// 以下 4 个端点原由已删除的旧 A 端（HAJIMI_UI/server，:8010）提供，
+// L5 Sidecar（server_A）尚未移植 users 路由，当前会返回 404。
+// 保留待 server_A 补齐；Users.vue 会捕获异常，但响应拦截器仍会弹一次错误提示。
 
 export async function fetchUsersList(params = {}) {
   return api.get('/admin/users/list', { params })
@@ -69,9 +63,8 @@ export async function fetchRedline(limit = 5) {
   return api.get('/admin/stats/redline', { params: { limit } })
 }
 
-export async function fetchFailuresStats(params = {}) {
-  return api.get('/admin/failures/stats', { params })
-}
+// 注：原 fetchFailuresStats() → GET /admin/failures/stats 已删除：
+// 该端点在新旧后端都不存在，且无任何视图引用（失败统计请由 list 汇总）。
 
 export async function fetchFailuresList(params = {}) {
   return api.get('/admin/failures/list', { params })
@@ -86,7 +79,7 @@ export async function fetchFlowTopology() {
   return res.success ? res.data : res
 }
 
-export async function fetchFlowMetrics(apiPath = '/api/demo/process', range = '1h') {
+export async function fetchFlowMetrics(apiPath = '/api/demo/execute', range = '1h') {
   const res = await api.get('/admin/flow/metrics', { params: { api_path: apiPath, range } })
   return res.success ? res.data : res
 }
@@ -106,6 +99,8 @@ export async function fetchAlerts(params = {}) {
   return res.success ? res.data : res
 }
 
+// 注：Sidecar 只实现 POST /admin/monitor/alerts/read-all，
+// 单条已读端点 POST /admin/monitor/alerts/{id}/read 尚缺（HealthMonitor 点击「已读」会 404）。
 export async function markAlertRead(alertId) {
   return api.post(`/admin/monitor/alerts/${alertId}/read`)
 }
@@ -127,26 +122,5 @@ export async function fetchDeployLogs(limit = 20) {
   return res.success ? res.data : res
 }
 
-// ═══════════════════════════════════════════
-//  GPU OmniParser 监控
-// ═══════════════════════════════════════════
-
-const GPU_API_URL = 'http://127.0.0.1:9800'
-
-export async function fetchGpuHealth() {
-  try {
-    const res = await fetch(`${GPU_API_URL}/health`, { signal: AbortSignal.timeout(5000) })
-    return await res.json()
-  } catch {
-    return null
-  }
-}
-
-export async function fetchGpuProbe() {
-  try {
-    const res = await fetch(`${GPU_API_URL}/probe/`, { signal: AbortSignal.timeout(5000) })
-    return await res.json()
-  } catch {
-    return null
-  }
-}
+// 注：原「GPU OmniParser 监控」(:9800 直连 /health、/probe/) 属 L4 指引模式链路，
+// 已随 L4 移除；健康状态统一走 /api/admin/monitor/health。

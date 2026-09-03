@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from server.config import settings
-from server.database.repository import RedlineRepository, TaskRepository
+from server.database.repository import TaskRepository
 from server.models.schemas import (
     CancelRequest,
     DebugClickRequest,
@@ -59,7 +59,22 @@ def _format_sse(event: str, data: dict) -> str:
 
 @router.get("/health", summary="服务健康检查")
 async def health_check():
-    """Health check with OmniParser probe."""
+    """Health check with OmniParser probe.
+
+    无 :9800 纯视觉模式（OMNIPARSER_ENABLED=false）：
+    直接报告 vision_llm / not_required，不再探测 / 返回 503。
+    """
+    if not getattr(settings, "OMNIPARSER_ENABLED", True):
+        return HealthResponse(
+            status="ok",
+            version="2.0.0",
+            detector_backend="vision_llm",
+            detector_active="vision_llm",
+            detector_device=None,
+            omniparser_url=None,
+            omniparser_ready="not_required",
+        )
+
     import httpx
 
     omni_ready = False
@@ -279,35 +294,3 @@ async def debug_click(
         clicks=request.clicks,
     )
     return result
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# 兼容旧端点（保留，不破坏现有调用）
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-@router.post("/process", summary="[兼容] 核心流程入口 — 仅规划不执行")
-async def process(
-    request: ProcessRequest,
-    demo_key: str = Depends(verify_demo_key),
-):
-    """兼容旧版 API：只做规划，不自动执行。"""
-    from server.services.planning.router import process_query as plan_query
-
-    response = plan_query(
-        request.query,
-        request.image,
-        screen_width=getattr(request, "screen_width", 1920),
-        screen_height=getattr(request, "screen_height", 1080),
-    )
-    if response.redline and response.redline.triggered:
-        RedlineRepository.log(
-            query=request.query,
-            category=response.redline.category,
-            action=response.redline.action,
-            message=response.redline.message,
-        )
-        return response
-    task_store.create(response, request.query)
-    TaskRepository.create_from_response(response, request.query)
-    return response

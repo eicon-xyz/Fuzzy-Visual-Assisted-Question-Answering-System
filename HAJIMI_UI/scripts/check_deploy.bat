@@ -2,23 +2,13 @@
 setlocal EnableExtensions
 cd /d %~dp0..
 
-if exist server\.venv\Scripts\python.exe (
-    set PYTHON=server\.venv\Scripts\python.exe
-) else (
-    set PYTHON=python
-)
+echo [HAJIMI] Ensuring venv deps (install if missing) ...
+call "%~dp0ensure_ui_env.bat"
+call "%~dp0ensure_l5_sidecar_env.bat"
 
-echo [HAJIMI] Ensuring local venv / UI deps (install if missing) ...
-call "%~dp0ensure_hajimi_gpu_prereqs.bat"
-if errorlevel 1 (
-    echo [HAJIMI] Environment setup failed.
-    pause
-    exit /b 1
-)
-
-if exist server\.venv\Scripts\python.exe (
-    set PYTHON=server\.venv\Scripts\python.exe
-)
+call "%~dp0_resolve_l5_root.bat"
+set "PYTHON=python"
+if exist "%L5_ROOT%\server\.venv\Scripts\python.exe" set "PYTHON=%L5_ROOT%\server\.venv\Scripts\python.exe"
 
 echo.
 "%PYTHON%" scripts\check_deploy.py
@@ -27,9 +17,9 @@ echo.
 if "%ERR%"=="0" (
     echo [HAJIMI] Deploy check: all OK.
 ) else if "%ERR%"=="2" (
-    echo [HAJIMI] Deploy check: env OK, GPU/A-end links not ready.
+    echo [HAJIMI] Deploy check: env OK, backend links not ready.
 ) else (
-    echo [HAJIMI] Deploy check: environment issues — see above.
+    echo [HAJIMI] Deploy check: environment issues - see above.
 )
 pause
 endlocal

@@ -1,49 +1,48 @@
-# HAJIMI 智能桌面助手
+# HAJIMI 智能桌面助手（B 端）
 
-> **根项目 AI 接手**：请先读 [`HANDOFF.md`](HANDOFF.md) → [`docs/AI-操作指南.md`](docs/AI-操作指南.md)
+> **AI 接手**：先读仓库根的 [`CLAUDE.md`](../CLAUDE.md) / [`AGENTS.md`](../AGENTS.md)，或 [`docs/FILE-MAP.md`](docs/FILE-MAP.md)
 
-PyQt5 原生 UI + FastAPI 后端。默认运行 **Native UI**（`ui/native/`）。
+PyQt5 原生 UI（`ui/native/`）。本目录是 **B 端**（桌面客户端）；唯一后端是 **L5 Sidecar**（[`../server_A/server/`](../server_A/server)，FastAPI `:8011`）。L4 指引模式、旧 A 端 (:8010)、OmniParser、Mock 演示均已移除。
 
-## 运行模式
+## 快速开始（推荐：仓库根一键链）
 
-| 模式 | 命令 | 需要 |
-|------|------|------|
-| **UI 壳演示** | `set HAJIMI_MOCK_ONLY=1` 后 `python main.py` | 仅 [`requirements.txt`](requirements.txt) |
-| **本地联调** | `launchers\start_all.bat` 或分步启动 A/OmniParser | `server/.env` + OmniParser 权重 |
-| **校园 GPU** | 根目录 **`启动HAJIMI.bat`**（首次自动配环境） | VPN，见 [`docs/校园GPU-B端联调清单_v2.md`](docs/校园GPU-B端联调清单_v2.md) |
+在**仓库根目录**双击：
 
-组员首次 clone：**双击仓库根目录 `启动HAJIMI.bat`**。开发者入口见 [`launchers/README.txt`](../launchers/README.txt)。
+| 命令 | 说明 |
+|------|------|
+| **`安装全栈.bat`** | 首次：建 2 个 venv（B 端 `HAJIMI_UI/.venv` + Sidecar `server_A/server/.venv`，含 torch，约 10–30 分钟）并初始化 `server_A/server/.env` |
+| **`启动全栈.bat`** | 拉起 **L5 Sidecar :8011** + **B 端** 两个窗口 |
+| **`启动本地.bat`** | 同上（`scripts/start_local_vision.bat`，L5-only） |
+| **`stop_all.bat`** | 停止 :8011 |
+| **`验收.bat`** | `scripts/verify_all.py --require-l5` |
 
-## 快速启动（UI 壳）
+组员 5 分钟跑通见 [`docs/B端-组员快速启动.md`](docs/B端-组员快速启动.md)。
+
+## 模型 Key
+
+唯一存放处：[`../server_A/server/.env`](../server_A/server/.env)（`DEEPSEEK_API_KEY` / `LLM_*`）。
+B 端设置页保存后由 `core/env_sync.py` 同步写入该文件并重启 Sidecar。
+`OMNIPARSER_ENABLED=false`、`ROUTING_MODE=l5` 由 `scripts/apply_l5_settings.py` 写入。
+
+## 单独运行 B 端
 
 ```powershell
-scripts\setup.bat
-set HAJIMI_MOCK_ONLY=1
-python main.py
+scripts\setup.bat            :: 建 .venv 并装 PyQt5
+python main.py               :: Sidecar 未起时 B 端会自动拉起 scripts\start_l5_sidecar.bat
 ```
 
-或使用 `scripts\start_ui.bat`（等价于 `python main.py`，自动解析 PATH 中的 Python）。
+或 `scripts\start_ui.bat`。环境变量（`L5_API_URL` / `L5_API_PORT` / `HAJIMI_L5_ROOT` / `HAJIMI_AUTO_LAUNCH_L5`）见根 `CLAUDE.md`。
 
-## 本地完整联调
+## 使用方式（L5 自动执行）
 
-```powershell
-copy server\.env.example server\.env
-# 编辑 server\.env 填入 LLM_API_KEY 等
-scripts\setup_server_env.bat
-launchers\start_all.bat
-```
+1. 在「操作指引」页输入自然语言指令（如「打开记事本并输入你好」）。
+2. 首次弹出 L5 知情确认。
+3. Sidecar 规划步骤并经 UIA 绑定 / Playwright DOM 自动执行，进度在「步骤列表」时间线实时回显（SSE）。
+4. 桌面快捷键：**H** 批准高风险步骤 / **J** 停止 / **P** 暂停（待 Sidecar pause API）。
 
-默认 A 端端口：**8010**（`HAJIMI_PORT` / `config.py`）。
-
-## UI 观感预览
-
-```bash
-python -m ui.style_preview_demo
-```
-
-详见 [`docs/design-spec.md`](docs/design-spec.md)。
+红线双层：B 端 `l5_query_normalize` 归一化 + Sidecar `redline_service`/`executor/safety` 复检。
 
 ## 平台说明
 
-- **官方支持**：Windows 10+（无边框窗口、系统托盘、服务启停脚本）
-- **Linux/macOS**：可尝试 `python main.py`；`.bat` 与服务管理脚本不可用
+- **官方支持**：Windows 10+（无边框窗口、系统托盘、UIA 执行、`.bat` 服务脚本）。
+- **Linux/macOS**：可 `python main.py`（offscreen 可跑 UI/测试）；`.bat`、UIA、pyautogui 执行不可用。

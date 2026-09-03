@@ -8,6 +8,7 @@ HAJIMI Admin API 路由
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from pydantic import BaseModel, Field
 
 from server.config import settings
 from server.database.repository import (
@@ -320,3 +321,195 @@ async def session_status(admin_key: str = Depends(verify_admin_key)):
     from server.services.agent.orchestrator import orchestrator
 
     return {"session": orchestrator.get_session()}
+
+
+# ────────────────────────── 用户管理 ──────────────────────────
+
+
+@router.get(
+    "/users/list",
+    summary="用户列表（分页 + 搜索）",
+    description="返回用户列表，含每个用户的任务数、最后登录与注册时间。",
+)
+async def users_list(
+    page: int = 1,
+    page_size: int = 20,
+    search: Optional[str] = None,
+    admin_key: str = Depends(verify_admin_key),
+):
+    from sqlalchemy import func
+
+    from server.database import SessionLocal
+    from server.database.models import User, Transaction
+
+    page = max(1, page)
+    page_size = min(max(1, page_size), 100)
+
+    db = SessionLocal()
+    try:
+        q = db.query(User)
+        if search:
+            q = q.filter(User.username.like(f"%{search}%"))
+        total = q.count()
+        rows = (
+            q.order_by(User.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+
+        # 每个用户的任务数（一次聚合，避免 N+1）
+        counts = dict(
+            db.query(Transaction.user_id, func.count(Transaction.task_id))
+            .group_by(Transaction.user_id)
+            .all()
+        )
+
+        items = [
+            {
+                "user_id": u.user_id,
+                "username": u.username,
+                "role": u.role,
+                "task_count": int(counts.get(u.user_id, 0)),
+                "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+            }
+            for u in rows
+        ]
+    finally:
+        db.close()
+
+    return {"success": True, "data": {"items": items, "total": total}}
+
+
+@router.get(
+    "/users/stats/{user_id}",
+    summary="单个用户统计",
+    description="返回指定用户的任务总数、成功率、失败数、反馈数与最后活跃时间。",
+)
+async def users_stats(user_id: str, admin_key: str = Depends(verify_admin_key)):
+    from sqlalchemy import func
+
+    from server.database import SessionLocal
+    from server.database.models import User, Transaction, Feedback, Failure
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": {"code": "USER_NOT_FOUND", "message": "用户不存在"}},
+            )
+
+        total_tasks = (
+            db.query(func.count(Transaction.task_id))
+            .filter(Transaction.user_id == user_id)
+            .scalar()
+            or 0
+        )
+        success_tasks = (
+            db.query(func.count(Transaction.task_id))
+            .filter(Transaction.user_id == user_id, Transaction.result == "success")
+            .scalar()
+            or 0
+        )
+        last_active = (
+            db.query(func.max(Transaction.timestamp))
+            .filter(Transaction.user_id == user_id)
+            .scalar()
+        )
+        total_feedback = (
+            db.query(func.count(Feedback.feedback_id))
+            .filter(Feedback.user_id == user_id)
+            .scalar()
+            or 0
+        )
+        # 失败数：该用户名下事务对应的失败记录
+        total_failures = (
+            db.query(func.count(Failure.failure_id))
+            .filter(
+                Failure.task_id.in_(
+                    db.query(Transaction.task_id).filter(Transaction.user_id == user_id)
+                )
+            )
+            .scalar()
+            or 0
+        )
+
+        data = {
+            "username": user.username,
+            "total_tasks": int(total_tasks),
+            "success_rate": (success_tasks / total_tasks) if total_tasks else 0.0,
+            "total_failures": int(total_failures),
+            "total_feedback": int(total_feedback),
+            "last_active_at": last_active.isoformat() if last_active else None,
+        }
+    finally:
+        db.close()
+
+    return {"success": True, "data": data}
+
+
+class ResetPasswordReq(BaseModel):
+    user_id: str = Field(min_length=1)
+    new_password: str = Field(min_length=6, max_length=256)
+
+
+@router.post(
+    "/users/reset-password",
+    summary="重置用户密码",
+)
+async def users_reset_password(
+    req: ResetPasswordReq, admin_key: str = Depends(verify_admin_key)
+):
+    import hashlib
+
+    from server.database import SessionLocal
+    from server.database.models import User
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == req.user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": {"code": "USER_NOT_FOUND", "message": "用户不存在"}},
+            )
+        user.password_hash = hashlib.sha256(req.new_password.encode()).hexdigest()
+        db.commit()
+    finally:
+        db.close()
+
+    return {"success": True, "data": {"user_id": req.user_id}}
+
+
+@router.delete(
+    "/users/{user_id}",
+    summary="删除用户（历史数据脱敏保留）",
+)
+async def users_delete(user_id: str, admin_key: str = Depends(verify_admin_key)):
+    from server.database import SessionLocal
+    from server.database.models import User, Transaction, Feedback
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": {"code": "USER_NOT_FOUND", "message": "用户不存在"}},
+            )
+        # 脱敏：解除历史数据与该用户的关联，保留事务/反馈本身
+        db.query(Transaction).filter(Transaction.user_id == user_id).update(
+            {Transaction.user_id: None}
+        )
+        db.query(Feedback).filter(Feedback.user_id == user_id).update(
+            {Feedback.user_id: None}
+        )
+        db.delete(user)
+        db.commit()
+    finally:
+        db.close()
+
+    return {"success": True, "data": {"user_id": user_id}}

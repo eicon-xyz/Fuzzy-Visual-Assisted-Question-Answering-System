@@ -30,7 +30,7 @@ EXCLUDE_DIR_NAMES = {
     "项目文档",              # Defense PPT + design docs, delivered separately
     "工作进度",              # Internal daily progress logs
     "参考文档",              # Non-canonical reference docs
-    "server",               # Root legacy server (replaced by server_A + HAJIMI_UI/server)
+    "server",               # Root legacy dir (L4 A-end removed; runtime backend is server_A)
     "terminals",            # IDE terminal session logs
 }
 
@@ -167,7 +167,7 @@ def main() -> int:
     else:
         print("[package] All checks passed")
 
-    print("[package] Recipient: unzip -> 安装全栈.bat -> edit server/.env -> 启动全栈.bat")
+    print("[package] Recipient: unzip -> 安装全栈.bat -> edit server_A/server/.env (DEEPSEEK_API_KEY) -> 启动全栈.bat")
     return verify_code
 
 
