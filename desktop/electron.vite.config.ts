@@ -7,6 +7,9 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
+        // electron 在 devDependencies，externalizeDepsPlugin 不覆盖它；
+        // 不显式 external 会把 npm stub（getElectronPath）打进产物
+        external: ['electron'],
         input: { main: resolve(__dirname, 'electron/main.ts') }
       }
     }
@@ -15,6 +18,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
+        external: ['electron'],
         input: { preload: resolve(__dirname, 'electron/preload.ts') }
       }
     }

@@ -16,14 +16,16 @@ HAJIMI 桌面助手的新版 B 端：Electron + Vite + Vue 3 + TypeScript + Pini
 ## 开发
 
 ```bash
-pnpm install          # .npmrc 已固定 npmmirror（含 electron 二进制镜像）
+pnpm install          # 前置：Node.js 20+ 与 pnpm（corepack enable pnpm）
 pnpm dev              # electron-vite dev（HMR）
-pnpm build            # 产物：dist-electron/{main.js,preload.js} + dist/
-pnpm test             # vitest（core/ 纯逻辑）
+pnpm build            # 产物：out/{main,preload,renderer}
+pnpm test             # vitest（core/ 纯逻辑 + golden parity）
 pnpm typecheck        # vue-tsc + tsc
+pnpm run dist:win     # Windows：electron-builder portable+nsis → release/
 ```
 
-Windows 运行前提：Sidecar 已在 :8011 或允许本应用拉起（M1 sidecarManager）。
+Windows 一键：仓根 `安装桌面版.bat`（install+build）→ `启动桌面版.bat`。
+验收：`python HAJIMI_UI/scripts/verify_all.py` 会检查 `out/main/main.mjs`（`--require-desktop` 强制）。
 Linux/无显示环境可完成 build/vitest 门禁，GUI 手测仅 Windows。
 
 ## 与旧 PyQt 端共存

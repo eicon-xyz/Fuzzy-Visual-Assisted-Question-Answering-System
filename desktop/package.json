@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "HAJIMI B 端桌面客户端（Electron + Vue3，对接 L5 Sidecar :8011）",
-  "main": "dist-electron/main.js",
+  "main": "out/main/main.mjs",
+  "author": "HAJIMI",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -11,7 +12,39 @@
     "start": "electron-vite preview && electron .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "dist:win": "electron-vite build && electron-builder --win portable nsis",
     "typecheck": "vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json"
+  },
+  "build": {
+    "appId": "xyz.eicon.hajimi.desktop",
+    "productName": "HAJIMI Desktop",
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "files": [
+      "out/**"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
+    ],
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "build/icon.png"
+    },
+    "portable": {
+      "artifactName": "HAJIMI-Desktop-${version}-portable.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "artifactName": "HAJIMI-Desktop-${version}-setup.exe"
+    }
   },
   "devDependencies": {
     "@types/node": "^26.4.1",

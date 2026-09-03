@@ -67,6 +67,18 @@ def _l5_sidecar_reachable() -> bool:
         return False
 
 
+def _desktop_build_state() -> tuple[bool, str]:
+    """Electron desktop 构建产物检查（不跑 GUI，只验文件链）。"""
+    desktop = ROOT.parent / "desktop"
+    if not (desktop / "package.json").is_file():
+        return False, "desktop/ 不存在"
+    if not (desktop / "out" / "main" / "main.mjs").is_file():
+        return False, "未构建 - 运行 安装桌面版.bat（或 desktop: pnpm build）"
+    if not (desktop / "node_modules" / ".bin").exists():
+        return False, "依赖未安装 - 运行 安装桌面版.bat"
+    return True, "out/main/main.mjs 就绪"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="HAJIMI 交接验收一键脚本 (L5)")
     parser.add_argument(
@@ -75,6 +87,11 @@ def main() -> int:
         help="L5 Sidecar 不可达时整体失败（全栈/CI 模式）",
     )
     parser.add_argument("--skip-env", action="store_true", help="跳过 check_ui_env")
+    parser.add_argument(
+        "--require-desktop",
+        action="store_true",
+        help="desktop Electron 构建缺失时整体失败",
+    )
     parser.add_argument("-q", "--quiet", action="store_true", help="折叠子脚本输出")
     args = parser.parse_args()
 
@@ -95,7 +112,7 @@ def main() -> int:
     else:
         steps.append(("verify_l5", None, None, False))
 
-    total = len(steps)
+    total = len(steps) + 1  # +1 = check_desktop_build（内联检查，非子进程）
     results: List[StepResult] = []
 
     print("=== HAJIMI 交接验收 (verify_all, L5 auto-execute) ===")
@@ -131,6 +148,25 @@ def main() -> int:
     passed = sum(1 for r in results if r.status == Status.PASS)
     failed = sum(1 for r in results if r.status == Status.FAIL)
     skipped = sum(1 for r in results if r.status == Status.SKIP)
+
+    # 最后一步：desktop Electron 构建检查（内联；缺失默认 SKIP，--require-desktop 时 FAIL）
+    built, detail = _desktop_build_state()
+    name = "check_desktop_build"
+    if built:
+        results.append(StepResult(name, Status.PASS, detail))
+        print(_pad_line(total, total, name, Status.PASS) + f"  ({detail})")
+    elif args.require_desktop:
+        results.append(StepResult(name, Status.FAIL, detail))
+        print(_pad_line(total, total, name, Status.FAIL) + f"  ({detail})")
+    else:
+        results.append(StepResult(name, Status.SKIP, detail))
+        print(_pad_line(total, total, name, Status.SKIP) + f"  ({detail})")
+    if built:
+        passed += 1
+    elif args.require_desktop:
+        failed += 1
+    else:
+        skipped += 1
 
     print()
     print(f"汇总: {passed} PASS, {failed} FAIL, {skipped} SKIP")

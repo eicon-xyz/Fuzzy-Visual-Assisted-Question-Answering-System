@@ -131,10 +131,13 @@ function createWindow(): void {
     show: false,
     backgroundColor: '#0f172a',
     webPreferences: {
-      preload: join(__dirname, 'preload.js'),
+      // electron-vite 输出 ESM（out/main/main.mjs / out/preload/preload.mjs）；
+      // sandboxed preload 不支持 ESM，故 sandbox:false——contextIsolation 仍开启，
+      // preload 仅暴露白名单桥，安全边界不变。
+      preload: join(import.meta.dirname, '../preload/preload.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
       webSecurity: true
     }
   })
@@ -167,7 +170,8 @@ function createWindow(): void {
   if (process.env['ELECTRON_RENDERER_URL']) {
     void mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    void mainWindow.loadFile(join(__dirname, '../dist/index.html'))
+    // electron-vite 产物布局：out/main / out/preload / out/renderer
+    void mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
@@ -299,7 +303,7 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(() => {
     registerIpc()
     createWindow()
-    createTray(join(__dirname, '../build/icon.png'))
+    createTray(join(__dirname, '../../build/icon.png'))
     applyStopShortcut(settings.load().global_stop_enabled === true)
 
     // 启动链对齐 PyQt main「自动拉起 Sidecar」：非阻塞探活/拉起，状态推给渲染层
