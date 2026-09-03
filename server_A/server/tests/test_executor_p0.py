@@ -1093,3 +1093,23 @@ def test_p05_r1_annotated_image_stripped_from_llm_but_pushed_to_sse(monkeypatch)
     blob = _json.dumps(msgs_seen, ensure_ascii=False)
     assert "BIGDATA" not in blob
     assert "annotated_image" not in blob
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# P0.5-R2 删除 OmniParser throttle 化石（台账 C3）
+# ═══════════════════════════════════════════════════════════════════════════
+
+import inspect as _inspect  # noqa: E402
+
+
+def test_p05_r2_no_omniparser_throttle_sleep():
+    """execute_step 内不得残留 OmniParser 退役化石的 throttle sleep（R2）。
+
+    断言实际调用而非注释文本：T1 已把删除说明写进注释（含化石名
+    "throttle OmniParser"），故按「剔除注释后无任何 time.sleep 语句」判定。
+    """
+    src = _inspect.getsource(agent_mod.ExecutionAgent.execute_step)
+    code = "\n".join(
+        line for line in src.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "time.sleep" not in code
