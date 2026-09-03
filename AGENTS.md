@@ -67,10 +67,14 @@ HAJIMI_UI/                     # B-end — PyQt5 desktop client (the only GUI)
 └── requirements.txt           # B-end deps: PyQt5 only
 
 client/                        # C-end voice module (ASR/TTS, vosk/pyttsx3); server_url defaults to :8011
+desktop/                       # B-end Electron rebuild (front branch, coexists with HAJIMI_UI until Windows acceptance)
+                               # Electron + Vite + Vue3 + TS + Pinia; talks to the same L5 Sidecar :8011 only
+                               # electron/ main+preload · core/ pure logic (vitest) · src/ renderer · out/ build
 web-admin/                     # Vue 3 + Vite admin dashboard (Element Plus, ECharts, Pinia)
                                # → Sidecar :8011 admin/audit/auth/flow/monitor/users routes
 launchers/                     # Thin root-level .bat wrappers
 根目录 .bat                    # 安装全栈.bat / 启动全栈.bat / 启动本地.bat / 验收.bat / stop_all.bat / 打包.bat
+                               # desktop 新端：安装桌面版.bat / 启动桌面版.bat（Windows 实测通过后切换默认）
 ```
 
 ## Key Architecture Concepts
