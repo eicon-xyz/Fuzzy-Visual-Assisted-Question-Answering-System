@@ -102,6 +102,23 @@ export class SidecarClient {
     )
   }
 
+  /** 审计上报（POST /api/audit/report，X-Demo-Key）；fire-and-forget，失败静默。 */
+  async sendAudit(clientId: string, record: object): Promise<void> {
+    try {
+      await this.requestJson(
+        '/api/audit/report',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Demo-Key': this.cfg.demoKey },
+          body: JSON.stringify({ client_id: clientId, batch: [record] })
+        },
+        10_000
+      )
+    } catch {
+      /* 审计失败不影响任务链路（PyQt 端同为尽力而为） */
+    }
+  }
+
   /**
    * 红线只读评估（第一层判定入口，POST /api/demo/redline/evaluate）。
    * 失败时抛错 —— normalize.check() 捕获后按降级语义（未触发）继续，

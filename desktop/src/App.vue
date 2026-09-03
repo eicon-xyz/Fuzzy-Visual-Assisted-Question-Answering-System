@@ -8,6 +8,7 @@ import InputBar from './components/InputBar.vue'
 import ConsentDialog from './components/ConsentDialog.vue'
 import SettingsView from './components/SettingsView.vue'
 import LoginDialog from './components/LoginDialog.vue'
+import CompactBar from './components/CompactBar.vue'
 
 const store = useTaskStore()
 const { phase, steps, messages, busy } = storeToRefs(store)
@@ -16,15 +17,31 @@ const showConsent = ref(false)
 const pendingQuery = ref('')
 const showSettings = ref(false)
 const needLogin = ref(false)
+const compact = ref(false)
+const theme = ref('current')
 let unsub: (() => void) | null = null
+let unsubMode: (() => void) | null = null
 
 onMounted(async () => {
   unsub = window.hajimi.onTaskEvent((p) => store.onTaskEvent(p))
+  unsubMode = window.hajimi.onWindowMode((m) => (compact.value = m.compact))
+  compact.value = (await window.hajimi.windowGetMode()).compact
+  const st = await window.hajimi.settingsGet()
+  theme.value = st.ui_theme === 'variant_luxury' ? 'variant_luxury' : 'current'
+  document.documentElement.dataset.theme = theme.value
   // 登录门：等价 PyQt main 的 HAJIMI_SKIP_LOGIN / is_session_valid 检查
-  const st = await window.hajimi.authStatus()
-  needLogin.value = !st.valid
+  const auth = await window.hajimi.authStatus()
+  needLogin.value = !auth.valid
 })
-onUnmounted(() => unsub?.())
+onUnmounted(() => {
+  unsub?.()
+  unsubMode?.()
+})
+
+async function toggleCompact(): Promise<void> {
+  const r = await window.hajimi.windowSetCompact(!compact.value)
+  compact.value = r.compact
+}
 
 async function doSubmit(query: string, acceptConsent: boolean, dontShowAgain = true): Promise<void> {
   const r = await window.hajimi.taskSubmit(query, acceptConsent, dontShowAgain)
@@ -72,22 +89,30 @@ async function onCancel(): Promise<void> {
 
 <template>
   <div class="shell">
-    <header class="titlebar">
-      <span class="title">HAJIMI · L5 桌面助手</span>
-      <button class="gear" @click="showSettings = !showSettings">⚙</button>
-    </header>
-    <StatusBar />
-    <template v-if="showSettings">
-      <SettingsView @close="showSettings = false" />
+    <template v-if="compact">
+      <CompactBar @submit="onSubmit" @cancel="onCancel" @expand="toggleCompact" />
     </template>
     <template v-else>
-      <section class="chat">
-        <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role + ' ' + m.tone">
-          {{ m.text }}
-        </div>
-      </section>
-      <Timeline v-if="busy || steps.length || phase !== 'idle'" />
-      <InputBar @submit="onSubmit" @cancel="onCancel" />
+      <header class="titlebar">
+        <span class="title">HAJIMI · L5 桌面助手</span>
+        <span class="tb-btns">
+          <button class="tbb" title="紧凑模式" @click="toggleCompact">▁</button>
+          <button class="tbb" title="设置" @click="showSettings = !showSettings">⚙</button>
+        </span>
+      </header>
+      <StatusBar />
+      <template v-if="showSettings">
+        <SettingsView @close="showSettings = false" />
+      </template>
+      <template v-else>
+        <section class="chat">
+          <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role + ' ' + m.tone">
+            {{ m.text }}
+          </div>
+        </section>
+        <Timeline v-if="busy || steps.length || phase !== 'idle'" />
+        <InputBar @submit="onSubmit" @cancel="onCancel" />
+      </template>
     </template>
     <ConsentDialog v-if="showConsent" @accept="onConsentAccept" @decline="onConsentDecline" />
     <LoginDialog v-if="needLogin" @close="needLogin = false" />
@@ -100,17 +125,21 @@ async function onCancel(): Promise<void> {
   flex-direction: column;
   height: 100%;
 }
-.gear {
+.tb-btns {
   -webkit-app-region: no-drag;
+  display: flex;
+  gap: 2px;
+}
+.tbb {
   background: transparent;
   border: none;
   color: var(--hm-muted);
   cursor: pointer;
-  font-size: 14px;
-  padding: 2px 6px;
+  font-size: 13px;
+  padding: 2px 8px;
   border-radius: 6px;
 }
-.gear:hover {
+.tbb:hover {
   background: rgba(100, 116, 139, 0.25);
   color: var(--hm-text);
 }

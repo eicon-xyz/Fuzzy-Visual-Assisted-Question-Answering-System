@@ -5,6 +5,8 @@ import type { SettingsSnapshot } from '../../types/ipc'
 const emit = defineEmits<{ close: [] }>()
 
 const s = reactive<Required<Pick<SettingsSnapshot, 'llm' | 'voice'>> & SettingsSnapshot>({
+  ui_theme: 'current',
+  global_stop_enabled: false,
   llm: { base_url: '', api_key: '', model: 'deepseek-chat' },
   voice: {}
 })
@@ -26,7 +28,9 @@ async function save(): Promise<void> {
   const r = await window.hajimi.settingsSave({
     llm: { ...s.llm },
     voice: { tts_enabled: s.voice?.tts_enabled !== false },
-    demo_key: s.demo_key
+    demo_key: s.demo_key,
+    ui_theme: s.ui_theme,
+    global_stop_enabled: s.global_stop_enabled === true
   })
   note.value = r.ok
     ? r.envSyncedTo
@@ -69,6 +73,20 @@ async function logout(): Promise<void> {
           <input v-model="s.voice!.tts_enabled" type="checkbox" />
           步骤完成 TTS 播报
         </label>
+      </fieldset>
+      <fieldset>
+        <legend>桌面</legend>
+        <label>主题
+          <select v-model="s.ui_theme">
+            <option value="current">暗色（默认）</option>
+            <option value="variant_luxury">黑金轻奢（近似版）</option>
+          </select>
+        </label>
+        <label class="row">
+          <input v-model="s.global_stop_enabled" type="checkbox" />
+          全局停止快捷键（Ctrl+Alt+J，默认关）
+        </label>
+        <p class="hint">主题与快捷键需重启应用完整生效。</p>
       </fieldset>
       <fieldset>
         <legend>账号</legend>
@@ -125,6 +143,17 @@ label {
   margin-bottom: 8px;
 }
 input:not([type='checkbox']) {
+  display: block;
+  width: 100%;
+  margin-top: 3px;
+  background: var(--hm-bg);
+  color: var(--hm-text);
+  border: 1px solid rgba(100, 116, 139, 0.35);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+}
+select {
   display: block;
   width: 100%;
   margin-top: 3px;

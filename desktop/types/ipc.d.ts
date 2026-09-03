@@ -65,6 +65,9 @@ export interface HajimiApi {
   authStatus: () => Promise<AuthStatus>
   authLogin: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>
   authLogout: () => Promise<{ ok: boolean }>
+  windowSetCompact: (compact: boolean) => Promise<{ ok: boolean; compact: boolean }>
+  windowGetMode: () => Promise<{ compact: boolean }>
+  onWindowMode: (cb: (p: { compact: boolean }) => void) => () => void
   onTaskEvent: (cb: (p: TaskEventPayload) => void) => () => void
   onSidecarState: (cb: (p: SidecarStatePayload) => void) => () => void
 }

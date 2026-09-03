@@ -4,6 +4,7 @@
  */
 import { BrowserWindow } from 'electron'
 import { normalizeL5ExecuteQuery } from '../../core/redline/normalize'
+import { buildAuditRecord } from '../../core/audit'
 import type { SidecarClient } from './sidecarClient'
 import { consumeTaskStream } from './sseClient'
 import type { DesktopConfig } from '../../core/config'
@@ -21,7 +22,15 @@ export interface SubmitResult {
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 export class TaskRunner {
-  private current: { taskId: string; ctrl: AbortController } | null = null
+  private current: {
+    taskId: string
+    ctrl: AbortController
+    startedAtMs: number
+    query: string
+    totalSteps: number
+    completedSteps: number
+    auditDone: boolean
+  } | null = null
 
   constructor(
     private client: SidecarClient,
@@ -29,11 +38,44 @@ export class TaskRunner {
     private getWin: () => BrowserWindow | null,
     private consentAccepted: () => boolean,
     /** 用户同意本次执行；dontShowAgain=true 才持久化（对齐 PyQt「不再提示」勾选） */
-    private markConsent: (dontShowAgain: boolean) => void
+    private markConsent: (dontShowAgain: boolean) => void,
+    /** 审计 client_id（main 传 app.getPath('userData') 摘要或主机名） */
+    private auditClientId = 'hajimi-desktop'
   ) {}
 
   private broadcast(payload: { taskId?: string; event: string; data: unknown }): void {
     this.getWin()?.webContents.send('task:event', payload)
+  }
+
+  /** 事件统一入口：记账（终态审计）→ 转发渲染层。 */
+  private handleEvent(e: SseMessage): void {
+    const cur = this.current
+    if (cur) {
+      const data = (e.data ?? {}) as Record<string, unknown>
+      if (e.event === 'step_done') cur.completedSteps += 1
+      if (e.event === 'step_start') {
+        cur.totalSteps = Math.max(cur.totalSteps, Number(data.step_index ?? 0))
+      }
+      if (e.event === 'task_done' || e.event === 'task_failed' || e.event === 'task_cancelled') {
+        if (!cur.auditDone) {
+          cur.auditDone = true
+          const result = e.event === 'task_done' ? 'success' : e.event === 'task_cancelled' ? 'cancel' : 'fail'
+          void this.client.sendAudit(
+            this.auditClientId,
+            buildAuditRecord({
+              taskId: cur.taskId,
+              query: cur.query,
+              route: 'L3', // 与 PyQt 一致：L5 审计按 L3 契约上报
+              totalSteps: cur.totalSteps,
+              completedSteps: cur.completedSteps,
+              result,
+              startedAtMs: cur.startedAtMs
+            })
+          )
+        }
+      }
+    }
+    this.broadcast({ taskId: cur?.taskId, event: e.event, data: e.data })
   }
 
   async submit(rawQuery: string, acceptConsent: boolean, dontShowAgain = true): Promise<SubmitResult> {
@@ -58,7 +100,15 @@ export class TaskRunner {
     try {
       const data = await this.client.execute(normalized)
       const taskId = String(data.task_id)
-      this.current = { taskId, ctrl: new AbortController() }
+      this.current = {
+        taskId,
+        ctrl: new AbortController(),
+        startedAtMs: Date.now(),
+        query: normalized,
+        totalSteps: Array.isArray(data.steps) ? data.steps.length : 0,
+        completedSteps: 0,
+        auditDone: false
+      }
       this.broadcast({
         taskId,
         event: '_submitted',
@@ -87,7 +137,7 @@ export class TaskRunner {
         taskId,
         cfg: this.cfg,
         signal: cur.ctrl.signal,
-        onEvent: (e: SseMessage) => this.broadcast({ taskId, event: e.event, data: e.data })
+        onEvent: (e: SseMessage) => this.handleEvent(e)
       })
       if (outcome === 'terminal' || outcome === 'aborted') break
       if (attempts >= 1) {

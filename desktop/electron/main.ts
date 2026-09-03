@@ -6,10 +6,11 @@
  *  - contextIsolation: true / nodeIntegration: false / sandbox: true。
  *  - 纯逻辑（可 vitest）放 desktop/core/，此文件只做 Electron 接线。
  */
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from 'electron'
-import { existsSync } from 'node:fs'
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, shell, Tray } from 'electron'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { clampWindowSize } from '../core/window'
+import { sanitizeWindowState, type WindowState } from '../core/windowState'
 import { configFromEnv } from '../core/config'
 import { resolveL5Root } from '../core/l5root'
 import { SidecarClient } from './services/sidecarClient'
@@ -53,13 +54,77 @@ const runner = new TaskRunner(
   (dontShowAgain: boolean) => settings.markConsent(dontShowAgain)
 )
 
-// 与 PyQt 端 MainWidget 默认面板尺寸同量级的起点；M2/M3 引入窗口状态记忆后由 store 驱动
+// 与 PyQt 端 MainWidget 默认面板尺寸同量级的起点
 const DEFAULT_SIZE = clampWindowSize(380, 620, { minW: 280, minH: 52 })
 
+// ── M3 窗口状态持久化（userData/window-state.json）──
+function windowStatePath(): string {
+  return join(app.getPath('userData'), 'hajimi-desktop', 'window-state.json')
+}
+
+function loadWindowState(): WindowState | null {
+  try {
+    const raw = JSON.parse(readFileSync(windowStatePath(), 'utf-8')) as WindowState
+    const display = screen.getPrimaryDisplay().workArea
+    return sanitizeWindowState(raw, { width: display.width + display.x, height: display.height + display.y })
+  } catch {
+    return null
+  }
+}
+
+let saveTimer: NodeJS.Timeout | null = null
+function scheduleSaveWindow(win: BrowserWindow): void {
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    try {
+      const b = win.getBounds()
+      mkdirSync(join(app.getPath('userData'), 'hajimi-desktop'), { recursive: true })
+      writeFileSync(
+        windowStatePath(),
+        JSON.stringify({ x: b.x, y: b.y, w: b.width, h: b.height, compact: compactMode }),
+        'utf-8'
+      )
+    } catch {
+      /* 状态保存失败不阻断 */
+    }
+  }, 400)
+}
+
+let compactMode = false
+
+function applyCompact(win: BrowserWindow, compact: boolean): void {
+  compactMode = compact
+  const b = win.getBounds()
+  if (compact) {
+    win.setBounds({ x: b.x, y: b.y, width: b.width, height: 64 }, true)
+  } else {
+    win.setBounds({ x: b.x, y: b.y, width: Math.max(b.width, 380), height: 620 }, true)
+  }
+  win.webContents.send('window:mode', { compact })
+  scheduleSaveWindow(win)
+}
+
+// ── M3 全局停止快捷键（默认关，设置开；PyQt 无实现，属新增对齐）──
+function applyStopShortcut(enabled: boolean): void {
+  try {
+    globalShortcut.unregisterAll()
+    if (enabled) {
+      globalShortcut.register('CommandOrControl+Alt+J', () => {
+        void runner.cancel()
+      })
+    }
+  } catch {
+    /* 无显示/被占用环境下静默 */
+  }
+}
+
 function createWindow(): void {
+  const st = loadWindowState()
   mainWindow = new BrowserWindow({
-    width: DEFAULT_SIZE.w,
-    height: DEFAULT_SIZE.h,
+    x: st?.x,
+    y: st?.y,
+    width: st?.w ?? DEFAULT_SIZE.w,
+    height: st?.h ?? DEFAULT_SIZE.h,
     minWidth: DEFAULT_SIZE.minW,
     minHeight: DEFAULT_SIZE.minH,
     frame: false,
@@ -74,7 +139,13 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.once('ready-to-show', () => mainWindow?.show())
+  const win = mainWindow
+  mainWindow.once('ready-to-show', () => {
+    win.show()
+    if (st?.compact) applyCompact(win, true)
+  })
+  win.on('move', () => scheduleSaveWindow(win))
+  win.on('resize', () => scheduleSaveWindow(win))
 
   // 关闭 → 隐藏到托盘；真正退出走托盘菜单 quit（isQuitting 闸门）
   mainWindow.on('close', (e) => {
@@ -175,6 +246,7 @@ function registerIpc(): void {
   ipcMain.handle('settings:save', async (_e, fragment: UserSettings) => {
     const r = settings.saveFragment(fragment ?? {})
     if (r.ok) {
+      applyStopShortcut(fragment?.global_stop_enabled === true)
       // 对齐 PyQt：保存模型设置后重启 Sidecar 使其生效（尽力而为，不阻断保存结果）
       try {
         await settings.restartSidecar()
@@ -203,6 +275,14 @@ function registerIpc(): void {
     auth.logout()
     return { ok: true }
   })
+
+  // ── M3 窗口模式 / 全局快捷键 ──
+  ipcMain.handle('window:set-compact', (_e, compact: boolean) => {
+    if (mainWindow) applyCompact(mainWindow, Boolean(compact))
+    return { ok: true, compact: compactMode }
+  })
+
+  ipcMain.handle('window:get-mode', () => ({ compact: compactMode }))
 }
 
 // ── 单实例锁：二次启动聚焦已有窗口 ──
@@ -220,6 +300,7 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc()
     createWindow()
     createTray(join(__dirname, '../build/icon.png'))
+    applyStopShortcut(settings.load().global_stop_enabled === true)
 
     // 启动链对齐 PyQt main「自动拉起 Sidecar」：非阻塞探活/拉起，状态推给渲染层
     void manager.ensureRunning().catch(() => undefined)
@@ -234,6 +315,11 @@ app.on('before-quit', () => {
   isQuitting = true
   runner.abortLocal()
   if (cfg.stopServicesOnExit) manager.shutdown()
+  try {
+    globalShortcut.unregisterAll()
+  } catch {
+    /* ignore */
+  }
   tray?.destroy()
   tray = null
 })

@@ -23,6 +23,9 @@ const api: HajimiApi = {
   authStatus: () => ipcRenderer.invoke('auth:status'),
   authLogin: (username, password) => ipcRenderer.invoke('auth:login', { username, password }),
   authLogout: () => ipcRenderer.invoke('auth:logout'),
+  windowSetCompact: (compact: boolean) => ipcRenderer.invoke('window:set-compact', compact),
+  windowGetMode: () => ipcRenderer.invoke('window:get-mode'),
+  onWindowMode: (cb: (p: { compact: boolean }) => void) => subscribe('window:mode', cb),
   onTaskEvent: (cb: (p: TaskEventPayload) => void) => subscribe('task:event', cb),
   onSidecarState: (cb: (p: SidecarStatePayload) => void) => subscribe('sidecar:state', cb)
 }

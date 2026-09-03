@@ -77,3 +77,21 @@ body {
 button {
   font-family: inherit;
 }
+
+/* 黑金轻奢近似版（PyQt luxury = 星空+金文字特效的 CSS 变量级复刻，M3 有意不做像素级还原） */
+:root[data-theme='variant_luxury'] {
+  --hm-bg: #060608;
+  --hm-panel: #131318;
+  --hm-text: #e8d9a0;
+  --hm-muted: #8a7a45;
+  --hm-accent: #d4af37;
+}
+
+:root[data-theme='variant_luxury'] body {
+  background:
+    radial-gradient(1px 1px at 20% 30%, rgba(232, 217, 160, 0.5) 50%, transparent 51%),
+    radial-gradient(1px 1px at 70% 15%, rgba(232, 217, 160, 0.35) 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 45% 70%, rgba(232, 217, 160, 0.3) 50%, transparent 51%),
+    radial-gradient(1px 1px at 85% 60%, rgba(232, 217, 160, 0.4) 50%, transparent 51%),
+    var(--hm-bg);
+}
