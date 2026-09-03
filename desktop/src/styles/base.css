@@ -1,0 +1,79 @@
+:root {
+  /* 对齐 PyQt 暗色板（main._apply_dark_palette / theme_manager current 主题） */
+  --hm-bg: #0f172a;
+  --hm-panel: #1e293b;
+  --hm-text: #f1f5f9;
+  --hm-muted: #64748b;
+  --hm-accent: #f472b6;
+  --hm-danger: #ef4444;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  background: var(--hm-bg);
+  color: var(--hm-text);
+  font-family: 'Segoe UI', 'Microsoft YaHei UI', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  overflow: hidden;
+  user-select: none;
+}
+
+.titlebar {
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 34px;
+  padding: 0 10px;
+  background: rgba(30, 41, 59, 0.9);
+  border-bottom: 1px solid rgba(100, 116, 139, 0.25);
+}
+
+.titlebar .title {
+  font-size: 12px;
+  color: var(--hm-muted);
+  letter-spacing: 0.5px;
+}
+
+.titlebar .win-btns {
+  -webkit-app-region: no-drag;
+  display: flex;
+  gap: 6px;
+}
+
+.titlebar button {
+  width: 26px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--hm-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.titlebar button:hover {
+  background: rgba(100, 116, 139, 0.25);
+  color: var(--hm-text);
+}
+
+.titlebar button.close:hover {
+  background: var(--hm-danger);
+  color: #fff;
+}
+
+button {
+  font-family: inherit;
+}
