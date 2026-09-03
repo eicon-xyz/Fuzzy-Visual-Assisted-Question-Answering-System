@@ -280,9 +280,11 @@ class _BridgeStub:
         self._act_result = act_result
         self._wait_result = wait_result or {"ok": True}
         self.calls = []
+        self.calls_kw = []  # B2: 记录 act 的额外关键字参数（via 透传断言用）
 
     def act(self, element_id, action="click", text=None, expect=None, **kw):
         self.calls.append(("act", element_id, action, expect))
+        self.calls_kw.append(kw)
         return dict(self._act_result)
 
     def wait_for_text(self, text, timeout=3.0, interval=0.4):
@@ -564,19 +566,21 @@ def test_name_guard_applies_to_type_text():
 
 
 def test_dispatch_click_forwards_name(monkeypatch):
-    """dispatch_tool 把 name 参数透传到 _do_click。"""
+    """dispatch_tool 把 name/expect/via 参数透传到 _do_click。"""
     a = _make_agent_with_fake_bridge(_click_ok_bridge())
     seen = {}
     real = a._do_click
 
-    def spy(element_id, double=False, expect=None, name=None):
+    # B2 决策表语义：_do_click 新增 via 关键字（默认 None），spy 签名同步
+    def spy(element_id, double=False, expect=None, name=None, via=None):
         seen["name"] = name
         seen["expect"] = expect
+        seen["via"] = via
         return real(element_id, double, expect, name)
 
     monkeypatch.setattr(a, "_do_click", spy)
     a.dispatch_tool("click", {"element_id": "u1", "name": "确定", "expect": "x"})
-    assert seen == {"name": "确定", "expect": "x"}
+    assert seen == {"name": "确定", "expect": "x", "via": None}
 
 
 def test_schemas_require_name_for_element_actions():
@@ -1113,3 +1117,156 @@ def test_p05_r2_no_omniparser_throttle_sleep():
         line for line in src.splitlines() if not line.lstrip().startswith("#")
     )
     assert "time.sleep" not in code
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# P0.5-B2 决策表 + fail-closed + probe/exec 分离 + 最小逃生舱（台账 B2）
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class _DeadInvokePattern:
+    """Invoke() 抛异常（模拟控件在动作瞬间已销毁/应用无响应）。"""
+
+    def __init__(self, ctrl):
+        self._ctrl = ctrl
+
+    def Invoke(self):
+        self._ctrl.log.append("invoke")
+        raise RuntimeError("dead")
+
+
+class _ProbeCountingControl(FakeControl):
+    """记录 GetInvokePattern 被调次数（探测 vs 执行分离验证）。"""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.invoke_probes = 0
+
+    def GetInvokePattern(self):
+        self.invoke_probes += 1
+        return super().GetInvokePattern()
+
+
+def _monkeypatch_click_at(monkeypatch, calls):
+    import server.services.executor.clicker as _clicker_mod
+
+    monkeypatch.setattr(_clicker_mod, "click_at", lambda *a, **k: calls.append(a))
+
+
+def test_p05_b2_menuitem_table_expand_over_invoke(monkeypatch):
+    """决策表优先于旧链序：menuitem 同时缓存 invoke+expand → 执行 expand，不是 invoke。"""
+    submenu = FakeControl("新建", ctype="MenuItemControl", rect=(0, 50, 60, 70))
+    header = FakeControl("文件", ctype="MenuItemControl", rect=(0, 20, 50, 45))
+    header._patterns["invoke"] = _FakeInvokePattern(header)
+    header._patterns["expand"] = _FakeExpandPattern(header, children=[submenu])
+    root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 800, 600), children=(header,))
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    els = b.snapshot()
+    r = b.act(find_el(els, "文件").element_id, action="click", verify_timeout=0.3)
+    assert r["success"] is True
+    assert r["via"] == "uia_expand"
+    assert "expand" in header.log
+    assert "invoke" not in header.log  # 动词由决策表决定，不再受探测顺序支配
+
+
+def test_p05_b2_edit_no_candidates_action_ambiguous_no_dispatch(monkeypatch):
+    """edit 表空候选 → action_ambiguous，且动作未下发（log 空、click_at 未被调）。"""
+    edit = FakeControl("搜索", ctype="EditControl", rect=(10, 10, 200, 40))
+    edit._patterns["value"] = _FakeValuePattern(edit)  # 即便有 pattern，edit 无点击语义
+    root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 800, 600), children=(edit,))
+    install_fake_uia(monkeypatch, root)
+    calls = []
+    _monkeypatch_click_at(monkeypatch, calls)
+    b = UIABridge()
+    els = b.snapshot()
+    r = b.act(find_el(els, "搜索").element_id, action="click", action_timeout=0.4)
+    assert r["success"] is False
+    assert r["error_code"] == "action_ambiguous"
+    assert r["via"] is None and r["action_ok"] is False
+    assert edit.log == []  # 无任何动作下发
+    assert calls == []     # 未落坐标
+
+
+def test_p05_b2_pane_out_of_table_default_candidates_invoke(monkeypatch):
+    """表外类型（pane）缓存 invoke → invoke 执行成功（_DEFAULT_CANDIDATES 生效）。"""
+    pane = FakeControl("自定义区域", ctype="PaneControl", rect=(10, 10, 100, 50))
+    pane._patterns["invoke"] = _FakeInvokePattern(pane)
+    root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 800, 600), children=(pane,))
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    els = b.snapshot()
+    r = b.act(find_el(els, "自定义区域").element_id, action="click", verify_timeout=0.3)
+    assert r["success"] is True
+    assert r["via"] == "uia_invoke"
+    assert "invoke" in pane.log
+
+
+def test_p05_b2_fail_closed_pattern_failed_no_coord_no_retry(monkeypatch):
+    """button 表定 invoke，但 Invoke() 抛异常 → pattern_failed：不落坐标、不试其他模式。"""
+    btn = FakeControl("确定", ctype="ButtonControl", rect=(10, 10, 60, 30))
+    btn._patterns["invoke"] = _DeadInvokePattern(btn)
+    btn._patterns["select"] = _FakeSelectPattern(btn)  # 假控件也支持 select，但不得被尝试
+    root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 800, 600), children=(btn,))
+    install_fake_uia(monkeypatch, root)
+    calls = []
+    _monkeypatch_click_at(monkeypatch, calls)
+    b = UIABridge()
+    els = b.snapshot()
+    r = b.act(find_el(els, "确定").element_id, action="click", action_timeout=0.4)
+    assert r["success"] is False
+    assert r["error_code"] == "pattern_failed"
+    assert "invoke exec failed" in r["error"]
+    assert r["via"] is None and r["action_ok"] is False
+    assert calls == []            # 未落坐标（双触发/坐标失效风险归零）
+    assert "select" not in btn.log  # fail-closed：绝不落到下一模式
+    assert "invoke" in btn.log      # invoke 确实执行到（已生效才抛错）
+
+
+def test_p05_b2_explicit_coordinate_via_passthrough(monkeypatch):
+    """最小逃生舱：dispatch click 传 via='coordinate' → act 收到 via 并直走 coord。"""
+    bridge = _BridgeStub(
+        {"success": True, "via": "coord", "action_ok": True, "verified": True,
+         "state_changed": True}
+    )
+    a = _make_agent_with_fake_bridge(bridge)
+    r = a.dispatch_tool("click", {"element_id": "u1", "name": "确定", "via": "coordinate"})
+    assert r["success"] is True
+    assert any(kw.get("via") == "coordinate" for kw in bridge.calls_kw)
+
+
+def test_p05_b2_exec_no_reprobe_uses_cached(monkeypatch):
+    """执行期不再重复探测：一次 act(click) 内 GetInvokePattern 调用 ≤1（探测全走缓存）。"""
+    btn = _ProbeCountingControl("确定", ctype="ButtonControl", rect=(10, 10, 60, 30))
+    btn._patterns["invoke"] = _FakeInvokePattern(btn)
+    root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 800, 600), children=(btn,))
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    els = b.snapshot()  # 快照期探测 1 次
+    before = btn.invoke_probes
+    r = b.act(find_el(els, "确定").element_id, action="click", verify_timeout=0.3)
+    assert r["success"] is True
+    assert btn.invoke_probes - before <= 1  # act 期仅执行取 1 次，无额外探测
+
+
+def test_p05_b2_classify_new_error_codes():
+    """_classify_error_code 识别 pattern_failed/action_ambiguous（先于 action_failed）。"""
+    cls = agent_mod.ExecutionAgent._classify_error_code
+    assert cls("UIA 操作失败: pattern_failed invoke exec failed: dead") == "pattern_failed"
+    assert cls("action_ambiguous: no interactive pattern for edit control") == "action_ambiguous"
+    # 含 "failed:" 但命中 pattern_failed 时不得误判为 action_failed（顺序保证）
+    assert cls("invoke exec failed: pattern_failed") == "pattern_failed"
+
+
+def test_p05_b2_agent_propagates_pattern_failed_error_code():
+    """agent 层把 pattern_failed + 具体 hint 透传给统一错误契约（不覆盖底层 hint）。"""
+    bridge = _BridgeStub(
+        {"success": False, "via": None, "error_code": "pattern_failed",
+         "error": "invoke exec failed: RuntimeError('dead')",
+         "hint": "模式执行失败…禁止重试同一动作补刀——先观察再决策"}
+    )
+    a = _make_agent_with_fake_bridge(bridge)
+    r = a.dispatch_tool("click", {"element_id": "u1", "name": "确定"})
+    assert r["ok"] is False
+    assert r["error_code"] == "pattern_failed"
+    assert "补刀" in r["hint"]  # 底层已带具体 hint，_ERROR_HINTS 通用 hint 不覆盖

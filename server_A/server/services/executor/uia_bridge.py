@@ -4,8 +4,9 @@
 本模块让执行 agent 的「屏幕感知 + 操作」改为：
   1. snapshot(): 遍历前台窗口 UIA 控件树 → HAJIMI UIElement 列表
      （name / control_type / bbox / 可用交互模式 / enabled）
-  2. act(): 优先调用控件模式（Invoke / SelectionItem / Toggle /
-     ExpandCollapse / ValuePattern.SetValue），失败回退控件 bbox 中心坐标点击
+  2. act(): 交互模式由「控件类型决策表 + 快照期缓存探测结果」选定（B2），
+     执行失败 fail-closed 报 pattern_failed 停止，不再自动降级下一模式/坐标；
+     像素坐标点击仅当调用方显式声明 via="coordinate" 才走
   3. verify(): 用控件状态（IsEnabled / IsOffscreen）+ 轮询做执行后校验
 
 与像素框点击相比，UIA 绑定具有控件身份 + 确定性动作 + 状态校验，
@@ -124,6 +125,29 @@ def _available_patterns(control) -> List[str]:
     return out
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# B2 点击交互模式决策表（控件语义 → 候选模式，按序取"缓存探测支持"的第一个）
+# ═══════════════════════════════════════════════════════════════════════════
+# 动词由控件类型语义决定（而非运行时试探链的顺序）。空列表 = 该类型无默认
+# 点击语义（输入框用 type_text，纯文本用显式坐标）。keys 是 _raw_control_type
+# 归一化后的 ControlTypeName（'ButtonControl'→'button'）。
+_CLICK_PATTERN_TABLE = {
+    "button": ["invoke"],
+    "hyperlink": ["invoke"],
+    "checkbox": ["toggle", "invoke"],
+    "tabitem": ["selectionitem", "invoke"],
+    "listitem": ["selectionitem", "invoke"],
+    "treeitem": ["selectionitem", "expandcollapse", "invoke"],
+    "menuitem": ["expandcollapse", "invoke", "selectionitem"],
+    "combobox": ["expandcollapse", "selectionitem"],
+    "edit": [],
+    "document": [],  # 点击输入框/文档无默认语义：type_text 或显式坐标
+}
+
+# 表外类型（pane/unknown 等）的兜底候选
+_DEFAULT_CANDIDATES = ["invoke", "toggle", "selectionitem", "expandcollapse"]
+
+
 # UFO 同款高价值 ControlType 白名单（10 类）：这些类型的控件无条件保留，
 # 替代旧「有名字就要」造成的列表爆炸与关键无名按钮丢失。
 _WHITELIST_CONTROL_TYPES = {
@@ -164,6 +188,7 @@ class UIABridge:
 
     def __init__(self) -> None:
         self._last_controls: Dict[str, object] = {}
+        self._last_meta: Dict[str, dict] = {}  # B2: {eid: {type, patterns}} 快照期缓存
         self._last_projection: List[dict] = []
         self._last_window_title: str = ""
         self._last_window_rect: Optional[List[int]] = None
@@ -183,9 +208,10 @@ class UIABridge:
 
         注意：会重置 _last_controls 并重新编号 element_id（旧 id 全部失效）。
         同时刷新 _last_projection（0.1 感知序列化：type/name/class/enabled/
-        patterns/窗口相对 bbox 的投影视图）。
+        patterns/窗口相对 bbox 的投影视图）与 _last_meta（B2 决策表缓存）。
         """
         self._last_controls = {}
+        self._last_meta = {}
         self._last_projection = []
         return self._snapshot_into(self._last_controls, max_depth, max_nodes)
 
@@ -276,6 +302,8 @@ class UIABridge:
                         )
                     )
                     if store is self._last_controls:
+                        # B2: 决策表缓存——eid → {type(raw), patterns}，act 期零探测
+                        self._last_meta[eid] = {"type": raw_type, "patterns": patterns}
                         # 投影字段：bbox 换算为相对前台窗口左上角，
                         # LLM 由此推断左右/上下/行列关系（替代恒空的空间关系死条款）。
                         rel = bbox
@@ -510,8 +538,13 @@ class UIABridge:
         verify_timeout: float = 3.0,
         expect_timeout: float = 4.0,
         action_timeout: float = 3.0,
+        via: Optional[str] = None,
     ) -> dict:
         """对指定元素执行动作，并接线执行后校验。
+
+        via: B2 最小逃生舱——仅当 via == "coordinate" 且 action == "click" 时
+        跳过决策表选择阶段直走控件 bbox 坐标点击（显式声明才允许）；
+        其余动作/取值忽略。actionability 前置预检不受影响照常执行。
 
         返回统一附加字段（0.2 动作后验证）：
           action_ok    —— 动作本身是否送达执行
@@ -569,7 +602,11 @@ class UIABridge:
         before = self._props(ctrl)
 
         if action == "click":
-            r = self._act_click(ctrl, element_id)
+            if via == "coordinate":
+                # B2 最小逃生舱：显式声明坐标点击（自绘/无 pattern 控件）
+                r = self._act_coord(ctrl, element_id, clicks=1)
+            else:
+                r = self._act_click(ctrl, element_id)
         elif action == "double_click":
             r = self._act_coord(ctrl, element_id, clicks=2)
         elif action == "type":
@@ -613,47 +650,85 @@ class UIABridge:
         return r
 
     def _act_click(self, ctrl, element_id: str) -> dict:
-        # 1) Invoke —— 最确定
+        """B2 决策表两阶段：零执行选模式（快照缓存探测结果）→ fail-closed 执行。
+
+        - 选择阶段：动词由「控件类型决策表」而非运行时试探链顺序决定；支持性
+          用 _last_meta 快照期缓存（缺失时防御性现场只探测一次，不执行）。
+        - 执行阶段：选定模式单次执行，任何异常报 pattern_failed 停止——绝不
+          再落到下一模式或坐标（双触发/坐标失效风险归零）。
+        - 自动坐标回退已移除：无模式返回 action_ambiguous，坐标需显式 via。
+        """
+        # ── 选择阶段（零执行）──
+        meta = self._last_meta.get(element_id, {})
+        ctype = meta.get("type")
+        cached = meta.get("patterns")
+        if cached is None:
+            # 快照缓存缺失（无 snapshot / 防御场景）：现场只探测一次，不执行
+            cached = _available_patterns(ctrl)
+            if ctype is None:
+                ctype = _raw_control_type(ctrl)
+        candidates = _CLICK_PATTERN_TABLE.get(ctype, _DEFAULT_CANDIDATES)
+        pattern = next((c for c in candidates if c in cached), None)
+        if pattern is None:
+            try:
+                name = (ctrl.Name or "").strip()
+            except Exception:
+                name = ""
+            return {
+                "success": False,
+                "action_ok": False,
+                "via": None,
+                "error_code": "action_ambiguous",
+                "error": f"no interactive pattern for {ctype or 'unknown'} control '{name}'",
+                "hint": (
+                    "该控件无可用交互模式：输入框改用 type_text；确需像素点击"
+                    "（自绘/无pattern控件）显式传 via='coordinate'；或重新观察换目标。"
+                ),
+            }
+        if pattern == "expandcollapse":
+            # 菜单头/下拉框：点击=展开，保留"已展开幂等"语义
+            r = self._act_expand(ctrl, element_id, expand=True)
+            if not r.get("success"):
+                r["action_ok"] = False
+                r["error_code"] = "pattern_failed"
+                r["hint"] = (
+                    "模式执行失败（常见：控件在动作瞬间已销毁/应用无响应）。"
+                    "禁止重试同一动作补刀——先 get_screen_info 确认界面实际状态"
+                    "（动作可能已生效）再决策。"
+                )
+            return r
+
+        # ── 执行阶段（fail-closed）──
+        exec_spec = {
+            "invoke": ("GetInvokePattern", "Invoke", "uia_invoke"),
+            "selectionitem": ("GetSelectionItemPattern", "Select", "uia_select"),
+            "toggle": ("GetTogglePattern", "Toggle", "uia_toggle"),
+        }[pattern]
+        getter, method, via = exec_spec
         try:
-            ip = ctrl.GetInvokePattern()
-            if ip is not None:
-                ip.Invoke()
-                return {"success": True, "via": "uia_invoke", "element": element_id}
-        except Exception:
-            pass
-        # 2) SelectionItem（列表/菜单项）
-        try:
-            sp = ctrl.GetSelectionItemPattern()
-            if sp is not None:
-                sp.Select()
-                return {"success": True, "via": "uia_select", "element": element_id}
-        except Exception:
-            pass
-        # 3) Toggle（复选框）
-        try:
-            tp = ctrl.GetTogglePattern()
-            if tp is not None:
-                tp.Toggle()
-                return {"success": True, "via": "uia_toggle", "element": element_id}
-        except Exception:
-            pass
-        # 4) ExpandCollapse（菜单头/下拉框：点击=展开，0.5 动作空间补全）
-        try:
-            ep = ctrl.GetExpandCollapsePattern()
-            if ep is not None:
-                state = str(getattr(ep, "ExpandCollapseState", "") or "")
-                if "expanded" not in state.lower():
-                    ep.Expand()
-                return {
-                    "success": True,
-                    "via": "uia_expand",
-                    "element": element_id,
-                    "expand_from": state,
-                }
-        except Exception:
-            pass
-        # 5) 坐标回退（UIA bbox 中心，比像素检测框更准）
-        return self._act_coord(ctrl, element_id, clicks=1)
+            pat = getattr(ctrl, getter)()
+            if pat is None:
+                raise RuntimeError("pattern not found")
+            getattr(pat, method)()
+        except Exception as exc:
+            return {
+                "success": False,
+                "action_ok": False,
+                "via": None,
+                "error_code": "pattern_failed",
+                "error": f"{pattern} exec failed: {exc}",
+                "hint": (
+                    "模式执行失败（常见：控件在动作瞬间已销毁/应用无响应）。"
+                    "禁止重试同一动作补刀——先 get_screen_info 确认界面实际状态"
+                    "（动作可能已生效）再决策。"
+                ),
+            }
+        return {
+            "success": True,
+            "via": via,
+            "element": element_id,
+            "pattern": pattern,  # 调试/遥测：实际执行的模式名
+        }
 
     def _act_expand(self, ctrl, element_id: str, expand: bool = True) -> dict:
         """显式 ExpandCollapse.Expand()/Collapse()。"""
@@ -670,7 +745,10 @@ class UIABridge:
         try:
             state = str(getattr(ep, "ExpandCollapseState", "") or "")
             if expand:
-                ep.Expand()
+                # B2: 保留"已展开幂等"——已展开则不再重复 Expand（原 _act_click
+                # click→expand 分支语义，决策表转调后仍成立）
+                if "expanded" not in state.lower():
+                    ep.Expand()
                 via = "uia_expand"
             else:
                 ep.Collapse()
@@ -685,14 +763,21 @@ class UIABridge:
             return {"success": False, "error": f"expand/collapse failed: {exc}", "via": None}
 
     def _act_type(self, ctrl, element_id: str, text: str) -> dict:
-        # 1) ValuePattern.SetValue —— 精确设置
-        try:
-            vp = ctrl.GetValuePattern()
-            if vp is not None:
-                vp.SetValue(text)
-                return {"success": True, "via": "uia_setvalue", "element": element_id}
-        except Exception:
-            pass
+        # B2: 支持性判断走快照缓存（value），不再执行期 GetValuePattern 试探；
+        # 缺失时防御性现场只探测一次。value 优先→焦点+剪贴板是既有设计语义。
+        meta = self._last_meta.get(element_id, {})
+        cached = meta.get("patterns")
+        if cached is None:
+            cached = _available_patterns(ctrl)
+        if "value" in cached:
+            # 1) ValuePattern.SetValue —— 精确设置
+            try:
+                vp = ctrl.GetValuePattern()
+                if vp is not None:
+                    vp.SetValue(text)
+                    return {"success": True, "via": "uia_setvalue", "element": element_id}
+            except Exception:
+                pass
         # 2) 焦点 + 剪贴板粘贴（富文本/无 ValuePattern 的输入框）
         try:
             ctrl.SetFocus()
@@ -750,3 +835,4 @@ class UIABridge:
 
     def clear(self) -> None:
         self._last_controls = {}
+        self._last_meta = {}

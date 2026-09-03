@@ -84,6 +84,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - 找不到时，先 wait(2) 再重新 get_screen_info
 - 调用 click/double_click/type_text 时必须同时传 name 参数（你选定条目的 name 值）：服务端会拿它与快照核对，若该 id 实际不是你说的控件会拒绝执行并回报真实名称——按真名重新决策，不要重复同一个错误 id
 - 菜单/下拉框（type=menu/menuitem/combobox，或 patterns 含 expandcollapse）：直接 click 会自动走 ExpandCollapse 展开，并返回展开后的新选项列表（new_elements，旧 id 失效）——从中选第二级目标再 click，禁止用坐标盲点菜单
+- click 返回 action_ambiguous/pattern_failed 时：pattern_failed 说明动作可能已部分生效，先观察再决策，严禁原样补刀；action_ambiguous 说明选错控件类型，换 type_text/press_key 或换控件，最后手段才是显式传 via="coordinate"
 
 ## 验证标准
 - 动作下发前服务端自动做 actionability 预检（可见/启用/位置稳定/不被遮挡，在超时内轮询等待条件而非固定等待）；预检不过返回 error_code=not_actionable + missing_predicates——界面在加载就 wait 后重试，控件不可用就换 enabled 的同功能控件，不要硬点同一个 id
@@ -190,6 +191,11 @@ def _build_tool_definitions() -> list[dict]:
                         "expect": {
                             "type": "string",
                             "description": "可选：点击后期望出现的界面文本（新控件名/窗口标题片段），服务端在调用内轮询验证（WaitFor 语义），不满足会自动重观察",
+                        },
+                        "via": {
+                            "type": "string",
+                            "enum": ["coordinate"],
+                            "description": "仅在目标控件无任何交互模式且确需像素点击时传 'coordinate'（自绘/游戏类 UI）。默认禁止——自动坐标回退已移除。",
                         },
                     },
                     "required": ["element_id", "name"],
@@ -1216,6 +1222,7 @@ class ExecutionAgent:
         double: bool = False,
         expect: Optional[str] = None,
         name: Optional[str] = None,
+        via: Optional[str] = None,
     ) -> dict:
         element = self.element_map.get(element_id)
         if element is None:
@@ -1246,10 +1253,10 @@ class ExecutionAgent:
                 f"Choose a different target or try an alternative approach.",
             }
 
-        # UIA 绑定优先：Invoke/SelectionItem/Toggle → 坐标回退
+        # UIA 绑定优先：决策表选模式（B2）→ 显式 via 才走坐标
         if getattr(self, "screen_source", None) == "uia":
             action = "double_click" if double else "click"
-            r = self._get_uia().act(element_id, action=action, expect=expect)
+            r = self._get_uia().act(element_id, action=action, expect=expect, via=via)
             if r.get("success"):
                 via = r.get("via") or "coord"
                 label = "双击" if double else "单击"
@@ -1496,6 +1503,15 @@ class ExecutionAgent:
             "动作下发失败。get_screen_info 确认控件仍存在，"
             "然后换交互方式（double_click / press_key / 菜单展开）再试。"
         ),
+        "action_ambiguous": (
+            "该控件类型没有可用的交互模式（按钮/菜单等语义不适用），点不动。"
+            "输入框改用 type_text；菜单/下拉先尝试展开；确属自绘/无 pattern 控件"
+            "且必须像素点击时，才显式传 via='coordinate'；或重新观察换目标。"
+        ),
+        "pattern_failed": (
+            "选定交互模式执行失败，且动作可能已部分生效。严禁原样补刀重试——"
+            "先 get_screen_info 确认界面实际状态（动作可能已生效）再决策换目标/换策略。"
+        ),
         "unknown_tool": "工具名不存在，只能使用工具列表中列出的工具。",
         "tool_exception": (
             "工具执行抛出异常。换一条更简单的路径完成本步骤"
@@ -1517,6 +1533,10 @@ class ExecutionAgent:
             return "blocked_redline"
         if "zone: yellow" in e or "requires confirmation" in e:
             return "confirm_required"
+        if "pattern_failed" in e:
+            return "pattern_failed"
+        if "action_ambiguous" in e:
+            return "action_ambiguous"
         if "uia 操作失败" in err_text or "uia 输入失败" in err_text or "failed:" in e:
             return "action_failed"
         if "unknown tool" in e:
@@ -1577,6 +1597,7 @@ class ExecutionAgent:
                 tool_args.get("element_id", ""),
                 expect=tool_args.get("expect"),
                 name=tool_args.get("name"),
+                via=tool_args.get("via"),
             )
         elif tool_name == "double_click":
             return self._do_click(
