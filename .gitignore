@@ -13,6 +13,8 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+# desktop/build = electron-builder buildResources（托盘/应用图标源），必须入库
+!desktop/build/
 *.egg
 *.so
 
