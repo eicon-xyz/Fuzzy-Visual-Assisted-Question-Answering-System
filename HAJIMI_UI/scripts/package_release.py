@@ -26,11 +26,15 @@ EXCLUDE_DIR_NAMES = {
     "mcps",                 # MCP server descriptors
     "agent-transcripts",    # Historical chat transcripts
     "dist",                 # Previous zip outputs, avoid nesting
+    "out",                  # electron-vite build output (desktop/)
+    "dist-electron",        # legacy electron-vite v2 output dir name
+    "release",              # electron-builder artifacts (desktop/)
     "new_JIMI",             # Deprecated alternate branch
     "项目文档",              # Defense PPT + design docs, delivered separately
     "工作进度",              # Internal daily progress logs
     "参考文档",              # Non-canonical reference docs
-    "server",               # Root legacy dir (L4 A-end removed; runtime backend is server_A)
+    # NOTE: 不要加 "server"！它曾用于 L4 时代根目录遗留 server/，但会误剪
+    # server_A/server/**（Sidecar 本体，168→382 文件的打包回归，2026-09 修复）。
     "terminals",            # IDE terminal session logs
 }
 
@@ -100,8 +104,13 @@ def _verify_package(files: list[tuple[Path, str]]) -> int:
         "启动全栈.bat": "Full stack launch script",
         "打包说明.md": "Recipient README",
     }
+    # Sidecar 本体必须入包（server_A/server/** 曾被 "server" 排除词整体误剪，
+    # 2026-09 修复并升级为硬校验；桌面新端同理入包 desktop/electron/main.ts）
     required_l5 = {
         "server_A/scripts/start_server.bat": "L5 Sidecar launcher (L5 auto-execute unavailable)",
+        "server_A/server/main.py": "L5 Sidecar FastAPI app (BACKEND MISSING!)",
+        "server_A/server/services/executor/agent.py": "L5 executor agent",
+        "desktop/electron/main.ts": "Electron desktop B-end main process",
     }
 
     exit_code = 0
@@ -112,7 +121,8 @@ def _verify_package(files: list[tuple[Path, str]]) -> int:
 
     for path, label in required_l5.items():
         if path not in arcs:
-            print(f"[package] MISSING: {label}{' ' * (len(label) - 50)} ({path})")
+            print(f"[package] MISSING required: {label} ({path})")
+            exit_code = 1
 
     # Probes by prefix
     checks = [
