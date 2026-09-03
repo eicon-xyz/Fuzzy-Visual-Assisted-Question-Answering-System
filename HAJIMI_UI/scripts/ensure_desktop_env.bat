@@ -2,6 +2,9 @@
 setlocal EnableExtensions
 cd /d %~dp0..\..\desktop
 
+REM Electron binary mirror - avoid GitHub Releases download failures
+if not defined ELECTRON_MIRROR set "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/"
+
 echo ============================================================
 echo  HAJIMI Desktop - install Electron B-end dependencies
 echo ============================================================
