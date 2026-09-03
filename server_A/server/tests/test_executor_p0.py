@@ -990,3 +990,106 @@ def test_agent_not_actionable_propagates_error_code():
     assert r["ok"] is False
     assert r["error_code"] == "not_actionable"
     assert "同功能控件" in r["hint"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# P0.5-R1 annotated_image 移出 LLM 上下文（台账 A1）
+# ═══════════════════════════════════════════════════════════════════════════
+
+import copy as _copy  # noqa: E402
+from server.services.executor.agent import (  # noqa: E402
+    _LLM_STRIP_KEYS,
+    _strip_for_llm,
+)
+
+
+def test_p05_r1_strip_for_llm_pure_function():
+    """纯函数：两键都剥、不碰原 dict、无键返回同一对象、非 dict 原样返回。"""
+    src = {
+        "success": True,
+        "annotated_image": "data:image/jpeg;base64,BIGDATA",
+        "image_b64": "data:image/jpeg;base64,B64",
+        "elements": ["u1"],
+    }
+    out = _strip_for_llm(src)
+    assert "annotated_image" not in out
+    assert "image_b64" not in out
+    assert out["success"] is True and out["elements"] == ["u1"]
+    # 拷贝剥离：原 dict 不被修改
+    assert "annotated_image" in src and "image_b64" in src
+    # 无两键 → 返回同一对象（等值/同身份）
+    d = {"success": True, "elements": ["u1"]}
+    assert _strip_for_llm(d) is d
+    # 非 dict 原样返回
+    assert _strip_for_llm("x") == "x"
+    assert _strip_for_llm(None) is None
+
+
+def test_p05_r1_annotated_image_stripped_from_llm_but_pushed_to_sse(monkeypatch):
+    """集成：get_screen_info 带 BIGDATA → on_screenshot 收到，但任一 LLM msgs 不得含之。
+
+    脚本 [get_screen_info → mark_step_done → mark_step_done]：fake _do_get_screen_info
+    直供 UIA 观察结果（dispatch 层记账 observation），第一次 done 无证据被 gate 拒收，
+    第二次放行（参照 done_without_evidence_refused_then_passes）。
+    """
+    a = _make_agent_with_fake_bridge(_click_ok_bridge())
+    collected = []
+    msgs_seen = []
+
+    def fake_observe():
+        return {
+            "success": True,
+            "source": "uia",
+            "elements": [{"element_id": "u1", "text": "确定"}],
+            "element_count": 2,
+            "annotated_image": "data:image/jpeg;base64,BIGDATA",
+            "action_summary": "obs",
+        }
+
+    monkeypatch.setattr(a, "_do_get_screen_info", fake_observe)
+
+    seq = [
+        ("get_screen_info", {}),
+        ("mark_step_done", {"reason": "应该好了", "evidence": ""}),
+        (
+            "mark_step_done",
+            {"reason": "应该好了", "evidence": "窗口标题含'无标题 - 记事本'"},
+        ),
+    ]
+    idx = [0]
+
+    def fake_llm(msgs):
+        msgs_seen.append(_copy.deepcopy(msgs))
+        i = min(idx[0], len(seq) - 1)
+        idx[0] += 1
+        name, args = seq[i]
+        return (
+            _json.dumps({"__tool_call__": True, "name": name, "arguments": args}),
+            None,
+        )
+
+    monkeypatch.setattr(a, "_call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agent_mod.time, "sleep", lambda s: None)
+    monkeypatch.setattr(a, "clear_element_map", lambda: None)
+
+    def _no_memory():
+        raise RuntimeError("no memory in test")
+
+    monkeypatch.setattr(agent_mod, "get_retriever", _no_memory)
+
+    result = a.execute_step(
+        _step(),
+        goal="g",
+        previous_steps=[],
+        cancel_event=None,
+        on_screenshot=collected.append,
+    )
+    assert result.status == "done"
+    # ① on_screenshot 回调收到 BIGDATA（SSE→B 端路径保留）
+    assert collected, "on_screenshot 应收到截图"
+    assert any("BIGDATA" in b for b in collected)
+    # ② 任一 LLM msgs 序列化后不含 BIGDATA / annotated_image
+    assert msgs_seen, "LLM 应至少被调用一次"
+    blob = _json.dumps(msgs_seen, ensure_ascii=False)
+    assert "BIGDATA" not in blob
+    assert "annotated_image" not in blob

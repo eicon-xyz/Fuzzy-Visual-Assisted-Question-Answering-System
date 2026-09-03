@@ -34,6 +34,18 @@ logger = logging.getLogger(__name__)
 
 MAX_TOOL_CALL_ROUNDS = getattr(settings, "MAX_TOOL_CALL_ROUNDS", None) or 50
 
+_LLM_STRIP_KEYS = ("annotated_image", "image_b64")
+
+
+def _strip_for_llm(result: dict) -> dict:
+    """进 LLM messages 前剥离仅供前端渲染的图字段（deepseek-chat 是文本模型）。"""
+    if not isinstance(result, dict):
+        return result
+    if not any(k in result for k in _LLM_STRIP_KEYS):
+        return result
+    return {k: v for k, v in result.items() if k not in _LLM_STRIP_KEYS}
+
+
 EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是完成当前步骤。你可以调用工具来观察屏幕和执行操作。
 
 ## 可用工具
@@ -1945,7 +1957,7 @@ class ExecutionAgent:
                 {
                     "role": "tool",
                     "tool_call_id": tool_call_id,
-                    "content": json.dumps(result, ensure_ascii=False),
+                    "content": json.dumps(_strip_for_llm(result), ensure_ascii=False),
                 }
             )
 
