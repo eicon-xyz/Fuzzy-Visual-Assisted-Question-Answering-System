@@ -6,11 +6,19 @@ HAJIMI Server 测试共享 fixtures
 from typing import List, Optional
 from uuid import uuid4
 import json
+import os
 
 import pytest
 
 from server.models.schemas import UIElement
 from server.services.session.manager import SessionManager
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _eval_telemetry_tmpdir(tmp_path_factory):
+    """T1：全部测试的评测遥测落盘统一到 session tmp，不污染真实 data/eval。"""
+    os.environ["HAJIMI_EVAL_DIR"] = str(tmp_path_factory.mktemp("eval-telemetry"))
+    yield
 
 
 # ═══════════════════════════════════════════════════════════════════════════
