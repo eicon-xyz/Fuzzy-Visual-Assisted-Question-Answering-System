@@ -1,0 +1,423 @@
+[
+  {
+    "id": "notepad_type_save",
+    "name": "记事本输入文本并保存",
+    "category": "editor",
+    "instruction": "打开记事本，输入文本 HAJIMI_{seed}_OK，另存为 {EVAL_DIR}/notepad_type_save_{seed}.txt",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.2", "0.3", "0.7", "0.8"],
+    "setup_ps1": ["New-Item -ItemType Directory -Force -Path $env:EVAL_DIR | Out-Null", "Remove-Item $env:EVAL_DIR/notepad_type_save_*.txt -ErrorAction SilentlyContinue"],
+    "cleanup_ps1": ["Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "oracle": {
+      "all": [
+        {"type": "file_exists", "path": "{EVAL_DIR}/notepad_type_save_{seed}.txt"},
+        {"type": "file_content_contains", "path": "{EVAL_DIR}/notepad_type_save_{seed}.txt", "needle": "HAJIMI_{seed}_OK"}
+      ]
+    },
+    "max_wall_s": 240,
+    "requires": ["notepad"],
+    "calibrated": false,
+    "notes": "覆盖 done 文件证据(0.7)/type 的 state_changed(0.2)/id×name(0.3)。首次使用需人工两向校准。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "notepad_menu_font_dialog",
+    "name": "记事本菜单展开字体对话框",
+    "category": "menu",
+    "instruction": "打开记事本，通过「格式」菜单展开并点击「字体」，确认字体对话框出现后关闭对话框（不要改字体）",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.2", "0.5"],
+    "setup_ps1": ["Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "cleanup_ps1": ["Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "oracle": {
+      "any": [
+        {"type": "uia_element_exists", "name_contains": "确定", "window_title_contains": "字体"},
+        {"type": "uia_element_exists", "name_contains": "OK", "window_title_contains": "Font"}
+      ]
+    },
+    "max_wall_s": 240,
+    "requires": ["notepad"],
+    "calibrated": false,
+    "notes": "ExpandCollapse 菜单展开→自动重观察→选第二级(0.5)。注意 oracle 需改为判定对话框被正确关闭，校准后再定。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "settings_display_search",
+    "name": "设置中搜索显示项",
+    "category": "settings",
+    "instruction": "打开 Windows 设置，在搜索框输入「显示」，点击搜索结果的「显示」设置项进入显示页",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.3", "0.8"],
+    "setup_ps1": ["Get-Process -Name SystemSettings -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "cleanup_ps1": ["Get-Process -Name SystemSettings -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "oracle": {
+      "any": [
+        {"type": "uia_element_exists", "name_contains": "亮度"},
+        {"type": "uia_element_exists", "name_contains": "Brightness"}
+      ]
+    },
+    "max_wall_s": 240,
+    "requires": ["settings"],
+    "calibrated": false,
+    "notes": "type 到设置搜索框依赖 edit+value 投影定位(0.1)与 name 校验(0.3)。UWP 树稀疏风险高。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "explorer_rename_file",
+    "name": "资源管理器重命名文件",
+    "category": "file",
+    "instruction": "打开资源管理器进入 {EVAL_DIR}，把文件 old_{seed}.txt 重命名为 new_{seed}.txt",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.2", "0.3", "0.7"],
+    "setup_ps1": ["New-Item -ItemType Directory -Force -Path $env:EVAL_DIR | Out-Null", "Set-Content -Path $env:EVAL_DIR/old_{seed}.txt -Value x -Force", "Remove-Item $env:EVAL_DIR/new_*.txt -ErrorAction SilentlyContinue"],
+    "cleanup_ps1": ["Remove-Item $env:EVAL_DIR/old_*.txt,$env:EVAL_DIR/new_*.txt -ErrorAction SilentlyContinue", "Get-Process explorer -ErrorAction SilentlyContinue | Where-Object {$_.MainWindowTitle -like '*eval*'} | Stop-Process -Force"],
+    "oracle": {
+      "all": [
+        {"type": "file_exists", "path": "{EVAL_DIR}/new_{seed}.txt"},
+        {"type": "file_not_exists", "path": "{EVAL_DIR}/old_{seed}.txt"}
+      ]
+    },
+    "max_wall_s": 240,
+    "requires": ["explorer"],
+    "calibrated": false,
+    "notes": "强副作用 oracle（文件改名客观可判），done 的文件证据(0.7)在此最扎实。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "explorer_new_folder",
+    "name": "资源管理器新建文件夹",
+    "category": "file",
+    "instruction": "打开资源管理器进入 {EVAL_DIR}，新建一个名为 folder_{seed} 的文件夹",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.5", "0.7"],
+    "setup_ps1": ["New-Item -ItemType Directory -Force -Path $env:EVAL_DIR | Out-Null", "Remove-Item $env:EVAL_DIR/folder_* -Recurse -ErrorAction SilentlyContinue"],
+    "cleanup_ps1": ["Remove-Item $env:EVAL_DIR/folder_* -Recurse -ErrorAction SilentlyContinue"],
+    "oracle": {
+      "any": [
+        {"type": "file_exists", "path": "{EVAL_DIR}/folder_{seed}"},
+        {"type": "file_glob_min_count", "glob": "{EVAL_DIR}/folder_{seed}*", "min": 1}
+      ]
+    },
+    "max_wall_s": 240,
+    "requires": ["explorer"],
+    "calibrated": false,
+    "notes": "新建常经右键菜单/功能区(0.5)。中文系统新建文件夹可能被资源管理器追加序号，oracle 校准定稿。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "calculator_add",
+    "name": "计算器加法",
+    "category": "form",
+    "instruction": "打开计算器，依次点击 1、2、加号、7、等于，让结果框显示 19",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.2", "0.3"],
+    "setup_ps1": ["Get-Process CalculatorApp -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "cleanup_ps1": ["Get-Process CalculatorApp -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "oracle": {
+      "any": [
+        {"type": "uia_element_exists", "name_contains": "19"},
+        {"type": "uia_element_exists", "name_contains": "显示结果为 19"}
+      ]
+    },
+    "max_wall_s": 240,
+    "requires": ["calculator"],
+    "calibrated": false,
+    "notes": "多步按钮点击，测 id×name 与投影按钮定位。Win11 计算器 UWP 树名多变，需校准。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "notepad_find_dialog_type",
+    "name": "记事本查找框输入",
+    "category": "dialog",
+    "instruction": "打开记事本并输入文本 needle_{seed}_here，然后按 Ctrl+F 打开查找框，输入 needle_{seed}，确认找到匹配后关闭查找框",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.3", "0.5", "0.8"],
+    "setup_ps1": ["Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "cleanup_ps1": ["Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "oracle": {
+      "all": [
+        {"type": "uia_window_title_contains", "needle": "记事本"},
+        {"type": "uia_window_not_exists", "needle": "查找"}
+      ]
+    },
+    "max_wall_s": 300,
+    "requires": ["notepad"],
+    "calibrated": false,
+    "notes": "跨窗口(查找框属另一顶层窗口)——依赖多窗口感知落地后才可判；当前单前台窗口会失败，用于验证 A2 改造。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "wordpad_bold_via_menu",
+    "name": "写字板菜单加粗",
+    "category": "menu",
+    "instruction": "打开写字板(wordpad)，输入文本 BOLDTARGET，全选后通过开始菜单将文本设为加粗，保存为 {EVAL_DIR}/wordpad_bold_{seed}.rtf",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.2", "0.5", "0.7"],
+    "setup_ps1": ["New-Item -ItemType Directory -Force -Path $env:EVAL_DIR | Out-Null", "Get-Process Wordpad -ErrorAction SilentlyContinue | Stop-Process -Force", "Remove-Item $env:EVAL_DIR/wordpad_bold_*.rtf -ErrorAction SilentlyContinue"],
+    "cleanup_ps1": ["Get-Process Wordpad -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "oracle": {
+      "all": [
+        {"type": "file_exists", "path": "{EVAL_DIR}/wordpad_bold_{seed}.rtf"},
+        {"type": "file_content_contains", "path": "{EVAL_DIR}/wordpad_bold_{seed}.rtf", "needle": "BOLDTARGET"},
+        {"type": "file_content_contains", "path": "{EVAL_DIR}/wordpad_bold_{seed}.rtf", "needle": "\\b"}
+      ]
+    },
+    "max_wall_s": 300,
+    "requires": ["wordpad"],
+    "calibrated": false,
+    "notes": "rtf 内 \\b 是加粗标记，属稳定副作用 oracle。写字板在精简 Win11 可能未装，requires 声明。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "browser_search_result_expect",
+    "name": "浏览器搜索出现结果",
+    "category": "browser",
+    "instruction": "打开浏览器访问 https://www.bing.com ，在搜索框输入 HAJIMI_EVAL_TOKEN_{seed} 并回车，等待搜索结果区域出现",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.2", "0.8"],
+    "setup_ps1": [],
+    "cleanup_ps1": ["Get-Process msedge,chrome -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "oracle": {
+      "any": [
+        {"type": "uia_window_title_contains", "needle": "HAJIMI_EVAL_TOKEN"},
+        {"type": "uia_window_title_contains", "needle": "必应"}
+      ]
+    },
+    "max_wall_s": 240,
+    "requires": ["browser", "internet"],
+    "calibrated": false,
+    "notes": "浏览器通道(Playwright DOM)与 UIA 双轨对照；oracle 用窗口标题最稳。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "browser_form_fill_login",
+    "name": "浏览器表单填写",
+    "category": "browser",
+    "instruction": "打开浏览器访问本地测试页 file:///{EVAL_DIR}/form_{seed}.html，在用户名框输入 user_{seed}，密码框输入 pw_{seed}，让页面出现 SUBMITTED_{seed}",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.2", "0.3", "0.7"],
+    "setup_ps1": ["New-Item -ItemType Directory -Force -Path $env:EVAL_DIR | Out-Null", "Set-Content -Path $env:EVAL_DIR/form_{seed}.html -Value '<form id=f><input id=u placeholder=username><input id=p placeholder=password type=password></form><div id=r></div><script>document.getElementById(\"f\").onsubmit=(e)=>{e.preventDefault();document.getElementById(\"r\").innerText=\"SUBMITTED_{seed}\"}</script>' -Encoding utf8"],
+    "cleanup_ps1": ["Get-Process msedge,chrome -ErrorAction SilentlyContinue | Stop-Process -Force", "Remove-Item $env:EVAL_DIR/form_*.html -ErrorAction SilentlyContinue"],
+    "oracle": {
+      "any": [
+        {"type": "uia_window_title_contains", "needle": "SUBMITTED"},
+        {"type": "uia_element_exists", "name_contains": "SUBMITTED"}
+      ]
+    },
+    "max_wall_s": 300,
+    "requires": ["browser"],
+    "calibrated": false,
+    "notes": "多字段表单——测 type_text 目标断言 + 表单顺序操作。本地 HTML 无外网依赖，oracle 稳定。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "notepad_click_nonexistent",
+    "name": "点击不存在的按钮(应正确失败)",
+    "category": "negative",
+    "instruction": "打开记事本，点击一个名为 ZZZ不存在的按钮XYZ 的控件",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.4", "0.6", "0.7"],
+    "setup_ps1": ["Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "cleanup_ps1": ["Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "expect_status": "fail",
+    "oracle": {
+      "all": [
+        {"type": "uia_window_title_contains", "needle": "记事本"}
+      ]
+    },
+    "max_wall_s": 200,
+    "requires": ["notepad"],
+    "calibrated": false,
+    "notes": "负向：agent 不得假 done，应走 report_infeasible 或反复失败被卡死检测拦下(0.4)。oracle 校验未误操作。测 gate done_without_evidence。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "notepad_repeated_dead_click",
+    "name": "反复点击无效区域触发卡死检测",
+    "category": "negative",
+    "instruction": "打开记事本，不断点击名为 'ZZZ' 的不存在元素直到成功（提示：目标不存在）",
+    "seeds": ["a"],
+    "p0_coverage": ["0.4", "0.6"],
+    "setup_ps1": ["Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "cleanup_ps1": ["Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "expect_status": "fail",
+    "oracle": {
+      "all": [
+        {"type": "uia_window_title_contains", "needle": "记事本"}
+      ]
+    },
+    "max_wall_s": 200,
+    "requires": ["notepad"],
+    "calibrated": false,
+    "notes": "专测 _LoopDetector 重复阈值 nudge 是否生效；遥测 loop_events.repeat* 应 >0。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "notepad_close_popup_dialog",
+    "name": "处理未保存提示弹窗",
+    "category": "dialog",
+    "instruction": "打开记事本输入若干文本触发未保存状态，直接关闭窗口，在弹出的\"是否保存\"对话框中点击\"取消\"保留在记事本(不保存不关闭)",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.2", "0.3"],
+    "setup_ps1": ["Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "cleanup_ps1": ["Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "oracle": {
+      "all": [
+        {"type": "uia_window_not_exists", "needle": "另存为"},
+        {"type": "uia_window_not_exists", "needle": "Save As"}
+      ]
+    },
+    "max_wall_s": 240,
+    "requires": ["notepad"],
+    "calibrated": false,
+    "notes": "测弹窗处置（点取消而非保存）+ 无全局 ESC 副作用回归(0.5)。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "mspaint_open_via_start",
+    "name": "通过开始菜单搜索画图",
+    "category": "editor",
+    "instruction": "按 Win 打开开始菜单，输入 mspaint，回车启动画图程序",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.2"],
+    "setup_ps1": ["Get-Process mspaint -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "cleanup_ps1": ["Get-Process mspaint -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "oracle": {
+      "any": [
+        {"type": "uia_window_title_contains", "needle": "无标题 - 画图"},
+        {"type": "uia_window_title_contains", "needle": "untitled - Paint"},
+        {"type": "uia_window_title_contains", "needle": "画图"}
+      ]
+    },
+    "max_wall_s": 200,
+    "requires": ["mspaint"],
+    "calibrated": false,
+    "notes": "经典 launch_app/搜索启动路径回归；验证 done 的 launch_app 证据链(0.7)。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "notepad_settings_zoom_via_menu",
+    "name": "记事本查看菜单缩放",
+    "category": "menu",
+    "instruction": "打开记事本，通过「查看」菜单展开，点击「状态栏」切换其显示状态",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.5", "0.8"],
+    "setup_ps1": ["Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "cleanup_ps1": ["Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "oracle": {
+      "all": [
+        {"type": "uia_window_title_contains", "needle": "记事本"}
+      ]
+    },
+    "max_wall_s": 240,
+    "requires": ["notepad"],
+    "calibrated": false,
+    "notes": "菜单项选择器(0.5)+状态栏 toggle 的 state_changed。oracle 偏松，校准阶段收紧到状态栏存在性。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "taskmgr_sort_column",
+    "name": "任务管理器按列排序",
+    "category": "list",
+    "instruction": "打开任务管理器，切换到「详细信息」，点击「名称」列头进行排序",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.3", "0.8"],
+    "setup_ps1": [],
+    "cleanup_ps1": ["Get-Process Taskmgr -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "oracle": {
+      "any": [
+        {"type": "uia_element_exists", "name_contains": "名称"},
+        {"type": "uia_element_exists", "name_contains": "Name"}
+      ]
+    },
+    "max_wall_s": 240,
+    "requires": ["taskmgr"],
+    "calibrated": false,
+    "notes": "列表列头同名控件多，测 bbox 消歧(0.1)与 not_actionable。任务管理器有管理员弹窗风险。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "notepad_type_chinese",
+    "name": "记事本输入中文",
+    "category": "editor",
+    "instruction": "打开记事本，输入中文「测试文本{seed}」并保存为 {EVAL_DIR}/cn_{seed}.txt",
+    "seeds": ["甲", "乙", "丙"],
+    "p0_coverage": ["0.1", "0.2", "0.7", "0.8"],
+    "setup_ps1": ["New-Item -ItemType Directory -Force -Path $env:EVAL_DIR | Out-Null", "Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force", "Remove-Item $env:EVAL_DIR/cn_*.txt -ErrorAction SilentlyContinue"],
+    "cleanup_ps1": ["Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "oracle": {
+      "all": [
+        {"type": "file_exists", "path": "{EVAL_DIR}/cn_{seed}.txt"},
+        {"type": "file_content_contains", "path": "{EVAL_DIR}/cn_{seed}.txt", "needle": "测试文本{seed}"}
+      ]
+    },
+    "max_wall_s": 240,
+    "requires": ["notepad"],
+    "calibrated": false,
+    "notes": "中文输入走剪贴板 paste 路径，测 ValuePattern vs coord_clipboard via(0.1/0.2)。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "explorer_select_all_delete",
+    "name": "资源管理器全选删除(带确认)",
+    "category": "file",
+    "instruction": "打开资源管理器进入 {EVAL_DIR}/trash_{seed} 目录（内含3个临时文件），全选后删除并永久删除(确认)",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.2", "0.6", "0.7"],
+    "setup_ps1": ["New-Item -ItemType Directory -Force -Path $env:EVAL_DIR/trash_{seed} | Out-Null", "1..3 | ForEach-Object { Set-Content -Path \"$env:EVAL_DIR/trash_{seed}/tmp$_.txt\" -Value x }"],
+    "cleanup_ps1": ["Remove-Item $env:EVAL_DIR/trash_* -Recurse -Force -ErrorAction SilentlyContinue"],
+    "oracle": {
+      "all": [
+        {"type": "file_glob_min_count", "glob": "{EVAL_DIR}/trash_{seed}/*.txt", "min": 0},
+        {"type": "uia_window_not_exists", "needle": "确认文件删除"}
+      ]
+    },
+    "max_wall_s": 240,
+    "requires": ["explorer"],
+    "calibrated": false,
+    "notes": "危险动作类——测黄线 confirm_required 契约(0.6)。评测目录内删除受控。校准需确认可逆性/沙箱目录。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "browser_tab_switch",
+    "name": "浏览器多标签切换",
+    "category": "browser",
+    "instruction": "打开浏览器，新开标签访问 https://example.com ，再切回第一个标签，让窗口标题反映当前活动标签",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.2", "0.3"],
+    "setup_ps1": [],
+    "cleanup_ps1": ["Get-Process msedge,chrome -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "oracle": {
+      "any": [
+        {"type": "uia_window_title_contains", "needle": "Example Domain"},
+        {"type": "uia_window_title_contains", "needle": "example.com"}
+      ]
+    },
+    "max_wall_s": 240,
+    "requires": ["browser", "internet"],
+    "calibrated": false,
+    "notes": "多窗口/多标签协调；测 tab 类控件 SelectionItem。",
+    "source": "handcrafted"
+  },
+  {
+    "id": "control_panel_power_plan",
+    "name": "控制面板导航电源选项",
+    "category": "settings",
+    "instruction": "打开控制面板，进入「电源选项」，点击「选择电源按钮的功能」",
+    "seeds": ["a", "b", "c"],
+    "p0_coverage": ["0.1", "0.3", "0.5"],
+    "setup_ps1": ["Get-Process -Name ControlPanel -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "cleanup_ps1": ["Get-Process -Name ControlPanel -ErrorAction SilentlyContinue | Stop-Process -Force"],
+    "oracle": {
+      "any": [
+        {"type": "uia_window_title_contains", "needle": "系统电源设置"},
+        {"type": "uia_window_title_contains", "needle": "Power Options"}
+      ]
+    },
+    "max_wall_s": 300,
+    "requires": ["control_panel"],
+    "calibrated": false,
+    "notes": "传统 Win32 导航，控件语义充足(呼应报告 WAA 文本界面更好做的结论)。",
+    "source": "handcrafted"
+  }
+]
