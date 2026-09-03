@@ -18,6 +18,11 @@ const api: HajimiApi = {
   taskCancel: () => ipcRenderer.invoke('task:cancel'),
   sidecarStatus: () => ipcRenderer.invoke('sidecar:status'),
   consentAccepted: () => ipcRenderer.invoke('consent:accepted'),
+  settingsGet: () => ipcRenderer.invoke('settings:get'),
+  settingsSave: (fragment) => ipcRenderer.invoke('settings:save', fragment),
+  authStatus: () => ipcRenderer.invoke('auth:status'),
+  authLogin: (username, password) => ipcRenderer.invoke('auth:login', { username, password }),
+  authLogout: () => ipcRenderer.invoke('auth:logout'),
   onTaskEvent: (cb: (p: TaskEventPayload) => void) => subscribe('task:event', cb),
   onSidecarState: (cb: (p: SidecarStatePayload) => void) => subscribe('sidecar:state', cb)
 }

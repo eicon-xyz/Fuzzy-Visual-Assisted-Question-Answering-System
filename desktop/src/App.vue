@@ -6,16 +6,23 @@ import StatusBar from './components/StatusBar.vue'
 import Timeline from './components/Timeline.vue'
 import InputBar from './components/InputBar.vue'
 import ConsentDialog from './components/ConsentDialog.vue'
+import SettingsView from './components/SettingsView.vue'
+import LoginDialog from './components/LoginDialog.vue'
 
 const store = useTaskStore()
 const { phase, steps, messages, busy } = storeToRefs(store)
 
 const showConsent = ref(false)
 const pendingQuery = ref('')
+const showSettings = ref(false)
+const needLogin = ref(false)
 let unsub: (() => void) | null = null
 
-onMounted(() => {
+onMounted(async () => {
   unsub = window.hajimi.onTaskEvent((p) => store.onTaskEvent(p))
+  // 登录门：等价 PyQt main 的 HAJIMI_SKIP_LOGIN / is_session_valid 检查
+  const st = await window.hajimi.authStatus()
+  needLogin.value = !st.valid
 })
 onUnmounted(() => unsub?.())
 
@@ -67,16 +74,23 @@ async function onCancel(): Promise<void> {
   <div class="shell">
     <header class="titlebar">
       <span class="title">HAJIMI · L5 桌面助手</span>
+      <button class="gear" @click="showSettings = !showSettings">⚙</button>
     </header>
     <StatusBar />
-    <section class="chat">
-      <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role + ' ' + m.tone">
-        {{ m.text }}
-      </div>
-    </section>
-    <Timeline v-if="busy || steps.length || phase !== 'idle'" />
-    <InputBar @submit="onSubmit" @cancel="onCancel" />
+    <template v-if="showSettings">
+      <SettingsView @close="showSettings = false" />
+    </template>
+    <template v-else>
+      <section class="chat">
+        <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role + ' ' + m.tone">
+          {{ m.text }}
+        </div>
+      </section>
+      <Timeline v-if="busy || steps.length || phase !== 'idle'" />
+      <InputBar @submit="onSubmit" @cancel="onCancel" />
+    </template>
     <ConsentDialog v-if="showConsent" @accept="onConsentAccept" @decline="onConsentDecline" />
+    <LoginDialog v-if="needLogin" @close="needLogin = false" />
   </div>
 </template>
 
@@ -85,6 +99,20 @@ async function onCancel(): Promise<void> {
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+.gear {
+  -webkit-app-region: no-drag;
+  background: transparent;
+  border: none;
+  color: var(--hm-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.gear:hover {
+  background: rgba(100, 116, 139, 0.25);
+  color: var(--hm-text);
 }
 .chat {
   max-height: 30%;

@@ -7,13 +7,16 @@
  *  - 纯逻辑（可 vitest）放 desktop/core/，此文件只做 Electron 接线。
  */
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from 'electron'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { clampWindowSize } from '../core/window'
 import { configFromEnv } from '../core/config'
+import { resolveL5Root } from '../core/l5root'
 import { SidecarClient } from './services/sidecarClient'
 import { SidecarManager, type SidecarState } from './services/sidecarManager'
 import { TaskRunner } from './services/taskRunner'
-import { loadConsent, saveConsent } from './services/consentStore'
+import { SettingsStore, type UserSettings } from './services/settingsStore'
+import { AuthSession } from './services/authSession'
 
 const cfg = configFromEnv()
 const client = new SidecarClient(cfg)
@@ -21,7 +24,6 @@ const client = new SidecarClient(cfg)
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
-let consentState = { accepted: false }
 
 const manager = new SidecarManager(
   client,
@@ -33,15 +35,22 @@ const manager = new SidecarManager(
   }
 )
 
+const settings = new SettingsStore(cfg, () => manager, () => {
+  const root = resolveL5Root(
+    { envOverride: cfg.l5RootOverride, repoRoot: join(app.getAppPath(), '..') },
+    existsSync
+  )
+  return root ? join(root, 'server', '.env') : null
+})
+
+const auth = new AuthSession(cfg)
+
 const runner = new TaskRunner(
   client,
   cfg,
   () => mainWindow,
-  () => consentState.accepted,
-  (dontShowAgain: boolean) => {
-    consentState.accepted = true
-    if (dontShowAgain) saveConsent(true)
-  }
+  () => settings.consentAccepted(),
+  (dontShowAgain: boolean) => settings.markConsent(dontShowAgain)
 )
 
 // 与 PyQt 端 MainWidget 默认面板尺寸同量级的起点；M2/M3 引入窗口状态记忆后由 store 驱动
@@ -158,7 +167,42 @@ function registerIpc(): void {
     return { ok, detail: live ? String(live.status ?? 'ok') : 'down' }
   })
 
-  ipcMain.handle('consent:accepted', () => consentState.accepted)
+  ipcMain.handle('consent:accepted', () => settings.consentAccepted())
+
+  // ── M2 设置 / 账号 ──
+  ipcMain.handle('settings:get', () => settings.load())
+
+  ipcMain.handle('settings:save', async (_e, fragment: UserSettings) => {
+    const r = settings.saveFragment(fragment ?? {})
+    if (r.ok) {
+      // 对齐 PyQt：保存模型设置后重启 Sidecar 使其生效（尽力而为，不阻断保存结果）
+      try {
+        await settings.restartSidecar()
+      } catch {
+        /* 重启失败下次探活自愈 */
+      }
+    }
+    return r
+  })
+
+  ipcMain.handle('auth:status', () => ({
+    valid: cfg.skipLogin || auth.isValid(),
+    username: auth.username()
+  }))
+
+  ipcMain.handle('auth:login', async (_e, arg: { username: string; password: string }) => {
+    try {
+      await auth.login(String(arg?.username ?? ''), String(arg?.password ?? ''))
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+
+  ipcMain.handle('auth:logout', () => {
+    auth.logout()
+    return { ok: true }
+  })
 }
 
 // ── 单实例锁：二次启动聚焦已有窗口 ──
@@ -173,7 +217,6 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(() => {
-    consentState = { accepted: loadConsent().l5_consent_accepted }
     registerIpc()
     createWindow()
     createTray(join(__dirname, '../build/icon.png'))
