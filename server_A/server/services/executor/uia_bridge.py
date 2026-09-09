@@ -116,6 +116,8 @@ def _available_patterns(control) -> List[str]:
         ("toggle", "GetTogglePattern"),
         ("expandcollapse", "GetExpandCollapsePattern"),
         ("value", "GetValuePattern"),
+        ("rangevalue", "GetRangeValuePattern"),  # B4: 滑杆/数值调节
+        ("window", "GetWindowPattern"),  # B4: 窗口级动作能力
     ):
         try:
             if getattr(control, getter)() is not None:
@@ -425,6 +427,13 @@ class UIABridge:
         except Exception:
             pass
         try:
+            # B4: RangeValue（滑杆/数值），set_range 后 state_changed 由此触发
+            rvp = ctrl.GetRangeValuePattern()
+            if rvp is not None:
+                props["range"] = float(rvp.Value)
+        except Exception:
+            pass
+        try:
             sp = ctrl.GetSelectionItemPattern()
             if sp is not None:
                 props["selected"] = bool(sp.IsSelected)
@@ -543,7 +552,7 @@ class UIABridge:
             bbox = _control_bbox(ctrl)
             stable = bbox is not None and last_bbox is not None and bbox == last_bbox
             obscured = False
-            if action in ("click", "double_click"):
+            if action in ("click", "double_click", "right_click"):
                 get_cp = getattr(ctrl, "GetClickablePoint", None)
                 if callable(get_cp):
                     try:
@@ -588,6 +597,7 @@ class UIABridge:
         expect_timeout: float = 4.0,
         action_timeout: float = 3.0,
         via: Optional[str] = None,
+        value: Optional[float] = None,
     ) -> dict:
         """对指定元素执行动作，并接线执行后校验。
 
@@ -595,10 +605,12 @@ class UIABridge:
         跳过决策表选择阶段直走控件 bbox 坐标点击（显式声明才允许）；
         其余动作/取值忽略。actionability 前置预检不受影响照常执行。
 
+        value: B4 set_range 的目标数值（float）。其余动作忽略。
+
         返回统一附加字段（0.2 动作后验证）：
           action_ok    —— 动作本身是否送达执行
           verified     —— verify()（enabled/onscreen 轮询）是否通过
-          state_changed—— 控件可观测属性（name/enabled/bbox/expand/value/selected）是否变化
+          state_changed—— 控件可观测属性（name/enabled/bbox/expand/value/range/selected）是否变化
           prop_diff    —— before/after 属性差异
           expect_ok    —— 期望条件（wait_for_text）是否满足；未提供 expect 时为 None
         """
@@ -658,6 +670,11 @@ class UIABridge:
                 r = self._act_click(ctrl, element_id)
         elif action == "double_click":
             r = self._act_coord(ctrl, element_id, clicks=2)
+        elif action == "right_click":
+            # B4: 右键语义=像素事件（弹系统上下文菜单），不走决策表选模式
+            r = self._act_coord(ctrl, element_id, clicks=1, button="right")
+        elif action == "set_range":
+            r = self._act_set_range(ctrl, element_id, value)
         elif action == "type":
             r = self._act_type(ctrl, element_id, text or "")
         elif action in ("expand", "collapse"):
@@ -840,7 +857,196 @@ class UIABridge:
         except Exception as exc:
             return {"success": False, "error": f"type failed: {exc}", "via": None}
 
-    def _act_coord(self, ctrl, element_id: str, clicks: int = 1) -> dict:
+    def _act_set_range(self, ctrl, element_id: str, value) -> dict:
+        """B4 set_range：RangeValuePattern.Value = float（滑杆/数值调节）。
+
+        支持性用 _last_meta 快照缓存（B2 probe/exec 分离语义，缓存缺失时
+        防御性现场只探测一次）；无 rangevalue → no_range_pattern（未执行），
+        执行异常 → pattern_failed fail-closed（同 B2 语义，禁补刀）。
+        """
+        meta = self._last_meta.get(element_id, {})
+        cached = meta.get("patterns")
+        if cached is None:
+            cached = _available_patterns(ctrl)
+        if "rangevalue" not in cached:
+            try:
+                name = (ctrl.Name or "").strip()
+            except Exception:
+                name = ""
+            return {
+                "success": False,
+                "action_ok": False,
+                "via": None,
+                "error_code": "no_range_pattern",
+                "error": f"control '{name}' does not support RangeValuePattern",
+                "hint": (
+                    "该控件不支持 RangeValue；试 press_key 方向键/Home/End "
+                    "或重新观察选对控件"
+                ),
+            }
+        try:
+            pat = ctrl.GetRangeValuePattern()
+            if pat is None:
+                raise RuntimeError("pattern not found")
+            target = float(value)
+            pat.Value = target
+        except Exception as exc:
+            return {
+                "success": False,
+                "action_ok": False,
+                "via": None,
+                "error_code": "pattern_failed",
+                "error": f"rangevalue exec failed: {exc}",
+                "hint": (
+                    "模式执行失败（常见：控件在动作瞬间已销毁/应用无响应）。"
+                    "禁止重试同一动作补刀——先 get_screen_info 确认界面实际状态"
+                    "（动作可能已生效）再决策。"
+                ),
+            }
+        return {
+            "success": True,
+            "via": "uia_setrange",
+            "element": element_id,
+            "pattern": "rangevalue",
+            "range_value": target,
+        }
+
+    # ── B4 窗口级动作 ──
+
+    _WINDOW_OPS = ("activate", "minimize", "maximize", "restore", "close")
+    # 直接方法名（uiautomation Control 原生）→ op
+    _WINDOW_DIRECT_METHODS = {
+        "minimize": "Minimize",
+        "maximize": "Maximize",
+        "restore": "Restore",
+        "close": "Close",
+    }
+    # WindowPattern 回退：op → (方法, 参数枚举名 SetWindowVisualState 用)
+    _WINDOW_VISUAL_STATE = {"minimize": "Minimized", "maximize": "Maximized", "restore": "Normal"}
+
+    def _find_window_by_title(self, title: str):
+        """桌面根窗口子级中按 Name 含 title（小写）找顶层窗口；无匹配 None。"""
+        needle = (title or "").strip().lower()
+        if not needle or self._auto is None:
+            return None
+        try:
+            root = self._auto.GetRootControl()
+            children = root.GetChildren() if root is not None else []
+        except Exception:
+            return None
+        for w in children:
+            try:
+                nm = w.Name or ""
+            except Exception:
+                continue
+            if needle in nm.lower():
+                return w
+        return None
+
+    def act_window(self, op: str, title: str = "", element_id: str = "") -> dict:
+        """B4 窗口级动作：activate/minimize/maximize/restore/close（fail-closed）。
+
+        目标解析：element_id → GetTopLevelControl()（getattr 缺失/失败回退按
+        title）；title → 桌面根窗口子级按 Name 含 title（小写）匹配；无匹配 →
+        window_not_found。执行优先 Control 原生方法（Minimize/Maximize/Restore/
+        Close/SetFocus），缺失回退 WindowPattern，再缺 → pattern_failed。
+        """
+        if not self._available:
+            return {
+                "success": False,
+                "via": None,
+                "error_code": "window_not_found",
+                "error": "uia bridge unavailable",
+                "hint": "窗口动作需 Windows+UIA 环境；确认 Sidecar 运行平台上再试。",
+            }
+        if op not in self._WINDOW_OPS:
+            return {
+                "success": False,
+                "via": None,
+                "error_code": "window_not_found",
+                "error": f"unsupported window op: {op}",
+                "hint": "op 仅支持 activate/minimize/maximize/restore/close。",
+            }
+        ctrl = None
+        if element_id:
+            src = self._last_controls.get(element_id)
+            if src is not None:
+                top = getattr(src, "GetTopLevelControl", None)
+                if callable(top):
+                    try:
+                        ctrl = top()
+                    except Exception:
+                        ctrl = None
+        if ctrl is None:
+            ctrl = self._find_window_by_title(title)
+        if ctrl is None:
+            return {
+                "success": False,
+                "via": None,
+                "error_code": "window_not_found",
+                "error": f"no window matched title='{title}' (element_id='{element_id or '-'}')",
+                "hint": (
+                    "找不到目标窗口：先 get_screen_info 看 window_title，传真实"
+                    "标题关键词（子串即可）；不要臆造窗口名。"
+                ),
+            }
+        try:
+            win_name = (ctrl.Name or "").strip()
+        except Exception:
+            win_name = ""
+
+        def _fail(exc) -> dict:
+            return {
+                "success": False,
+                "via": None,
+                "error_code": "pattern_failed",
+                "error": f"window {op} failed: {exc}",
+                "hint": (
+                    "窗口动作失败且可能部分生效（禁用同参补刀）。press_key 组合键"
+                    "（win+方向键/alTab）是一条不同路径，或重新观察确认窗口状态再决策。"
+                ),
+            }
+
+        try:
+            if op == "activate":
+                ctrl.SetFocus()
+                method = "SetFocus"
+            else:
+                method = None
+                direct = getattr(ctrl, self._WINDOW_DIRECT_METHODS[op], None)
+                if callable(direct):
+                    direct()
+                    method = self._WINDOW_DIRECT_METHODS[op]
+                else:
+                    # 回退 WindowPattern
+                    wp = ctrl.GetWindowPattern()
+                    if wp is None:
+                        raise RuntimeError("no window method nor WindowPattern")
+                    if op == "close":
+                        wp.Close()
+                    else:
+                        vs_cls = getattr(self._auto, "WindowVisualState", None)
+                        state = (
+                            getattr(vs_cls, self._WINDOW_VISUAL_STATE[op], None)
+                            if vs_cls is not None
+                            else None
+                        )
+                        if state is None:
+                            raise RuntimeError("no WindowVisualState enum for op")
+                        wp.SetWindowVisualState(state)
+                    method = "WindowPattern"
+        except Exception as exc:
+            return _fail(exc)
+        return {
+            "success": True,
+            "via": "uia_window",
+            "window_op": op,
+            "window_title": win_name,
+            "method": method,
+            "action_summary": f"window {op} '{win_name or title}'（{method}）",
+        }
+
+    def _act_coord(self, ctrl, element_id: str, clicks: int = 1, button: str = "left") -> dict:
         bbox = _control_bbox(ctrl)
         if bbox is None:
             return {"success": False, "error": "uia element has no bbox", "via": None}
@@ -848,7 +1054,7 @@ class UIABridge:
         try:
             from server.services.executor.clicker import click_at
 
-            r = click_at((cx, cy), clicks=clicks)
+            r = click_at((cx, cy), clicks=clicks, button=button)
             return {
                 "success": True,
                 "via": "coord",
@@ -856,6 +1062,7 @@ class UIABridge:
                 "x": cx,
                 "y": cy,
                 "clicks": clicks,
+                "button": button,
                 "detail": r,
             }
         except Exception as exc:

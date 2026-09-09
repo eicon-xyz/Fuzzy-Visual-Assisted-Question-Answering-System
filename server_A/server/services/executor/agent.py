@@ -50,9 +50,13 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 
 ## 可用工具
 - launch_app(app_name): 通过系统级命令启动应用（Win+搜索）。当步骤为打开应用时，优先使用此工具。
-- get_screen_info(): 获取当前屏幕控件投影列表，字段：id / type(控件类型) / name(控件文本) / class(框架类名) / enabled(是否可用) / patterns(可用交互模式: invoke,value,toggle,selectionitem,expandcollapse) / bbox(相对窗口左上角 [左,上,宽,高] 像素)。附带 window_title 与 window_size
+- get_screen_info(): 获取当前屏幕控件投影列表，字段：id / type(控件类型) / name(控件文本) / class(框架类名) / enabled(是否可用) / patterns(可用交互模式: invoke,value,toggle,selectionitem,expandcollapse,rangevalue,window) / bbox(相对窗口左上角 [左,上,宽,高] 像素)。附带 window_title / window_size 与 focused(当前焦点控件 name/type/class)
 - click(element_id, name[, expect]): 单击指定元素（UIA 绑定优先：Invoke/Select 等精确模式；失败回退坐标点击）。name 必填=该元素的 name 字段，服务端交叉验证防幻觉点击；expect 可选，声明期望的界面变化
 - double_click(element_id, name[, expect]): 双击指定元素。桌面图标、文件通常需要双击打开。
+- right_click(element_id, name[, expect]): 右键单击指定元素（弹系统上下文菜单）。需要右键菜单且投影里看不到菜单入口时用；name 同样交叉验证。
+- set_range(element_id, name, value[, expect]): 给 patterns 含 rangevalue 的控件设数值（滑杆/音量/数值调节器），一步到位替代拖动；控件不支持时返回 no_range_pattern——改 press_key 方向键/Home/End。
+- select_menu_path(items[, expect]): 多级菜单/级联展开一次走完，items=从根到叶的条目名列表（如 ["文件","另存为"]），服务端每级自动重观察。某级找不到返回 menu_path_not_found + visible_at_level（该层实际可见条目），照列表修正路径重试。
+- window_action(op, title[, element_id]): 窗口级动作 op=activate(置前聚焦)/minimize/maximize/restore/close，title=窗口标题关键词（子串匹配）。后台切窗口用 activate，不要用 Alt+Tab 盲切；无匹配返回 window_not_found。
 - paste_text(text[, expect, expect_focus]): 将文本粘贴到当前获得焦点的位置（通过剪贴板）。启动应用后或点击输入框后，文本会自动粘贴到光标所在位置，不需要 element_id。用于无法检测到输入框的场景（如记事本文本区、聊天输入框等纯文本区域）。目标输入框可断言：传 expect_focus（期望焦点控件名），焦点不符直接拒发。
 - type_text(element_id, name, text[, expect]): 向输入元素输入文本（UIA 绑定优先：ValuePattern.SetValue 精确设置）
 - press_key(keys): 按键盘组合键，如 "enter", "ctrl+v", "win"
@@ -83,7 +87,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - 同名多控件时用 bbox 区分：bbox=[左,上,宽,高] 为相对窗口左上角像素，"左边的按钮"→ 取左值小者，"顶部菜单"→ 取上值小者，"第 N 行"→ 按上值排序
 - 找不到时，先 wait(2) 再重新 get_screen_info
 - 调用 click/double_click/type_text 时必须同时传 name 参数（你选定条目的 name 值）：服务端会拿它与快照核对，若该 id 实际不是你说的控件会拒绝执行并回报真实名称——按真名重新决策，不要重复同一个错误 id
-- 菜单/下拉框（type=menu/menuitem/combobox，或 patterns 含 expandcollapse）：直接 click 会自动走 ExpandCollapse 展开，并返回展开后的新选项列表（new_elements，旧 id 失效）——从中选第二级目标再 click，禁止用坐标盲点菜单
+- 菜单/下拉框（type=menu/menuitem/combobox，或 patterns 含 expandcollapse）：**多级菜单优先 select_menu_path 一次走完**（服务端每级自动重观察，比逐级 click 省轮次）；失败按返回的 visible_at_level 修正路径，或退回逐级 click——直接 click 菜单头会自动走 ExpandCollapse 展开并返回新选项列表（new_elements，旧 id 失效），从中选下一级再 click；禁止用坐标盲点菜单
 - click 返回 action_ambiguous/pattern_failed 时：pattern_failed 说明动作可能已部分生效，先观察再决策，严禁原样补刀；action_ambiguous 说明选错控件类型，换 type_text/press_key 或换控件，最后手段才是显式传 via="coordinate"
 
 ## 验证标准
@@ -221,6 +225,102 @@ def _build_tool_definitions() -> list[dict]:
                         },
                     },
                     "required": ["element_id", "name"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "right_click",
+                "description": "右键单击指定元素（像素级右键事件，用于弹出系统上下文菜单）。目标控件在投影中看不到上下文菜单入口时使用。name 用于 id×name 交叉验证；动作前自动做 actionability 预检（不可用/被遮挡则拒发）。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "element_id": {"type": "string", "description": "元素ID"},
+                        "name": {
+                            "type": "string",
+                            "description": "该元素在列表中的 name（交叉验证）",
+                        },
+                        "expect": {
+                            "type": "string",
+                            "description": "可选：右键后期望出现的上下文菜单项文本，服务端轮询验证",
+                        },
+                    },
+                    "required": ["element_id", "name"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "set_range",
+                "description": "为支持 rangevalue 模式的控件设置数值（滑杆/音量条/数值调节器）。一条语义动作替代拖拽；patterns 不含 rangevalue 的控件会返回 no_range_pattern——改用 press_key 方向键/Home/End 或换控件。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "element_id": {"type": "string", "description": "元素ID"},
+                        "name": {
+                            "type": "string",
+                            "description": "该元素在列表中的 name（交叉验证）",
+                        },
+                        "value": {
+                            "type": "number",
+                            "description": "目标数值（需落在控件值域内）",
+                        },
+                        "expect": {
+                            "type": "string",
+                            "description": "可选：设置后期望出现的界面文本，服务端轮询验证",
+                        },
+                    },
+                    "required": ["element_id", "name", "value"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "select_menu_path",
+                "description": "一次走完多级菜单/级联展开：items 为从根到叶的逐级条目名列表（如 [\"文件\",\"另存为\"]）。服务端每级自动重扫 UIA：支持 expandcollapse 的项先 expand 再进下一级，末项 click。某级找不到会返回 menu_path_not_found + visible_at_level（该层实际可见条目），按列表修正路径。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "逐级菜单条目名（从根菜单到目标项，按界面显示文本）",
+                        },
+                        "expect": {
+                            "type": "string",
+                            "description": "可选：末项点击后期望出现的界面文本，服务端轮询验证",
+                        },
+                    },
+                    "required": ["items"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "window_action",
+                "description": "窗口级动作：activate=置前聚焦（不依赖 Alt+Tab 的后台操作）/ minimize / maximize / restore / close。按 title 关键词（子串匹配，不区分大小写）定位桌面顶层窗口；也可传该窗口内任一控件的 element_id。找不到窗口返回 window_not_found。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "op": {
+                            "type": "string",
+                            "enum": ["activate", "minimize", "maximize", "restore", "close"],
+                            "description": "窗口操作",
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "窗口标题关键词（子串匹配）",
+                        },
+                        "element_id": {
+                            "type": "string",
+                            "description": "可选：该窗口内任一控件的元素ID（服务端自动解析其顶层窗口）",
+                        },
+                    },
+                    "required": ["op", "title"],
                 },
             },
         },
@@ -817,6 +917,10 @@ class ExecutionAgent:
     _MUTATING_TOOLS = (
         "click",
         "double_click",
+        "right_click",
+        "set_range",
+        "select_menu_path",
+        "window_action",
         "type_text",
         "paste_text",
         "press_key",
@@ -1409,6 +1513,280 @@ class ExecutionAgent:
                     )
         return base
 
+    # ── B4 动作四件套 ──
+
+    def _do_right_click(
+        self,
+        element_id: str,
+        expect: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> dict:
+        """右键单击（B4）：像素级右键事件弹系统上下文菜单，不走 pattern 决策表。"""
+        element = self.element_map.get(element_id)
+        if element is None:
+            return {
+                "success": False,
+                "error": f"element_id '{element_id}' not found in current screen. "
+                f"Please call get_screen_info() again.",
+            }
+        guard = self._name_guard(element_id, name)
+        name_warning = None
+        if guard is not None:
+            if guard.get("success") is False:
+                return guard
+            name_warning = guard.get("name_unverifiable")
+
+        safety = check_step(f"click element {element.text} (right)")
+        if safety.level == "red":
+            return {"success": False, "error": f"action blocked (zone: red): {safety.reason}"}
+        if safety.level == "yellow":
+            return {
+                "success": False,
+                "error": f"action requires confirmation (zone: yellow): {safety.reason}. "
+                f"Choose a different target or try an alternative approach.",
+            }
+
+        if getattr(self, "screen_source", None) != "uia":
+            return {
+                "success": False,
+                "error": "right_click 仅在 UIA 观察态接线（B4 裁定）：请在 "
+                "Windows+UIA 环境 get_screen_info 后重试，或改用 press_key(\"apps\")/shift+f10",
+            }
+        r = self._get_uia().act(element_id, action="right_click", expect=expect)
+        if r.get("success"):
+            base = {
+                "success": True,
+                "clicked": element_id,
+                "content": element.text,
+                "via": r.get("via") or "coord",
+                "button": "right",
+                "action_summary": f"右键单击元素 '{element.text}'（弹上下文菜单）",
+            }
+            if name_warning:
+                base["warning"] = name_warning
+            return self._post_action_result(base, r, expect)
+        return {
+            "success": False,
+            "error": f"UIA 操作失败: {r.get('error')}",
+            "via": r.get("via"),
+            "action_ok": False,
+            "error_code": r.get("error_code"),
+            "hint": r.get("hint"),
+        }
+
+    def _do_set_range(
+        self,
+        element_id: str,
+        value,
+        expect: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> dict:
+        """RangeValue 设值（B4）：滑杆/数值调节一条语义动作到位，替代 drag。"""
+        element = self.element_map.get(element_id)
+        if element is None:
+            return {
+                "success": False,
+                "error": f"element_id '{element_id}' not found in current screen. "
+                f"Please call get_screen_info() again.",
+            }
+        guard = self._name_guard(element_id, name)
+        name_warning = None
+        if guard is not None:
+            if guard.get("success") is False:
+                return guard
+            name_warning = guard.get("name_unverifiable")
+
+        safety = check_step(f"set {element.text} range to {value}")
+        if safety.level == "red":
+            return {"success": False, "error": f"action blocked (zone: red): {safety.reason}"}
+        if safety.level == "yellow":
+            return {
+                "success": False,
+                "error": f"action requires confirmation (zone: yellow): {safety.reason}. "
+                f"Choose a different target or try an alternative approach.",
+            }
+
+        if getattr(self, "screen_source", None) != "uia":
+            return {
+                "success": False,
+                "error": "set_range 仅在 UIA 观察态接线（B4 裁定）：请 get_screen_info 后重试",
+            }
+        r = self._get_uia().act(element_id, action="set_range", value=value, expect=expect)
+        if r.get("success"):
+            base = {
+                "success": True,
+                "element": element_id,
+                "content": element.text,
+                "range_value": r.get("range_value"),
+                "via": r.get("via"),
+                "action_summary": f"设置 '{element.text}' 值为 {r.get('range_value')}（{r.get('via')}）",
+            }
+            if name_warning:
+                base["warning"] = name_warning
+            return self._post_action_result(base, r, expect)
+        return {
+            "success": False,
+            "error": f"UIA 操作失败: {r.get('error')}",
+            "via": r.get("via"),
+            "action_ok": False,
+            "error_code": r.get("error_code"),
+            "hint": r.get("hint"),
+        }
+
+    @staticmethod
+    def _match_projection_by_name(proj: list, wanted: str) -> Optional[dict]:
+        """按 name 匹配投影条目：先全等（strip+lower），再双向包含；多命中取第一个。"""
+        w = (wanted or "").strip().lower()
+        if not w:
+            return None
+        for p in proj:
+            if (p.get("name") or "").strip().lower() == w:
+                return p
+        for p in proj:
+            n = (p.get("name") or "").strip().lower()
+            if n and (w in n or n in w):
+                return p
+        return None
+
+    def _do_select_menu_path(
+        self,
+        items: list,
+        expect: Optional[str] = None,
+    ) -> dict:
+        """多级菜单一次走完（B4）：agent 级循环 重扫→name 匹配→expand/click→下一级。
+
+        中间级：patterns 含 expandcollapse → act("expand")（保留已展开幂等），
+        否则 act("click")；末级：act("click") + 动作后验证链。
+        某级 name 匹配不到 → menu_path_not_found + visible_at_level（≤15 条）。
+        成功返回含 path_trace、ids_refreshed=True、new_elements（末次投影 top-N）。
+        """
+        items = [str(i).strip() for i in (items or []) if str(i).strip()]
+        if not items:
+            return {"success": False, "error": "select_menu_path: items 不能为空"}
+
+        safety = check_step(f"menu path {'>'.join(items)}")
+        if safety.level == "red":
+            return {"success": False, "error": f"action blocked (zone: red): {safety.reason}"}
+        if safety.level == "yellow":
+            return {
+                "success": False,
+                "error": f"action requires confirmation (zone: yellow): {safety.reason}. "
+                f"Choose a different target or try an alternative approach.",
+            }
+
+        uia = self._get_uia()
+        if not uia.available:
+            return {
+                "success": False,
+                "error": "select_menu_path 需要 UIA 观察态（桥不可用）："
+                "Windows 外无法操作菜单，请换 press_key 或报告环境限制",
+            }
+
+        trace: list = []
+        last_r: dict = {}
+        for i, item in enumerate(items):
+            uia.snapshot()  # 每级重扫：上一级展开后浮层控件才有 id
+            proj = uia.last_projection()
+            hit = self._match_projection_by_name(proj, item)
+            if hit is None:
+                visible = [
+                    p.get("name", "") for p in proj if p.get("name")
+                ][:15]
+                return {
+                    "success": False,
+                    "error_code": "menu_path_not_found",
+                    "failed_at": i,
+                    "wanted": item,
+                    "visible_at_level": visible,
+                    "path_trace": trace,
+                    "error": f"菜单第 {i + 1} 级「{item}」在当前层未找到",
+                    "hint": (
+                        "按 visible_at_level 修正路径，或 wait(1) 后重试/改逐级 click"
+                    ),
+                }
+            eid = hit["id"]
+            patterns = hit.get("patterns") or []
+            if i < len(items) - 1:
+                if "expandcollapse" in patterns:
+                    act_action, step = "expand", "expand"
+                else:
+                    act_action, step = "click", "click"
+                r = uia.act(eid, action=act_action)
+                trace.append({"item": item, "id": eid, "action": step, "ok": bool(r.get("success"))})
+                if not r.get("success"):
+                    return {
+                        "success": False,
+                        "error_code": r.get("error_code") or "action_failed",
+                        "failed_at": i,
+                        "path_trace": trace,
+                        "error": f"中间级「{item}」{step}失败: {r.get('error')}",
+                        "hint": r.get("hint")
+                        or "先 get_screen_info 确认该层实际状态再修正路径或改逐级 click",
+                    }
+            else:
+                last_r = uia.act(eid, action="click", expect=expect)
+                trace.append({"item": item, "id": eid, "action": "click", "ok": bool(last_r.get("success"))})
+        if not last_r.get("success"):
+            return {
+                "success": False,
+                "error_code": last_r.get("error_code") or "action_failed",
+                "path_trace": trace,
+                "error": f"末级「{items[-1]}」click 失败: {last_r.get('error')}",
+                "hint": last_r.get("hint") or "先 get_screen_info 确认界面实际状态再决策，禁补刀",
+            }
+        base = {
+            "success": True,
+            "content": items[-1],
+            "via": last_r.get("via"),
+            "path_trace": trace,
+            "action_summary": f"菜单路径 {'>'.join(items)} 走完",
+        }
+        base = self._post_action_result(base, last_r, expect)
+        # element_id 全失效（循环内每级都 snapshot）：强制刷新映射并给回最新投影
+        if not base.get("reobserved"):
+            obs = self._do_get_screen_info()
+            base["new_elements"] = (obs.get("elements") or [])[:20]
+        else:
+            base["new_elements"] = (base.get("new_elements") or [])[:20]
+        base["ids_refreshed"] = True
+        return base
+
+    def _do_window_action(
+        self,
+        op: str,
+        title: str = "",
+        element_id: Optional[str] = None,
+    ) -> dict:
+        """窗口级动作（B4）：activate/minimize/maximize/restore/close。"""
+        safety = check_step(f"window {op} '{title}'")
+        if safety.level == "red":
+            return {"success": False, "error": f"action blocked (zone: red): {safety.reason}"}
+        if safety.level == "yellow":
+            return {
+                "success": False,
+                "error": f"action requires confirmation (zone: yellow): {safety.reason}. "
+                f"Choose a different target or try an alternative approach.",
+            }
+        r = self._get_uia().act_window(op, title=title or "", element_id=element_id or "")
+        if r.get("success"):
+            return {
+                "success": True,
+                "action_ok": True,
+                "via": r.get("via"),
+                "window_op": op,
+                "window_title": r.get("window_title"),
+                "content": f"{op}:{r.get('window_title') or title}",
+                "action_summary": r.get("action_summary"),
+            }
+        return {
+            "success": False,
+            "via": r.get("via"),
+            "action_ok": False,
+            "error_code": r.get("error_code"),
+            "error": r.get("error"),
+            "hint": r.get("hint"),
+        }
+
     def _do_type_text(
         self,
         element_id: str,
@@ -1560,6 +1938,18 @@ class ExecutionAgent:
             "当前焦点控件与 expect_focus 不符，粘贴已拒发（防盲粘错目标）。"
             "先 click 目标输入框（用其 name 作 expect_focus）再重试粘贴，或改用 type_text 指定元素；禁止盲粘。"
         ),
+        "menu_path_not_found": (
+            "菜单路径某级条目在当前层不可见。按返回的 visible_at_level（该层实际条目）"
+            "修正 items 路径再试；界面未刷新可先 wait(1)；仍不行就改逐级 click 观察推进。"
+        ),
+        "window_not_found": (
+            "按 title/element_id 没找到目标窗口。先 get_screen_info 读 window_title，"
+            "传真实标题关键词（子串即可）；窗口可能已关闭，禁止臆造窗口名。"
+        ),
+        "no_range_pattern": (
+            "目标控件不支持 RangeValue 模式（不是滑杆/数值调节器）。"
+            "试 press_key 方向键/Home/End 调节，或重新观察选对控件。"
+        ),
         "unknown_tool": "工具名不存在，只能使用工具列表中列出的工具。",
         "tool_exception": (
             "工具执行抛出异常。换一条更简单的路径完成本步骤"
@@ -1575,6 +1965,12 @@ class ExecutionAgent:
         e = (err_text or "").lower()
         if "focus_mismatch" in e:
             return "focus_mismatch"
+        if "menu_path_not_found" in e:
+            return "menu_path_not_found"
+        if "window_not_found" in e:
+            return "window_not_found"
+        if "no_range_pattern" in e:
+            return "no_range_pattern"
         if "not found in current screen" in e or "not found" in e and "element" in e:
             return "element_not_found"
         if "name_mismatch" in e:
@@ -1662,6 +2058,31 @@ class ExecutionAgent:
                 tool_args.get("text", ""),
                 expect=tool_args.get("expect"),
                 name=tool_args.get("name"),
+            )
+        # ── B4 动作四件套 ──
+        elif tool_name == "right_click":
+            return self._do_right_click(
+                tool_args.get("element_id", ""),
+                expect=tool_args.get("expect"),
+                name=tool_args.get("name"),
+            )
+        elif tool_name == "set_range":
+            return self._do_set_range(
+                tool_args.get("element_id", ""),
+                value=tool_args.get("value"),
+                expect=tool_args.get("expect"),
+                name=tool_args.get("name"),
+            )
+        elif tool_name == "select_menu_path":
+            return self._do_select_menu_path(
+                tool_args.get("items") or [],
+                expect=tool_args.get("expect"),
+            )
+        elif tool_name == "window_action":
+            return self._do_window_action(
+                tool_args.get("op", ""),
+                title=tool_args.get("title", ""),
+                element_id=tool_args.get("element_id"),
             )
         elif tool_name == "paste_text":
             return self._do_paste_text(

@@ -113,6 +113,39 @@ class _FakeTogglePattern:
         self._ctrl._toggled = not getattr(self._ctrl, "_toggled", False)
 
 
+class _FakeRangeValuePattern:
+    """B4：RangeValuePattern 假模式，.Value 可写（滑杆/数值）。"""
+
+    def __init__(self, ctrl, initial=0.0, raise_on_set=False):
+        self._ctrl = ctrl
+        ctrl._range_value = float(initial)
+        self._raise = raise_on_set
+
+    @property
+    def Value(self):
+        return getattr(self._ctrl, "_range_value", 0.0)
+
+    @Value.setter
+    def Value(self, v):
+        if self._raise:
+            raise RuntimeError("range set failed")
+        self._ctrl.log.append(("setrange", float(v)))
+        self._ctrl._range_value = float(v)
+
+
+class _FakeWindowPattern:
+    """B4：WindowPattern 假模式（Minimize 等原生方法缺失时的回退路径）。"""
+
+    def __init__(self, ctrl):
+        self._ctrl = ctrl
+
+    def Close(self):
+        self._ctrl.log.append("close")
+
+    def SetWindowVisualState(self, state):
+        self._ctrl.log.append(("visual", state))
+
+
 class FakeControl:
     """可编程假 UIA 控件：动作可带 effect 回调改属性，供 diff/验证断言。"""
 
@@ -164,6 +197,27 @@ class FakeControl:
     def GetScrollPattern(self):
         return self._get("scroll")
 
+    def GetRangeValuePattern(self):
+        return self._get("rangevalue")
+
+    def GetWindowPattern(self):
+        return self._get("window")
+
+    def GetTopLevelControl(self):
+        return getattr(self, "_top_level", self)
+
+    def Minimize(self):
+        self.log.append("minimize")
+
+    def Maximize(self):
+        self.log.append("maximize")
+
+    def Restore(self):
+        self.log.append("restore")
+
+    def Close(self):
+        self.log.append("close")
+
     def SetFocus(self):
         self.log.append("focus")
 
@@ -172,11 +226,16 @@ class FakeControl:
         return ((r.left + r.right) // 2, (r.top + r.bottom) // 2)
 
 
-def install_fake_uia(monkeypatch, root):
-    """让 UIABridge 认为在 Windows + uiautomation 可用。"""
+def install_fake_uia(monkeypatch, root, roots=()):
+    """让 UIABridge 认为在 Windows + uiautomation 可用。
+
+    roots：B4 顶层窗口列表（GetRootControl().GetChildren() 返回它们，
+    act_window 按 title 匹配走这条路）。
+    """
     monkeypatch.setattr(platform, "system", lambda: "Windows")
     auto = types.ModuleType("uiautomation")
     auto.GetForegroundControl = lambda: root
+    auto.GetRootControl = lambda: FakeControl("Desktop", ctype="PaneControl", children=tuple(roots))
     monkeypatch.setitem(sys.modules, "uiautomation", auto)
 
 
@@ -1410,3 +1469,204 @@ def test_p05_b3_paste_schema_has_expect_focus_and_dispatch_forwards(monkeypatch)
     assert cls("focus_mismatch: 粘贴已拒绝") == "focus_mismatch"
     # 契约 hint 存在
     assert "禁止盲粘" in agent_mod.ExecutionAgent._ERROR_HINTS["focus_mismatch"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# P0.5-B4 动作四件套（台账 B4：WindowPattern 组/select_menu_path/set_range/right_click）
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _capture_clicker(monkeypatch):
+    """拦截 clicker.click_at（_act_coord 运行时按模块属性取函数）。"""
+    import server.services.executor.clicker as clicker_mod
+
+    calls = []
+
+    def _fake(pt, button="left", clicks=1):
+        calls.append({"pt": pt, "button": button, "clicks": clicks})
+        return {"success": True, "x": pt[0], "y": pt[1], "button": button, "clicks": clicks}
+
+    monkeypatch.setattr(clicker_mod, "click_at", _fake)
+    return calls
+
+
+def test_p05_b4_right_click_coord_event_and_actionability_gate(monkeypatch):
+    """① right_click 走 click_at(button="right") 像素事件；disabled 控件被预检拒。"""
+    btn = FakeControl("文件", ctype="MenuItemControl", rect=(10, 10, 60, 30))
+    # 故意给 invoke：右键不得因决策表而改走 pattern（像素事件语义）
+    btn._patterns["invoke"] = _FakeInvokePattern(btn)
+    root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(btn,))
+    install_fake_uia(monkeypatch, root)
+    calls = _capture_clicker(monkeypatch)
+
+    b = UIABridge()
+    els = b.snapshot()
+    eid = find_el(els, "文件").element_id
+    r = b.act(eid, action="right_click", action_timeout=0.2, verify_timeout=0.1)
+    assert r["success"] is True
+    assert calls and calls[-1]["button"] == "right" and calls[-1]["clicks"] == 1
+    assert btn.log == []  # 未走 Invoke pattern
+
+    disabled = FakeControl("灰条", ctype="MenuItemControl", rect=(10, 40, 60, 60), enabled=False)
+    root2 = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(disabled,))
+    install_fake_uia(monkeypatch, root2)
+    b2 = UIABridge()
+    els2 = b2.snapshot()
+    eid2 = find_el(els2, "灰条").element_id
+    r2 = b2.act(eid2, action="right_click", action_timeout=0.2, verify_timeout=0.1)
+    assert r2["success"] is False
+    assert r2["error_code"] == "not_actionable"
+    assert "enabled" in r2["missing_predicates"]
+
+
+def test_p05_b4_set_range_success_and_no_range_pattern_failclosed(monkeypatch):
+    """② set_range 成功→props diff 含 range；无 rangevalue→no_range_pattern 且未执行。"""
+    slider = FakeControl("音量", ctype="SliderControl", rect=(10, 10, 210, 30))
+    slider._patterns["rangevalue"] = _FakeRangeValuePattern(slider, initial=10.0)
+    plain = FakeControl("确定", ctype="ButtonControl", rect=(10, 50, 60, 70))
+    plain._patterns["invoke"] = _FakeInvokePattern(plain)
+    root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(slider, plain))
+    root._patterns["window"] = _FakeWindowPattern(root)
+    install_fake_uia(monkeypatch, root)
+
+    b = UIABridge()
+    els = b.snapshot()
+    eid = find_el(els, "音量").element_id
+    r = b.act(eid, action="set_range", value=55.5, action_timeout=0.2, verify_timeout=0.1)
+    assert r["success"] is True
+    assert r["via"] == "uia_setrange"
+    assert slider._range_value == 55.5
+    diff = r["prop_diff"]
+    assert "range" in diff["changed"]
+    assert diff["before"]["range"] == 10.0 and diff["after"]["range"] == 55.5
+    assert r["state_changed"] is True
+
+    eid2 = find_el(els, "确定").element_id
+    r2 = b.act(eid2, action="set_range", value=1, action_timeout=0.2, verify_timeout=0.1)
+    assert r2["success"] is False
+    assert r2["error_code"] == "no_range_pattern"
+    assert plain.log == []  # 未执行任何模式
+    assert "press_key" in r2["hint"]
+
+    # WindowPattern/rangevalue 已入探测表（投影可见）
+    proj_names = {p["name"]: p["patterns"] for p in b.last_projection()}
+    assert "rangevalue" in proj_names["音量"]
+    assert "window" in proj_names["窗口"]
+
+
+def test_p05_b4_select_menu_path_two_levels(monkeypatch):
+    """③ 两级：expand 头→重扫→末项 invoke；path_trace 对。"""
+    leaf = FakeControl("保存", ctype="MenuItemControl", rect=(10, 60, 60, 80))
+    leaf._patterns["invoke"] = _FakeInvokePattern(leaf)
+    header = FakeControl("文件", ctype="MenuItemControl", rect=(10, 10, 60, 30))
+    header._patterns["expand"] = _FakeExpandPattern(header, children=[leaf])
+    root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(header,))
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    a = _make_agent_with_fake_bridge(b)
+
+    r = a._do_select_menu_path(["文件", "保存"])
+    assert r["success"] is True
+    assert [t["action"] for t in r["path_trace"]] == ["expand", "click"]
+    assert [t["item"] for t in r["path_trace"]] == ["文件", "保存"]
+    assert all(t["ok"] for t in r["path_trace"])
+    assert header.log == ["expand"]
+    assert "invoke" in leaf.log
+    assert r["ids_refreshed"] is True
+    assert r["new_elements"]  # 末次投影 top-N
+
+
+def test_p05_b4_select_menu_path_mid_level_missing_reports_visible(monkeypatch):
+    """④ 中途缺失→menu_path_not_found + visible_at_level + 末项未执行。"""
+    leaf = FakeControl("保存", ctype="MenuItemControl", rect=(10, 60, 60, 80))
+    leaf._patterns["invoke"] = _FakeInvokePattern(leaf)
+    header = FakeControl("文件", ctype="MenuItemControl", rect=(10, 10, 60, 30))
+    header._patterns["expand"] = _FakeExpandPattern(header, children=[leaf])
+    other = FakeControl("编辑", ctype="MenuItemControl", rect=(70, 10, 120, 30))
+    root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(header, other))
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    a = _make_agent_with_fake_bridge(b)
+
+    r = a._do_select_menu_path(["文件", "打印", "不存在项"])
+    assert r["success"] is False
+    assert r["error_code"] == "menu_path_not_found"
+    assert r["failed_at"] == 1 and r["wanted"] == "打印"
+    vis = r["visible_at_level"]
+    assert "保存" in vis and "编辑" in vis and "打印" not in vis  # 该层实际可见项清单
+    assert len(r["path_trace"]) == 1  # 第一级 expand 成功
+    assert leaf.log == []  # 末项未执行
+
+
+def test_p05_b4_window_action_activate_close_and_not_found(monkeypatch):
+    """⑤ activate/close 日志断言；title 无匹配→window_not_found；element_id 解析顶层。"""
+    win = FakeControl("无标题 - 记事本", ctype="WindowControl", rect=(0, 0, 800, 600))
+    btn = FakeControl("保存", ctype="ButtonControl", rect=(10, 10, 60, 30))
+    win._children = [btn]
+    root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(btn,))
+    install_fake_uia(monkeypatch, root, roots=[win])
+    b = UIABridge()
+    a = _make_agent_with_fake_bridge(b)
+
+    r = a._do_window_action("activate", title="记事本")
+    assert r["success"] is True and "focus" in win.log
+    assert r["via"] == "uia_window"
+
+    r2 = a._do_window_action("close", title="记事本")
+    assert r2["success"] is True and "close" in win.log
+
+    r3 = a._do_window_action("minimize", title="不存在的窗口X")
+    assert r3["success"] is False and r3["error_code"] == "window_not_found"
+
+    # element_id → GetTopLevelControl 解析
+    b.snapshot()
+    eid = find_el(b.snapshot(), "保存").element_id
+    btn._top_level = win
+    r4 = a._do_window_action("restore", title="", element_id=eid)
+    assert r4["success"] is True and "restore" in win.log
+
+
+def test_p05_b4_four_tools_dispatch_record_evidence_and_errors(monkeypatch):
+    """⑥ 四工具 dispatch 后 _action_evidence 有账本条目；错误码分类/提示齐。"""
+    slider = FakeControl("音量", ctype="SliderControl", rect=(10, 10, 210, 30))
+    slider._patterns["rangevalue"] = _FakeRangeValuePattern(slider)
+    leaf = FakeControl("保存", ctype="MenuItemControl", rect=(10, 60, 60, 80))
+    leaf._patterns["invoke"] = _FakeInvokePattern(leaf)
+    header = FakeControl("文件", ctype="MenuItemControl", rect=(10, 10, 60, 30))
+    header._patterns["expand"] = _FakeExpandPattern(header, children=[leaf])
+    win = FakeControl("记事本窗口", ctype="WindowControl", rect=(0, 0, 800, 600))
+    root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(slider, header))
+    root._top_level = win
+    install_fake_uia(monkeypatch, root, roots=[win])
+    _capture_clicker(monkeypatch)
+    b = UIABridge()
+    a = _make_agent_with_fake_bridge(b)
+    a._reset_step_ledger()
+    els = a._do_get_screen_info()
+    ids = {e["name"]: e["id"] for e in els["elements"]}
+
+    assert a.dispatch_tool("right_click", {"element_id": ids["音量"], "name": "音量"})["ok"] is True
+    assert a.dispatch_tool("set_range", {"element_id": ids["音量"], "name": "音量", "value": 66})["ok"] is True
+    assert a.dispatch_tool("select_menu_path", {"items": ["文件", "保存"]})["ok"] is True
+    els2 = a._do_get_screen_info()
+    ids2 = {e["name"]: e["id"] for e in els2["elements"]}
+    assert a.dispatch_tool("window_action", {"op": "activate", "title": "", "element_id": ids2["音量"]})["ok"] is True
+
+    tools = [e["tool"] for e in a._action_evidence]
+    assert tools == ["right_click", "set_range", "select_menu_path", "window_action"]
+
+    cls = agent_mod.ExecutionAgent._classify_error_code
+    assert cls("menu_path_not_found: 菜单第 2 级未找到") == "menu_path_not_found"
+    assert cls("no window matched: window_not_found") == "window_not_found"
+    assert cls("control does not support RangeValuePattern: no_range_pattern") == "no_range_pattern"
+    hints = agent_mod.ExecutionAgent._ERROR_HINTS
+    for code in ("menu_path_not_found", "window_not_found", "no_range_pattern"):
+        assert hints[code]
+
+    # schema 四工具齐 + 可选参数口径
+    tfns = {t["function"]["name"]: t["function"] for t in agent_mod.ExecutionAgent().tools}
+    assert tfns["set_range"]["parameters"]["required"] == ["element_id", "name", "value"]
+    assert tfns["window_action"]["parameters"]["properties"]["op"]["enum"] == [
+        "activate", "minimize", "maximize", "restore", "close"
+    ]
+    assert tfns["select_menu_path"]["parameters"]["required"] == ["items"]
