@@ -36,6 +36,24 @@ MAX_TOOL_CALL_ROUNDS = getattr(settings, "MAX_TOOL_CALL_ROUNDS", None) or 50
 
 _LLM_STRIP_KEYS = ("annotated_image", "image_b64")
 
+# P0.5-B1 投机批量动作（UFO² Algorithm 1 的 L5 翻译版）：子动作白名单与批量上限。
+# 白名单=低依赖、决策互不依赖的元素动作；观察（get_screen_info）、控制
+# （mark_step_done/failed、report_infeasible、ask_user）、环境级（launch_app、
+# select_menu_path、window_action、browser_*）与嵌套 perform_batch 一律排除——
+# 这些要么需要边看边决，要么自身已是一整套闭环。schema enum 与运行时校验同源。
+_BATCH_ALLOWED_TOOLS = (
+    "click",
+    "double_click",
+    "type_text",
+    "paste_text",
+    "set_range",
+    "right_click",
+    "press_key",
+    "scroll",
+    "wait",
+)
+_BATCH_MAX_ACTIONS = 8
+
 
 def _strip_for_llm(result: dict) -> dict:
     """进 LLM messages 前剥离仅供前端渲染的图字段（deepseek-chat 是文本模型）。"""
@@ -62,6 +80,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - press_key(keys): 按键盘组合键，如 "enter", "ctrl+v", "win"
 - scroll(direction, amount): 滚轮滚动
 - wait(seconds): 等待指定秒数，让界面响应
+- perform_batch(actions): 批量执行最多8个互不依赖的元素动作（click/type_text/set_range 等），首败即停、剩余不执行；需要边看边决的不要用
 - mark_step_done(reason, evidence): 标记当前步骤已完成。evidence 必填：来自屏幕观察/动作验证的独立事实（如窗口标题变化、控件文本/value 变化），无证据会被拒收。如果步骤的前置条件已满足（如应用已打开、搜索框已聚焦），观察确认后可调用此工具并说明 reason="precondition already satisfied"
 - mark_step_failed(reason): 标记步骤失败（第一次会被拦下要求换策略再试，第二次生效）
 - report_infeasible(reason, tried): 环境/权限/红线下确实做不到时显式终止并回报原因（必须先试过≥2种策略）
@@ -109,6 +128,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 
 ## 效率约束
 - 连续调用 get_screen_info 是无意义的——如果上一次返回了同样的元素，不需要再调一次
+- 填表类连续同构动作（如逐个输入互不影响的字段）合并为一个 perform_batch，省往返
 - 优先基于上一次 get_screen_info 返回的元素列表直接操作，不要反复截屏
 - 一段操作（如点击后等待然后验证）最多调用 1 次 get_screen_info
 - wait 工具用于等待页面加载，调用 wait 后通常不需要立即再调 get_screen_info——先尝试操作
@@ -418,6 +438,79 @@ def _build_tool_definitions() -> list[dict]:
                         "seconds": {"type": "number", "description": "等待秒数"}
                     },
                     "required": ["seconds"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "perform_batch",
+                "description": (
+                    "批量执行最多8个决策互不依赖的元素动作（click/double_click/type_text/"
+                    "paste_text/set_range/right_click/press_key/scroll/wait），服务端顺序"
+                    "执行、首败即停，未执行项显式回报。仅当后续动作不依赖前面动作的结果时"
+                    "使用（如连续填写互不影响的表单字段）；需要观察后决策的放主循环。"
+                    "子动作中途触发自动重观察（ids_refreshed）时批次即正常截断，剩余动作"
+                    "不执行并附最新元素列表。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "actions": {
+                            "type": "array",
+                            "maxItems": _BATCH_MAX_ACTIONS,
+                            "description": "子动作列表（≤8，代码同步校验），按序执行；每项 tool 必填，其余参数与该工具单独调用时相同",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "tool": {
+                                        "type": "string",
+                                        "enum": list(_BATCH_ALLOWED_TOOLS),
+                                        "description": "子动作工具名（白名单）",
+                                    },
+                                    "element_id": {
+                                        "type": "string",
+                                        "description": "元素类子动作必填：最近一次 get_screen_info 的 id",
+                                    },
+                                    "name": {
+                                        "type": "string",
+                                        "description": "元素类子动作必填：该元素 name（服务端 id×name 交叉验证）",
+                                    },
+                                    "text": {
+                                        "type": "string",
+                                        "description": "type_text/paste_text 的文本",
+                                    },
+                                    "value": {
+                                        "type": "number",
+                                        "description": "set_range 的目标数值",
+                                    },
+                                    "keys": {
+                                        "type": "string",
+                                        "description": "press_key 的组合键",
+                                    },
+                                    "direction": {
+                                        "type": "string",
+                                        "enum": ["up", "down"],
+                                        "description": "scroll 方向",
+                                    },
+                                    "amount": {
+                                        "type": "integer",
+                                        "description": "scroll 滚动量",
+                                    },
+                                    "seconds": {
+                                        "type": "number",
+                                        "description": "wait 秒数",
+                                    },
+                                    "expect": {
+                                        "type": "string",
+                                        "description": "可选：该子动作期望出现的界面文本",
+                                    },
+                                },
+                                "required": ["tool"],
+                            },
+                        }
+                    },
+                    "required": ["actions"],
                 },
             },
         },
@@ -1901,6 +1994,185 @@ class ExecutionAgent:
             "action_summary": f"scrolled {direction} x{amount}",
         }
 
+    # ── P0.5-B1 投机批量动作（UFO² Algorithm 1 的 L5 翻译版）──
+
+    @staticmethod
+    def _batch_reject(reason: str) -> dict:
+        """批量校验拒收：零执行，error_code=batch_invalid，hint 列出允许集。"""
+        return {
+            "success": False,
+            "error": f"perform_batch 整批拒收（batch_invalid），未执行任何子动作：{reason}",
+            "error_code": "batch_invalid",
+            "hint": (
+                "允许的子动作白名单: " + ", ".join(_BATCH_ALLOWED_TOOLS)
+                + f"；上限 {_BATCH_MAX_ACTIONS} 项、不可嵌套、每项必须是对象且带 tool。"
+                "get_screen_info/mark_step_done/ask_user/launch_app/browser_* 等观察、"
+                "控制与环境级动作必须留在主循环单发——需要边看边决的不要用批量。"
+            ),
+            "completed": [],
+            "failed_at": None,
+            "not_executed": [],
+            "truncated_by_reobserve": False,
+            "partial": False,
+        }
+
+    def _batch_latest_observation(self) -> Optional[list]:
+        """批量中断（失败/截断）时附最新观察，让 LLM 一轮内重排剩余动作。
+
+        直调 _do_get_screen_info（不经 dispatch，避免与子动作证据/滑窗重复记账），
+        与 _post_action_result 的自动重观察同款口径；观察失败静默降级为 None。
+        """
+        try:
+            obs = self._do_get_screen_info()
+            return obs.get("elements") if isinstance(obs, dict) else None
+        except Exception:
+            logger.debug("batch latest observation failed", exc_info=True)
+            return None
+
+    def _do_perform_batch(self, actions) -> dict:
+        """一次声明 ≤8 个决策互不依赖的元素动作，服务端顺序执行、首败即停。
+
+        台账 B1 契约：
+        - 校验（空/超限/白名单外/非对象）→ 整批拒收 batch_invalid，零执行；
+        - 子动作逐个走 dispatch_tool 全套既有链路（check_step 红线/id×name 交叉
+          验证/决策表 fail-closed/actionability/normalize/证据账本自动生效）；
+          证据账本按子工具名记账——perform_batch 不入 _MUTATING_TOOLS，不重复记；
+        - 卡死检测硬要求：每个子动作记进 _LoopDetector 滑窗；整批执行完再对
+          ("perform_batch", 全 actions) 记一次（整批重复也能被抓到；execute_step
+          顶层照常 record 的那一次与它同哈希，双重覆盖无害）；
+        - 子结果带 ids_refreshed=True（自动重观察 happened）→ 即使该子动作 ok，
+          批次也到此正常截断：旧 element_id 即刻作废，剩余项不得再引用；
+        - 返回 {success, ok, partial, completed, failed_at, failure, not_executed,
+          truncated_by_reobserve, action_summary, new_elements?}，顶层 error_code
+          透传首个失败的子码（normalize 保留具体分类）。
+        """
+        # ── 整批预校验：任一非法 → 零执行拒收（不执行到非法项才停）──
+        if not isinstance(actions, list) or not actions:
+            return self._batch_reject("actions 必须是非空数组")
+        if len(actions) > _BATCH_MAX_ACTIONS:
+            return self._batch_reject(
+                f"actions 共 {len(actions)} 项，超出上限 {_BATCH_MAX_ACTIONS}"
+            )
+        for i, a in enumerate(actions):
+            if not isinstance(a, dict):
+                return self._batch_reject(f"actions[{i}] 不是对象")
+            if a.get("tool") not in _BATCH_ALLOWED_TOOLS:
+                return self._batch_reject(
+                    f"actions[{i}] 的子动作工具 '{a.get('tool')}' 不在批量白名单内"
+                )
+
+        completed: list[dict] = []
+        not_executed: list[dict] = []
+        failed_at = None
+        failure = None
+        truncated_by_reobserve = False
+        saw_ids_refreshed = False
+        new_elements = None
+        loop_det = getattr(self, "_loop_detector", None)
+
+        for i, a in enumerate(actions):
+            sub_tool = a["tool"]
+            sub_args = {k: v for k, v in a.items() if k != "tool"}
+            sub_res = self.dispatch_tool(sub_tool, sub_args)
+            sub_ok = bool(sub_res.get("ok"))
+            if loop_det is not None:
+                loop_det.record_action(sub_tool, sub_args, sub_ok)
+            if sub_res.get("ids_refreshed"):
+                saw_ids_refreshed = True
+                new_elements = sub_res.get("new_elements")
+            if sub_ok:
+                completed.append(
+                    {
+                        "index": i,
+                        "tool": sub_tool,
+                        "action_summary": sub_res.get("action_summary") or sub_tool,
+                        "expect_ok": sub_res.get("expect_ok"),
+                    }
+                )
+                if saw_ids_refreshed:
+                    # 自动重观察 happened：旧 id 全部作废，批次到此正常截断
+                    truncated_by_reobserve = True
+                    for j in range(i + 1, len(actions)):
+                        not_executed.append(
+                            {
+                                "index": j,
+                                "tool": actions[j].get("tool"),
+                                "error": "Not executed: element ids were refreshed by a re-observation in this batch",
+                            }
+                        )
+                    break
+                continue
+            # 首败即停（Anthropic batch 语义），未执行项显式回报
+            failed_at = i
+            failure = {
+                "index": i,
+                "tool": sub_tool,
+                "error_code": sub_res.get("error_code") or "action_failed",
+                "message": sub_res.get("message") or sub_res.get("error") or f"{sub_tool} 执行失败",
+                "hint": sub_res.get("hint"),
+            }
+            for j in range(i + 1, len(actions)):
+                not_executed.append(
+                    {
+                        "index": j,
+                        "tool": actions[j].get("tool"),
+                        "error": "Not executed: earlier action failed",
+                    }
+                )
+            break
+
+        # 整批哈希进滑窗（重复整批也能被抓到）；拒收路径零执行不记到这里
+        if loop_det is not None:
+            loop_det.record_action(
+                "perform_batch", {"actions": actions}, failed_at is None
+            )
+
+        summary = f"批量执行 {len(completed)}/{len(actions)} 项动作"
+        result: dict = {
+            "success": failed_at is None,
+            "partial": bool(completed) and bool(not_executed),
+            "completed": completed,
+            "failed_at": failed_at,
+            "not_executed": not_executed,
+            "truncated_by_reobserve": truncated_by_reobserve,
+            "action_summary": summary,
+        }
+        if truncated_by_reobserve:
+            result["action_summary"] = summary + "（中途自动重观察，批次正常截断）"
+            if new_elements is None:
+                new_elements = self._batch_latest_observation()
+            result["hint"] = (
+                f"批次内触发了自动重观察，旧 element_id 全部失效，剩余 {len(not_executed)} 项"
+                "未执行（见 not_executed）。请基于 new_elements 重新编排剩余动作，"
+                "不要引用旧 id；已完成的动作不要重做。"
+            )
+        if failed_at is not None:
+            result["action_summary"] = (
+                summary + f"（首败即停于 actions[{failed_at}]，error_code={failure['error_code']}）"
+            )
+            result["failure"] = failure
+            # 顶层 error_code 透传子码，供 normalize 保留具体分类
+            result["error_code"] = failure["error_code"]
+            result["error"] = (
+                f"批量动作在 actions[{failed_at}]（{failure['tool']}）失败："
+                f"{failure['message']}"
+            )
+            hint = failure.get("hint") or ""
+            if failure["error_code"] == "element_not_found" and saw_ids_refreshed:
+                hint = (
+                    "此前子动作触发的自动重观察已使旧 element_id 失效，"
+                    "本项引用的是作废 id——请基于 new_elements 重新编排剩余动作。"
+                    + hint
+                )
+            if not_executed:
+                hint += f" 剩余 {len(not_executed)} 项未执行（见 not_executed），修复后一并重排。"
+            result["hint"] = hint or None
+            if new_elements is None:
+                new_elements = self._batch_latest_observation()
+        if new_elements is not None:
+            result["new_elements"] = new_elements
+        return result
+
     # ── Tool dispatcher ──
 
     # 0.6 错误契约：error_code → 面向 LLM 下一轮自纠的默认 hint
@@ -1950,6 +2222,15 @@ class ExecutionAgent:
             "目标控件不支持 RangeValue 模式（不是滑杆/数值调节器）。"
             "试 press_key 方向键/Home/End 调节，或重新观察选对控件。"
         ),
+        "batch_invalid": (
+            "整批已拒收（零执行）。actions 必须为 ≤8 项的对象数组，tool 限白名单："
+            + ", ".join(_BATCH_ALLOWED_TOOLS)
+            + "；观察与控制类动作（get_screen_info/mark_step_done/ask_user 等）留在主循环单发。"
+        ),
+        "batch_illegal_tool": (
+            "子动作工具不在批量白名单内，整批零执行。白名单："
+            + ", ".join(_BATCH_ALLOWED_TOOLS)
+        ),
         "unknown_tool": "工具名不存在，只能使用工具列表中列出的工具。",
         "tool_exception": (
             "工具执行抛出异常。换一条更简单的路径完成本步骤"
@@ -1965,6 +2246,10 @@ class ExecutionAgent:
         e = (err_text or "").lower()
         if "focus_mismatch" in e:
             return "focus_mismatch"
+        if "batch_illegal_tool" in e:
+            return "batch_illegal_tool"
+        if "batch_invalid" in e or "整批拒收" in e or "整批已拒收" in e:
+            return "batch_invalid"
         if "menu_path_not_found" in e:
             return "menu_path_not_found"
         if "window_not_found" in e:
@@ -2105,6 +2390,9 @@ class ExecutionAgent:
                 "waited": secs,
                 "action_summary": f"waited {secs}s",
             }
+        # ── P0.5-B1 投机批量动作 ──
+        elif tool_name == "perform_batch":
+            return self._do_perform_batch(tool_args.get("actions") or [])
         elif tool_name == "mark_step_done":
             reject = self._gate_mark_step_done(
                 tool_args.get("reason", ""), tool_args.get("evidence", "")
@@ -2210,6 +2498,8 @@ class ExecutionAgent:
         loop_detector = _LoopDetector(
             self._step_tel["loop_events"]
         )  # 0.4 卡死检测（每步独立，越界事件直接写入遥测）
+        # P0.5-B1：暴露给 _do_perform_batch，批量子动作逐个进同一滑窗
+        self._loop_detector = loop_detector
         self._reset_step_ledger()  # 0.7 证据账本（每步独立）
         step.terminal_kind = None
         step.user_question = None

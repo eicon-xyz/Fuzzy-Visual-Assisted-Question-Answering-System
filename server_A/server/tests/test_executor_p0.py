@@ -1670,3 +1670,280 @@ def test_p05_b4_four_tools_dispatch_record_evidence_and_errors(monkeypatch):
         "activate", "minimize", "maximize", "restore", "close"
     ]
     assert tfns["select_menu_path"]["parameters"]["required"] == ["items"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# P0.5-B1 投机批量动作 perform_batch（台账 B1：UFO² Algorithm 1 的 L5 翻译版）
+# 契约：≤8 个决策互不依赖的元素动作；首败即停；未执行项显式回报；
+# 子动作逐个进 _LoopDetector 滑窗与证据账本；ids_refreshed 触发正常截断。
+# ═══════════════════════════════════════════════════════════════════════════
+
+_B1_TYPE_OK = {
+    "success": True, "via": "uia_value", "action_ok": True,
+    "verified": True, "state_changed": True,
+}
+
+
+class _SeqActBridge(_BridgeStub):
+    """按 act 调用次序回放预置结果的桩（首败即停/重观察截断场景用）。"""
+
+    def __init__(self, results):
+        super().__init__({})
+        self._results = list(results)
+
+    def act(self, element_id, action="click", text=None, expect=None, **kw):
+        self.calls.append(("act", element_id, action, expect))
+        self.calls_kw.append(kw)
+        idx = sum(1 for c in self.calls if c[0] == "act") - 1
+        return dict(self._results[min(idx, len(self._results) - 1)])
+
+
+def _b1_form_agent(bridge):
+    """三个互不影响的输入字段（姓名/邮箱/电话）的表单场景 agent。"""
+    a = _make_agent_with_fake_bridge(bridge)
+    a.element_map = {
+        eid: UIElement(
+            element_id=eid, bbox=[10, 10 + i * 40, 120, 30], element_type="input",
+            text=nm, confidence=0.9, center=[70, 25 + i * 40],
+        )
+        for i, (eid, nm) in enumerate((("u1", "姓名"), ("u2", "邮箱"), ("u3", "电话")))
+    }
+    return a
+
+
+def _b1_fill(eid, nm, txt):
+    return {"tool": "type_text", "element_id": eid, "name": nm, "text": txt}
+
+
+def test_p05_b1_batch_all_success_three_type_text():
+    """① 三个互不影响字段连填：全成，ok True，逐项下发、逐项进证据账本。"""
+    bridge = _BridgeStub(_B1_TYPE_OK)
+    a = _b1_form_agent(bridge)
+    r = a.dispatch_tool("perform_batch", {"actions": [
+        _b1_fill("u1", "姓名", "张三"),
+        _b1_fill("u2", "邮箱", "a@b.c"),
+        _b1_fill("u3", "电话", "138"),
+    ]})
+    assert r["ok"] is True and r["success"] is True
+    assert r["partial"] is False and r["failed_at"] is None
+    assert r["truncated_by_reobserve"] is False and r["not_executed"] == []
+    acts = [c for c in bridge.calls if c[0] == "act"]
+    assert len(acts) == 3  # 子动作逐个真实下发（复用 _do_* 全套链路）
+    assert [e["index"] for e in r["completed"]] == [0, 1, 2]
+    assert [e["tool"] for e in r["completed"]] == ["type_text"] * 3
+    assert all(e["action_summary"] for e in r["completed"])
+    # 证据账本按子工具名记账；perform_batch 不入 _MUTATING_TOOLS、不重复记
+    assert "perform_batch" not in agent_mod.ExecutionAgent._MUTATING_TOOLS
+    assert [e["tool"] for e in a._action_evidence] == ["type_text"] * 3
+
+
+def test_p05_b1_batch_first_fail_stops_and_reports_not_executed(monkeypatch):
+    """② 第 2 项失败：首败即停，第 3 项不下发、显式回报，顶层透传子错误码。"""
+    bridge = _SeqActBridge([
+        _B1_TYPE_OK,
+        {"success": False, "via": "uia_value", "action_ok": False,
+         "error": "ValuePattern.SetValue 执行失败（fail-closed）: pattern_failed",
+         "error_code": "pattern_failed"},
+        _B1_TYPE_OK,  # 不应到达
+    ])
+    a = _b1_form_agent(bridge)
+    monkeypatch.setattr(
+        a, "_do_get_screen_info",
+        lambda: {"success": True, "elements": [{"id": "n1", "name": "姓名"}]},
+    )
+    r = a.dispatch_tool("perform_batch", {"actions": [
+        _b1_fill("u1", "姓名", "张三"),
+        _b1_fill("u2", "邮箱", "a@b.c"),
+        _b1_fill("u3", "电话", "138"),
+    ]})
+    assert r["ok"] is False and r["success"] is False
+    acts = [c for c in bridge.calls if c[0] == "act"]
+    assert len(acts) == 2  # 第 3 项未下发
+    assert r["failed_at"] == 1 and r["failure"]["tool"] == "type_text"
+    assert r["error_code"] == "pattern_failed"  # 顶层透传首个失败子码
+    assert r["failure"]["error_code"] == "pattern_failed"
+    assert r["not_executed"] == [
+        {"index": 2, "tool": "type_text", "error": "Not executed: earlier action failed"}
+    ]
+    assert len(r["completed"]) == 1 and r["partial"] is True
+    assert "补刀" in (r["hint"] or "")  # 子动作自纠 hint 透传
+    assert "剩余 1 项未执行" in r["hint"]
+    assert r["new_elements"] == [{"id": "n1", "name": "姓名"}]  # 失败时附最新观察
+
+
+def test_p05_b1_batch_illegal_tool_rejects_whole_batch_zero_exec():
+    """③ 白名单外子项（get_screen_info/嵌套/控制类）→ batch_invalid 整批拒收、零执行。"""
+    bridge = _BridgeStub(_B1_TYPE_OK)
+    a = _b1_form_agent(bridge)
+    r = a.dispatch_tool("perform_batch", {"actions": [
+        _b1_fill("u1", "姓名", "x"),  # 合法首项也不得执行
+        {"tool": "get_screen_info"},
+    ]})
+    assert r["ok"] is False and r["error_code"] == "batch_invalid"
+    assert bridge.calls == []  # 零执行（预校验在首个 dispatch 之前）
+    assert r["completed"] == [] and r["not_executed"] == []
+    for t in agent_mod._BATCH_ALLOWED_TOOLS:
+        assert t in r["hint"]  # hint 列出允许集
+    for bad in ("perform_batch", "mark_step_done", "mark_step_failed", "report_infeasible",
+                "ask_user", "launch_app", "select_menu_path", "window_action", "browser_click"):
+        r2 = a._do_perform_batch([_b1_fill("u1", "姓名", "x"), {"tool": bad}])
+        assert r2["success"] is False and r2["error_code"] == "batch_invalid", bad
+    assert a._do_perform_batch([])["error_code"] == "batch_invalid"  # 空数组拒收
+    assert a._do_perform_batch("not-a-list")["error_code"] == "batch_invalid"
+    assert bridge.calls == []
+
+
+def test_p05_b1_batch_over_max_rejects_zero_exec():
+    """④ 9 项超限 → batch_invalid 零执行；8 项（上限值）合法放行。"""
+    bridge = _BridgeStub(_B1_TYPE_OK)
+    a = _b1_form_agent(bridge)
+    nine = [_b1_fill("u1", "姓名", f"t{i}") for i in range(9)]
+    r = a.dispatch_tool("perform_batch", {"actions": nine})
+    assert r["ok"] is False and r["error_code"] == "batch_invalid"
+    assert "9" in r["error"] and bridge.calls == []
+    r2 = a.dispatch_tool("perform_batch", {"actions": nine[:8]})
+    assert r2["ok"] is True and len(r2["completed"]) == 8
+    acts = [c for c in bridge.calls if c[0] == "act"]
+    assert len(acts) == 8
+
+
+def test_p05_b1_batch_truncated_by_reobserve_keeps_rest_unexecuted(monkeypatch):
+    """⑤ 子动作 ok 但触发自动重观察（ids_refreshed）→ 批次正常截断，剩余作废。"""
+    bridge = _SeqActBridge([
+        {"success": True, "via": "uia_value", "action_ok": True,
+         "verified": False, "verify_reason": "control gone", "state_changed": False},
+        _B1_TYPE_OK,  # 不应到达（旧 id 已作废）
+    ])
+    a = _b1_form_agent(bridge)
+    fresh = [{"id": "n1", "name": "新弹层"}]
+    monkeypatch.setattr(
+        a, "_do_get_screen_info", lambda: {"success": True, "elements": fresh}
+    )
+    r = a.dispatch_tool("perform_batch", {"actions": [
+        _b1_fill("u1", "姓名", "张三"),
+        _b1_fill("u2", "邮箱", "a@b.c"),
+        {"tool": "press_key", "keys": "enter"},
+    ]})
+    acts = [c for c in bridge.calls if c[0] == "act"]
+    assert len(acts) == 1  # 截断后不得再用作废 id 下发
+    assert r["ok"] is True  # 已执行项全成 → 批次本身成功（正常截断非失败）
+    assert r["truncated_by_reobserve"] is True and r["failed_at"] is None
+    assert r["partial"] is True and len(r["completed"]) == 1
+    assert [e["index"] for e in r["not_executed"]] == [1, 2]
+    assert all("re-observation" in e["error"] for e in r["not_executed"])
+    assert r["new_elements"] == fresh  # 附最新观察
+    assert "new_elements" in r["hint"] and "重新编排" in r["hint"]
+
+
+def test_p05_b1_batch_subactions_flow_into_loop_detector_window():
+    """⑥ 滑窗记账：1 批 5 个相同 click 子动作逐个进滑窗（第 5 项时 repeat_count>=5 可观测、
+    nudge 出「同一动作」文案）；整批哈希批后再记一次（整批重复可抓）。"""
+    bridge = _click_ok_bridge()
+    a = _b1_form_agent(bridge)
+    ld = agent_mod._LoopDetector()
+    seen = []
+    orig = ld.record_action
+
+    def _spy(tool, args, ok):
+        orig(tool, args, ok)
+        seen.append((tool, ld.repeat_count(), ld.build_nudge()))
+
+    ld.record_action = _spy  # 实例级探针：观测每条记账时刻的滑窗状态
+    a._loop_detector = ld
+    batch5 = [{"tool": "click", "element_id": "u1", "name": "姓名"}] * 5
+    r = a._do_perform_batch(batch5)
+    assert r["success"] is True and len(r["completed"]) == 5
+    # 第 5 个子动作记账时刻：尾部相同动作连击 5 → 阈值越界 + 「同一动作」纠偏文案
+    assert max(n for _, n, _ in seen) >= 5
+    assert any("同一动作" in msg for _, _, msg in seen)
+    click_key = ld.action_key("click", {"element_id": "u1", "name": "姓名"})
+    batch_key = ld.action_key("perform_batch", {"actions": batch5})
+    recent = list(ld._recent)
+    assert recent.count(click_key) == 5  # 逐子动作进滑窗（台账硬要求）
+    assert recent[-1] == batch_key and recent.count(batch_key) == 1  # 整批哈希一次
+    # 重复整批：batch 哈希逐批累积，滑窗内可抓「同样的 8 连击被反复编排」
+    for _ in range(3):
+        assert a._do_perform_batch(batch5)["success"] is True
+    assert list(ld._recent).count(batch_key) == 4
+    # execute_step 顶层对同载荷再记一次 perform_batch → 同哈希双重覆盖无害（尾部连击数 +1）
+    before = ld.repeat_count()
+    ld.record_action("perform_batch", {"actions": batch5}, True)
+    assert ld.repeat_count() == before + 1
+
+
+def test_p05_b1_batch_evidence_feeds_done_gate(monkeypatch):
+    """⑦ done gate 兼容：批量子动作的 state_changed 进证据账本，批量后 mark_step_done 一次过、
+    不带 unverified_done；同时验证 execute_step 已暴露 self._loop_detector。"""
+    bridge = _BridgeStub(_B1_TYPE_OK)
+    a = _scripted_agent(monkeypatch, [
+        ("perform_batch", {"actions": [
+            _b1_fill("u1", "姓名", "张三"),
+            _b1_fill("u2", "邮箱", "a@b.c"),
+            _b1_fill("u3", "电话", "138"),
+        ]}),
+        ("mark_step_done", {"reason": "三个字段已填", "evidence": ""}),
+    ], bridge=bridge)
+    a.element_map = _b1_form_agent(bridge).element_map
+    result = a.execute_step(_step("填写表单三个字段"), goal="g", previous_steps=[])
+    assert result.status == "done"
+    assert "unverified_done" not in (result.evidence or "")
+    assert "type_text→u1" in (result.evidence or "")  # 强证据取自子动作账本
+    assert getattr(a, "_loop_detector", None) is not None  # B1 接线：滑窗暴露给批量
+    acts = [c for c in bridge.calls if c[0] == "act"]
+    assert len(acts) == 3  # 批量在 execute_step 真实链路里也逐项下发
+
+
+def test_p05_b1_batch_schema_and_prompt_wiring():
+    """⑧ schema 形状与 prompt 接线：工具数钉 18/26、maxItems/enum/required、纪律文案。"""
+    tfns = {t["function"]["name"]: t["function"] for t in agent_mod._build_tool_definitions()}
+    assert len(tfns) == 26  # 25 → 26（test_pure_functions 双钉同步 18/26）
+    desktop = [n for n in tfns if not n.startswith("browser_")]
+    assert len(desktop) == 18 and "perform_batch" in desktop
+    p = tfns["perform_batch"]["parameters"]
+    assert p["required"] == ["actions"]
+    arr = p["properties"]["actions"]
+    assert arr["type"] == "array"
+    assert arr["maxItems"] == agent_mod._BATCH_MAX_ACTIONS == 8  # schema 与代码同源
+    item = arr["items"]
+    assert item["required"] == ["tool"]
+    assert item["properties"]["tool"]["enum"] == list(agent_mod._BATCH_ALLOWED_TOOLS)
+    for excluded in ("get_screen_info", "mark_step_done", "mark_step_failed",
+                     "report_infeasible", "ask_user", "launch_app",
+                     "select_menu_path", "window_action", "perform_batch"):
+        assert excluded not in item["properties"]["tool"]["enum"]
+    # 顶层描述写清使用时机纪律
+    desc = tfns["perform_batch"]["description"]
+    assert "仅当后续动作不依赖前面动作的结果时使用" in desc
+    assert "需要观察后决策的放主循环" in desc
+    # prompt：可用工具行 + 效率约束句
+    assert "- perform_batch(actions): 批量执行最多8个互不依赖的元素动作" in agent_mod.EXECUTION_SYSTEM_PROMPT
+    assert "填表类连续同构动作" in agent_mod.EXECUTION_SYSTEM_PROMPT
+
+
+def test_p05_b1_batch_redline_and_name_guard_apply_per_subaction(monkeypatch):
+    """⑨ 红线与 id×name 交叉验证逐个生效：批量不旁路任何单动作检查。"""
+    bridge = _click_ok_bridge()
+    a = _b1_form_agent(bridge)
+    # name 交叉验证不符 → 该项拒发（零 act 下发）、首败即停、错误码透传
+    r = a.dispatch_tool("perform_batch", {"actions": [
+        {"tool": "click", "element_id": "u1", "name": "取消"},
+        {"tool": "click", "element_id": "u1", "name": "姓名"},
+    ]})
+    assert r["ok"] is False and r["error_code"] == "name_mismatch"
+    assert bridge.calls == []  # NAME_MISMATCH 在 act 之前拦截
+    assert r["failed_at"] == 0 and r["completed"] == []
+    assert len(r["not_executed"]) == 1
+    assert r["failure"]["error_code"] == "name_mismatch"
+    # 红线（黄区）同样在子动作内部拦：dispatch 不旁路 check_step
+    def _yellow(step_text):
+        class _S:
+            level = "yellow"
+            reason = "疑似发送"
+        return _S()
+
+    monkeypatch.setattr(agent_mod, "check_step", _yellow)
+    r2 = a.dispatch_tool("perform_batch", {"actions": [
+        {"tool": "click", "element_id": "u1", "name": "姓名"},
+    ]})
+    assert r2["ok"] is False and r2["error_code"] == "confirm_required"
+    assert r2["failed_at"] == 0 and bridge.calls == []
