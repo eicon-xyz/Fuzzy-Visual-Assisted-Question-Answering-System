@@ -429,9 +429,9 @@ from server.services.executor.agent import _build_tool_definitions
 
 
 class TestBuildToolDefinitions:
-    def test_total_count_is_21(self):
+    def test_total_count_is_26(self):
         tools = _build_tool_definitions()
-        assert len(tools) == 21
+        assert len(tools) == 26  # P0.5-B4 四件套 +4；P0.5-B1 perform_batch +1
 
     def test_all_have_type_function(self):
         for t in _build_tool_definitions():
@@ -465,13 +465,13 @@ class TestBuildToolDefinitions:
         assert "browser_screenshot" in browser
         assert "browser_press_key" in browser
 
-    def test_desktop_tools_count_is_13(self):
+    def test_desktop_tools_count_is_18(self):
         desktop = [
             t["function"]["name"]
             for t in _build_tool_definitions()
             if not t["function"]["name"].startswith("browser_")
         ]
-        assert len(desktop) == 13
+        assert len(desktop) == 18  # P0.5-B4: +right_click/set_range/select_menu_path/window_action；P0.5-B1: +perform_batch
         assert "launch_app" in desktop
         assert "get_screen_info" in desktop
         assert "click" in desktop
