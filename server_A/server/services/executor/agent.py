@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import threading
 import time
 from typing import Optional
@@ -68,7 +69,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 
 ## 可用工具
 - launch_app(app_name): 通过系统级命令启动应用（Win+搜索）。当步骤为打开应用时，优先使用此工具。
-- get_screen_info(): 获取当前屏幕控件投影列表，字段：id / type(控件类型) / name(控件文本) / class(框架类名) / enabled(是否可用) / patterns(可用交互模式: invoke,value,toggle,selectionitem,expandcollapse,rangevalue,window) / bbox(相对窗口左上角 [左,上,宽,高] 像素)。附带 window_title / window_size 与 focused(当前焦点控件 name/type/class)。id 稳定：控件存活期间跨观察有效，无需因"刚观察过"而重取
+- get_screen_info([scope, depth, filter]): 获取当前屏幕控件投影列表（默认浅探，深层以大纲条目呈现：items=子项计数、expandable=可下钻），字段：id / type(控件类型) / name(控件文本) / class(框架类名) / enabled(是否可用) / patterns(可用交互模式: invoke,value,toggle,selectionitem,expandcollapse,rangevalue,window) / bbox(相对窗口左上角 [左,上,宽,高] 像素)。附带 window_title / window_size 与 focused(当前焦点控件 name/type/class)。id 稳定：控件存活期间跨观察有效，无需因"刚观察过"而重取。scope=某条目 id 时改为下钻该子树（加法观察，其余 id 不失效）；filter 覆盖语义排序词（缺省=当前步骤指令，'-' 关闭）
 - click(element_id, name[, expect]): 单击指定元素（UIA 绑定优先：Invoke/Select 等精确模式；失败回退坐标点击）。name 必填=该元素的 name 字段，服务端交叉验证防幻觉点击；expect 可选，声明期望的界面变化
 - double_click(element_id, name[, expect]): 双击指定元素。桌面图标、文件通常需要双击打开。
 - right_click(element_id, name[, expect]): 右键单击指定元素（弹系统上下文菜单）。需要右键菜单且投影里看不到菜单入口时用；name 同样交叉验证。
@@ -100,6 +101,8 @@ element_id 是稳定的：控件存活期间跨观察有效——重新 get_scre
 
 ## 元素定位策略
 - 元素来自 Windows UI Automation 结构化采集，每个元素带 type/name/class/enabled/patterns/bbox 投影字段
+- 默认观察是浅探（depth 3）：列表里 items 数字大 / expandable=true 的条目代表被折叠的容器——**用 get_screen_info(scope=该条目id) 下钻目标子树，不要反复整窗观察**（整窗重扫又贵又拿不到深层）
+- 截断排序默认按当前步骤指令做词法相关度加权（命中的条目优先保留）；怀疑排序漏掉目标时传 filter="-" 关闭语义排序重取
 - 优先按 name 精确/部分匹配目标文本（如目标"搜索框"可能显示为"搜"）
 - 用 type+patterns 判定控件性质：输入框=edit+value，按钮=button+invoke，菜单项=menuitem，复选框=checkbox/toggle
 - 跳过 enabled=false 的控件（点了不会生效）
@@ -192,8 +195,24 @@ def _build_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "get_screen_info",
-                "description": "获取当前屏幕控件投影列表（UIA 结构化采集）。每个元素含 id/type/name/class/enabled/patterns/bbox(相对窗口像素)。id 稳定：控件存活期间跨观察有效，无需重取；重绘销毁的控件动作时报 element_stale，届时重新观察选新 id。",
-                "parameters": {"type": "object", "properties": {}},
+                "description": "获取当前屏幕控件投影列表（UIA 结构化采集，默认浅探 depth=3）。每个元素含 id/type/name/class/enabled/patterns/bbox(相对窗口像素)，被折叠的容器以大纲条目呈现（items=子项计数, expandable=true）。id 稳定：控件存活期间跨观察有效，无需重取；重绘销毁的控件动作时报 element_stale，届时重新观察选新 id。可选参数：scope=对某大纲条目/窗口 id 下钻子树（加法观察，其余 id 不失效）；filter=语义排序词（缺省用当前步骤指令，'-' 关闭）。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "scope": {
+                            "type": "string",
+                            "description": "可选：下钻目标 id（投影里 expandable=true 条目的 id，或 windows 列表里的 wid）。只返回该子树/该窗口的深扫投影，其余已知 id 不失效。",
+                        },
+                        "depth": {
+                            "type": "integer",
+                            "description": "可选：scope 下钻的子树深度上限（默认 6，1-8），仅与 scope 同用。",
+                        },
+                        "filter": {
+                            "type": "string",
+                            "description": "可选：语义排序词（词法匹配 name/class/type，命中条目截断时优先保留；缺省=当前步骤指令文本；传 '-' 或 'off' 关闭语义排序）。",
+                        },
+                    },
+                },
             },
         },
         {
@@ -896,6 +915,7 @@ class ExecutionAgent:
         self.screen_source: Optional[str] = None  # "uia" | "omniparser" | "none"
         self._reset_step_ledger()  # 0.7 证据账本（每步在 execute_step 再重置）
         self._step_tel: Optional[dict] = None  # T1 步遥测（execute_step 内新建）
+        self._step_text: str = ""  # A3：本步 instruction，语义相关度默认 query
 
     @property
     def browser(self) -> BrowserController:
@@ -1217,31 +1237,135 @@ class ExecutionAgent:
 
     _SCREEN_PROJECTION_LIMIT = 40
 
-    def _prioritize_projection(self, proj: list[dict]) -> list[dict]:
+    # A3 词法切词分隔符（空白 + 常见中英文标点）
+    _TOKEN_SPLIT_RE = re.compile(r"[\s,，。、;；:：!！?？/\\|()\[\]{}【】<>《》\-_+~`'\"“”‘’]+")
+
+    @classmethod
+    def _query_tokens(cls, query: str) -> list:
+        """query → 词法 token 集：空白/标点切段 + CJK 友好 2-gram（长度≥2 保留）。"""
+        q = (query or "").strip().lower()
+        if not q:
+            return []
+        parts = [p for p in cls._TOKEN_SPLIT_RE.split(q) if p]
+        toks: list[str] = []
+        seen = set()
+        for p in parts:
+            for t in ({p} if len(p) >= 2 else set()) | {
+                p[i : i + 2] for i in range(len(p) - 1)
+            }:
+                if t not in seen:
+                    seen.add(t)
+                    toks.append(t)
+        return toks
+
+    @staticmethod
+    def _lexical_relevance(item: dict, tokens: list) -> int:
+        """词法相关度 = query token 与 name+class+type 双向包含的命中条数。"""
+        if not tokens:
+            return 0
+        hay = []
+        for key in ("name", "class", "type"):
+            h = str(item.get(key) or "").strip().lower()
+            if h:
+                hay.append(h)
+        if not hay:
+            return 0
+        hits = 0
+        for t in tokens:
+            if any(t in h or h in t for h in hay):
+                hits += 1
+        return hits
+
+    def _embedding_relevance(self, proj: list, query: str) -> list:
+        """A3 第二层钩子：embedding 余弦（仅词法全 0 命中时被调用，权重同词法）。
+
+        settings.SCREEN_SEMANTIC_FILTER 默认 false。TODO(Windows)：安装
+        sentence-transformers 并在 server/.env 配 SCREEN_SEMANTIC_FILTER=true
+        启用（get_embedding 在模型缺失时返回 None → 全 0，行为等同关闭）；
+        Linux 测试环境不装依赖、不启用，此路径常态静默。
+        """
+        zeros = [0] * len(proj)
+        if not getattr(settings, "SCREEN_SEMANTIC_FILTER", False):
+            return zeros
+        try:
+            from server.services.context.embedding_matcher import (
+                cosine_similarity,
+                get_embedding,
+            )
+
+            qv = get_embedding(query)
+            if qv is None:
+                return zeros
+            out = []
+            for item in proj[:60]:  # 成本上限：只嵌入 top-60（此路径本就截断场景）
+                hay = " ".join(
+                    str(item.get(k) or "")
+                    for k in ("name", "class")
+                    if item.get(k)
+                ).strip()
+                v = get_embedding(hay) if hay else None
+                try:
+                    out.append(
+                        1 if (v is not None and cosine_similarity(qv, v) >= 0.35) else 0
+                    )
+                except Exception:
+                    out.append(0)
+            out += [0] * (len(proj) - len(out))
+            return out
+        except Exception:
+            logger.debug("embedding relevance hook failed", exc_info=True)
+            return zeros
+
+    def _prioritize_projection(self, proj: list[dict], query: Optional[str] = None) -> list[dict]:
         """0.1 感知序列化：投影字段替代旧 {id,content}×30 截断。
 
-        优先级：可交互 patterns > 白名单类型 > 有名字 > 可用状态；
-        截断后按快照（DFS）顺序重排，保持空间阅读顺序。
-        A4: 快照序改用投影条目自带的 seq 字段（稳定 id 不再编码索引；
-        缺 seq 的旧条目回退列表位序）。
+        优先级（A3 语义层 + 原结构层）：
+          词法相关度 ×8（高于可交互的 ×4；query 缺省用本步 instruction，
+          filter 显式字符串覆盖，"-" / "off" 关闭）→ 可交互 patterns →
+          白名单可用状态 → 有名字。词法对全部条目 0 命中时尝试 embedding
+          钩子（默认关，见 _embedding_relevance）。
+        截断后按快照（DFS）顺序重排（A4 seq 字段），保持空间阅读顺序。
+        护栏：语义层只改排序权重、不隐藏任何条目（含大纲计数），
+        filter 可能漏目标时 LLM 可传 filter="-" 重取纯结构排序。
         """
         if len(proj) <= self._SCREEN_PROJECTION_LIMIT:
             return proj
 
-        def _score(item: dict) -> int:
-            return (
-                (4 if item.get("patterns") else 0)
-                + (2 if item.get("enabled") else 0)
-                + (1 if item.get("name") else 0)
-            )
+        if query is None:
+            query = getattr(self, "_step_text", "")
+        if (query or "").strip().lower() in ("-", "off"):
+            query = ""
+        tokens = self._query_tokens(query)
+        relevance = [self._lexical_relevance(it, tokens) for it in proj]
+        if tokens and not any(relevance):
+            relevance = self._embedding_relevance(proj, query)
 
-        ranked = sorted(enumerate(proj), key=lambda p: -_score(p[1]))
-        picked = sorted(
-            ranked[: self._SCREEN_PROJECTION_LIMIT],
-            key=lambda p: p[1].get("seq", p[0]),
-        )
+        scored = []
+        for i, item in enumerate(proj):
+            scored.append(
+                (
+                    8 * relevance[i]
+                    + (4 if item.get("patterns") else 0)
+                    + (2 if item.get("enabled") else 0)
+                    + (1 if item.get("name") else 0),
+                    i,
+                    item,
+                )
+            )
+        scored.sort(key=lambda t: -t[0])  # 稳定排序：同分保留原列表序
+        top = scored[: self._SCREEN_PROJECTION_LIMIT]
+
+        def _out_key(t):
+            # 语义命中条目置顶（相关度降序、同级按快照序）；其余保持
+            # 快照（DFS）阅读顺序（A4 seq 字段，缺 seq 回退列表位序）。
+            _s, i, item = t
+            seq = item.get("seq", i)
+            r = relevance[i]
+            return (0, -r, seq) if r > 0 else (1, 0, seq)
+
+        top.sort(key=_out_key)
         out = []
-        for _, item in picked:
+        for _, i, item in top:
             # A4: 全字段透传（大纲条目的 items/expandable 等附加字段必须到达
             # LLM——"被折叠"的事实正是大窗口截断场景要暴露的）；空 class 不占位。
             entry = dict(item)
@@ -1250,15 +1374,120 @@ class ExecutionAgent:
             out.append(entry)
         return out
 
-    def _do_get_screen_info(self) -> dict:
+    def _do_drill_observation(
+        self,
+        uia,
+        scope: str,
+        depth: Optional[int],
+        filter: Optional[str],
+    ) -> dict:
+        """A3：scope 下钻 = 桥 drill() 子树深扫（加法），返回子树视图。
+
+        scope 解析三态：
+          live（句柄存活）→ drill（大纲稳定 id / 窗口 wid / 任意已知控件）；
+          stale（句柄已死）→ element_stale（A4 协议同口径）；
+          unknown → 大纲临时 o{n} 给"先整窗观察"专用 hint，其余给 not found。
+        """
+        status = uia.scope_status(scope)
+        if status == "unknown":
+            if scope.startswith("o"):
+                return {
+                    "success": False,
+                    "error_code": "scope_not_drillable",
+                    "error": (
+                        f"大纲临时 id '{scope}' 无句柄（容器折叠时不可解析 runtime-id），"
+                        "无法下钻"
+                    ),
+                    "hint": (
+                        "先 get_screen_info 整窗观察，从返回里改用带稳定 id 的条目"
+                        "下钻；不要拿 o{n} 临时 id 重试。"
+                    ),
+                }
+            return {
+                "success": False,
+                "error_code": "element_not_found",
+                "error": f"scope '{scope}' 当前观察未知（never observed / 换步已清空）",
+                "hint": "先 get_screen_info 整窗观察拿到真实 id，再用 scope 下钻。",
+            }
+        if status == "stale":
+            return {
+                "success": False,
+                "error_code": "element_stale",
+                "error": f"scope '{scope}' 的控件已销毁或界面已重绘",
+                "hint": "get_screen_info 重新观察后选新 id；不要重试旧 id。",
+            }
+        try:
+            d = int(depth) if depth is not None else 6
+        except (TypeError, ValueError):
+            d = 6
+        d = max(1, min(d, 8))
+        _t0 = time.perf_counter()
+        els = uia.drill(scope, max_depth=d, max_nodes=80)
+        _ms = (time.perf_counter() - _t0) * 1000
+        drill_info = uia.last_drill_info() or {}
+        visible_ids = drill_info.get("ids") or {e.element_id for e in els}
+        subtree_proj = [
+            p for p in uia.last_projection() if p.get("id") in visible_ids
+        ]
+        self.element_map = uia.ui_cache()
+        self.screen_elements = _filter_elements_for_llm(els)
+        self.screen_source = "uia"
+        et.tally_snapshot(self._step_tel, _ms, len(subtree_proj))
+        visible = self._prioritize_projection(
+            subtree_proj, query=filter if filter is not None else None
+        )
+        result = {
+            "success": True,
+            "source": "uia",
+            "mode": "drill",
+            "scope": scope,
+            "additive": True,
+            "elements": visible,
+            "element_count": len(subtree_proj),
+            "action_summary": (
+                f"下钻 '{scope}' 子树（{len(subtree_proj)} 个控件，展示 "
+                f"{len(visible)} 个；加法观察，其余已知 id 仍有效）"
+            ),
+        }
+        if len(visible) < len(subtree_proj):
+            result["truncated"] = len(subtree_proj) - len(visible)
+        # A2：scope 指向顶层窗口 → 回报正在观察哪个窗（切焦点观察语义）
+        info = uia.last_drill_info()
+        if info.get("title"):
+            result["observing_window"] = info["title"]
+            result["window_title"] = info["title"]
+        self._get_screen_call_count = getattr(self, "_get_screen_call_count", 0) + 1
+        self._last_screen_ids = frozenset(self.element_map.keys())
+        if self._get_screen_call_count >= 3:
+            result["warning"] = (
+                f"已连续调用 get_screen_info {self._get_screen_call_count} 次。"
+                "屏幕元素不会因为反复截屏而改变。请立即根据已有元素决定下一步操作："
+                "点击目标元素、输入文本、或调用 mark_step_done/mark_step_failed。"
+            )
+        return result
+
+    def _do_get_screen_info(
+        self,
+        scope: Optional[str] = None,
+        depth: Optional[int] = None,
+        filter: Optional[str] = None,
+    ) -> dict:
         """屏幕感知：UIA 结构化采集优先 → OmniParser 兜底 → 明确空结果。
 
         0.5：删除观察前向系统按 ESC 的全局副作用——它会把刚展开的
         菜单/下拉直接关掉；需要关弹窗时用显式 press_key("esc")。
+
+        A3 参数（仅 UIA 观察态生效）：
+          scope：从该 id（大纲条目/已知控件）出发 drill 子树——加法观察，
+                 其余 id 不失效；返回 {"mode":"drill", ..., "additive":True}。
+          depth：drill 子树深度上限（默认 6），配合 scope 使用。
+          filter：覆盖语义排序 query（缺省=本步 instruction；"-"/"off" 关闭）。
         """
         # 1) UIA 优先（主感知通道：结构化投影，非截扁的 id+content）
         uia = self._get_uia()
         if uia.available:
+            if scope:
+                return self._do_drill_observation(uia, str(scope), depth, filter)
             _t_snap = time.perf_counter()
             uia_elements = uia.snapshot()
             _snap_ms = (time.perf_counter() - _t_snap) * 1000
@@ -1272,10 +1501,13 @@ class ExecutionAgent:
                 self.screen_elements = _filter_elements_for_llm(uia_elements)
                 self.screen_source = "uia"
                 proj = uia.last_projection()
-                visible = self._prioritize_projection(proj)
+                visible = self._prioritize_projection(
+                    proj, query=filter if filter is not None else None
+                )
                 result = {
                     "success": True,
                     "source": "uia",
+                    "mode": "window",
                     "elements": visible,
                     "element_count": len(proj),
                     "action_summary": f"UIA 结构化采集（{len(proj)} 个控件，展示 {len(visible)} 个）",
@@ -2190,6 +2422,10 @@ class ExecutionAgent:
             "控件已销毁或界面已重绘（A4 稳定 id 协议）。禁止重试旧 id——"
             "get_screen_info 重新观察后选新 id。"
         ),
+        "scope_not_drillable": (
+            "大纲临时 id（o{n}）不带句柄，无法下钻。先 get_screen_info 整窗观察，"
+            "改用返回条目里的稳定 id 作 scope；也不要试图 click 折叠容器。"
+        ),
         "name_mismatch": (
             "目标 id 与名称不符：按回报的真实名称换 id，"
             "或 get_screen_info 后按 name/type/bbox 重新定位。禁止换 id 碰运气。"
@@ -2265,6 +2501,8 @@ class ExecutionAgent:
             return "window_not_found"
         if "no_range_pattern" in e:
             return "no_range_pattern"
+        if "scope_not_drillable" in e or "无法下钻" in e:
+            return "scope_not_drillable"  # A3：大纲临时 id 下钻拒收
         if "element_stale" in e or " is stale" in e:
             return "element_stale"  # A4：先于 not found / failed 泛化分支
         if "not found in current screen" in e or "not found" in e and "element" in e:
@@ -2331,7 +2569,14 @@ class ExecutionAgent:
 
     def _dispatch_tool_inner(self, tool_name: str, tool_args: dict) -> dict:
         if tool_name == "get_screen_info":
-            return self._do_get_screen_info()
+            # A3：只在实际传参时带 kwargs（保持 _do_get_screen_info 零参可调
+            # 的既有 monkeypatch/直调语义）
+            _gk = {
+                k: tool_args[k]
+                for k in ("scope", "depth", "filter")
+                if tool_args.get(k) is not None
+            }
+            return self._do_get_screen_info(**_gk)
         elif tool_name == "launch_app":
             return self._do_launch_app(tool_args.get("app_name", ""))
         elif tool_name == "click":
@@ -2509,6 +2754,8 @@ class ExecutionAgent:
         loop_detector = _LoopDetector(
             self._step_tel["loop_events"]
         )  # 0.4 卡死检测（每步独立，越界事件直接写入遥测）
+        # A3：本步 instruction 作为语义相关度默认 query（_prioritize_projection）
+        self._step_text = step.instruction or ""
         # P0.5-B1：暴露给 _do_perform_batch，批量子动作逐个进同一滑窗
         self._loop_detector = loop_detector
         self._reset_step_ledger()  # 0.7 证据账本（每步独立）

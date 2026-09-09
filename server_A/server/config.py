@@ -112,5 +112,12 @@ class Config:
     MAX_TOOL_CALL_ROUNDS: int = int(os.getenv("MAX_TOOL_CALL_ROUNDS", "50"))
     STEP_RETRY_LIMIT: int = int(os.getenv("STEP_RETRY_LIMIT", "3"))
 
+    # A3 语义过滤第二层（embedding 余弦）开关：默认关——需 sentence-transformers
+    # 与 all-MiniLM-L6-v2 模型文件（Windows 侧安装后在 .env 置 true 启用；
+    # Linux 测试环境不装依赖，词法层 0 命中时静默跳过，见 agent 钩子注释）。
+    SCREEN_SEMANTIC_FILTER: bool = (
+        os.getenv("SCREEN_SEMANTIC_FILTER", "false").lower() == "true"
+    )
+
 
 settings = Config()

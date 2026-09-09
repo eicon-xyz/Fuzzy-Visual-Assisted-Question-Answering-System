@@ -2141,3 +2141,195 @@ def test_p05_a4_agent_propagates_element_stale(monkeypatch):
     assert r["ok"] is False
     assert r["error_code"] == "element_stale"
     assert "不要重试旧 id" in r["hint"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# P0.5-A3 浅探大纲 + scope/filter 下钻 + 词法语义过滤（台账 A3）
+# 默认 snapshot(depth 3) 把折叠容器暴露成大纲条目（items/expandable）；
+# drill(scope) 加法深扫；词法相关度权重 8 高于 patterns 的 4。
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _a3_deep_tree():
+    """深度账：root d0 → shallow d1（可见）；c1 d1 → c2 d2 → 折叠容器 d3
+    （稳定大纲，deep d4 不可见）+ 烂容器 d3（无 rid → o{n} 临时大纲，
+    藏按钮 d4 不可见）。"""
+    shallow = _RuntimeIdControl("浅层按钮", ctype="ButtonControl",
+                                rect=(10, 10, 70, 34), runtime_id=(1, 11))
+    shallow._patterns["invoke"] = _FakeInvokePattern(shallow)
+    deep = _RuntimeIdControl("深层按钮", ctype="ButtonControl",
+                             rect=(10, 310, 70, 330), runtime_id=(1, 44))
+    deep._patterns["invoke"] = _FakeInvokePattern(deep)
+    fold = _RuntimeIdControl("折叠容器", ctype="PaneControl",
+                             rect=(5, 305, 200, 340), runtime_id=(1, 43),
+                             children=(deep,))
+    junk = FakeControl("烂容器", ctype="PaneControl", rect=(410, 300, 500, 340),
+                       children=(FakeControl("藏按钮", ctype="ButtonControl",
+                                             rect=(415, 310, 460, 330)),))
+    c2 = _RuntimeIdControl("二级容器", ctype="PaneControl",
+                           rect=(5, 300, 400, 345), runtime_id=(1, 42),
+                           children=(fold, junk))
+    c1 = _RuntimeIdControl("一级容器", ctype="PaneControl",
+                           rect=(0, 290, 790, 590), runtime_id=(1, 41),
+                           children=(c2,))
+    root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600),
+                       children=(shallow, c1))
+    return root, shallow, deep, c2
+
+
+def test_p05_a3_default_shallow_emits_outline_entries(monkeypatch):
+    """深树默认观察：折叠容器进大纲（稳定 id 可解析），烂容器给 o{n}，
+    深层控件不可见也不可 act；o{n} 不进句柄表。"""
+    root, *_ = _a3_deep_tree()
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    els = b.snapshot()
+    assert {e.text for e in els} == {"浅层按钮"}  # depth 3 外的深层按钮不可见
+    proj = b.last_projection()
+    oc = next(p for p in proj if p["name"] == "折叠容器")
+    assert oc["expandable"] is True and oc["items"] == 1
+    assert oc["type"] == "pane" and oc["patterns"] == []
+    assert _re.fullmatch(r"e[0-9a-f]{10}", oc["id"])
+    assert b.has_handle(oc["id"])  # 稳定大纲 id 可 drill
+    oh = next(p for p in proj if p["name"] == "烂容器")
+    assert oh["id"].startswith("o") and oh["expandable"] is True
+    assert not b.has_handle(oh["id"])  # 大纲临时 id 不进句柄表（防对折叠容器开枪）
+    # 大纲按 DFS 原位排布：折叠容器 seq 介于浅层按钮与…（seq 单调）
+    seqs = [p["seq"] for p in proj]
+    assert seqs == sorted(seqs)
+
+
+def test_p05_a3_drill_additive_and_ids_survive(monkeypatch):
+    """drill(大纲稳定id)：子树深扫增量、原有条目与句柄全部存活可 act。"""
+    root, shallow, deep, _ = _a3_deep_tree()
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    els = b.snapshot()
+    shallow_eid = find_el(els, "浅层按钮").element_id
+    outline = next(p for p in b.last_projection() if p["name"] == "折叠容器")
+    out = b.drill(outline["id"])
+    assert {e.text for e in out} == {"深层按钮"}
+    deep_eid = out[0].element_id
+    # drill 是加法：原视图与句柄未被重置
+    assert shallow_eid in b._last_controls
+    r1 = b.act(deep_eid, action="click", verify_timeout=0.2)
+    assert r1["success"] is True and "invoke" in deep.log
+    r2 = b.act(shallow_eid, action="click", verify_timeout=0.2)
+    assert r2["success"] is True and "invoke" in shallow.log
+    # 深层条目并入投影（原位置之外的增量尾部，seq 续编）
+    assert any(p["name"] == "深层按钮" for p in b.last_projection())
+
+
+def test_p05_a3_outline_merges_into_existing_entry(monkeypatch):
+    """容器本身已在投影（白名单类型）→ 大纲字段原地合并，不产第二条目。"""
+    opt = FakeControl("选项甲", ctype="MenuItemControl", rect=(10, 320, 60, 340))
+    combo = _RuntimeIdControl("下拉框", ctype="ComboBoxControl",
+                              rect=(5, 300, 200, 345), runtime_id=(2, 1),
+                              children=(opt,))
+    combo._patterns["expand"] = _FakeExpandPattern(combo)
+    root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600),
+                       children=(combo,))
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    # combo 在 d1（默认 depth 3 内）→ 无折叠。压 depth=1 让它落在 d==max_depth：
+    els = b.snapshot(max_depth=1)
+    entries = [p for p in b.last_projection() if p["name"] == "下拉框"]
+    assert len(entries) == 1
+    assert entries[0]["expandable"] is True and entries[0]["items"] == 1
+    assert "expandcollapse" in entries[0]["patterns"]  # 原 pattern 字段保留
+    assert not any(p["name"] == "选项甲" for p in b.last_projection())
+
+
+def test_p05_a3_agent_scope_drill_returns_subtree_and_survival(monkeypatch):
+    """agent scope=大纲 id → mode drill/additive，子树控件进投影且可 act，
+    原窗口条目 id 不失效。"""
+    root, shallow, deep, _ = _a3_deep_tree()
+    install_fake_uia(monkeypatch, root)
+    a = agent_mod.ExecutionAgent()
+    obs = a._do_get_screen_info()
+    outline = next(e for e in obs["elements"] if e.get("expandable")
+                   and e["name"] == "折叠容器")
+    obs2 = a._do_get_screen_info(scope=outline["id"])
+    assert obs2["success"] and obs2["mode"] == "drill" and obs2["additive"] is True
+    assert obs2["scope"] == outline["id"]
+    deep_e = next(e for e in obs2["elements"] if e["name"] == "深层按钮")
+    r = a.dispatch_tool("click", {"element_id": deep_e["id"], "name": "深层按钮"})
+    assert r["ok"] is True and "invoke" in deep.log
+    shallow_e = next(e for e in obs["elements"] if e["name"] == "浅层按钮")
+    r2 = a.dispatch_tool("click", {"element_id": shallow_e["id"], "name": "浅层按钮"})
+    assert r2["ok"] is True  # 其余 id 不失效
+    # scope 未知 id → element_not_found 语义
+    r3 = a._do_get_screen_info(scope="e000000000")
+    assert r3["success"] is False and r3["error_code"] == "element_not_found"
+
+
+def test_p05_a3_scope_on_temp_outline_id_errors(monkeypatch):
+    """scope 指向 o{n} 大纲临时 id → scope_not_drillable + 先整窗观察 hint。"""
+    root, *_ = _a3_deep_tree()
+    install_fake_uia(monkeypatch, root)
+    a = agent_mod.ExecutionAgent()
+    obs = a._do_get_screen_info()
+    o_id = next(e["id"] for e in obs["elements"] if e["id"].startswith("o"))
+    r = a._do_get_screen_info(scope=o_id)
+    assert r["success"] is False and r["error_code"] == "scope_not_drillable"
+    assert "整窗观察" in r["hint"]
+    d = a.dispatch_tool("get_screen_info", {"scope": o_id})
+    assert d["ok"] is False and d["error_code"] == "scope_not_drillable"
+
+
+def test_p05_a3_filter_lexical_priority_and_off():
+    """词法命中（×8）压过可交互（×4）；filter '-'/缺省 step_text 两条路径。"""
+    a = agent_mod.ExecutionAgent()
+    proj = [
+        {"id": f"e{i}", "type": "button", "name": f"条目{i}", "class": "",
+         "enabled": True, "patterns": [], "bbox": [i, 0, 10, 10], "seq": i}
+        for i in range(50)
+    ]
+    proj[3]["patterns"] = ["invoke"]  # 唯一可交互对照组
+    proj[41]["name"] = "下载到磁盘按钮"  # 非交互但语义命中
+    out = a._prioritize_projection(proj, query="下载")
+    assert out[0]["id"] == "e41"  # 含"下载"条目优先于其他（含可交互）条目
+    ids = [e["id"] for e in out]
+    assert "e41" in ids and ids.index("e41") < ids.index("e3")
+    out_off = a._prioritize_projection(proj, query="-")
+    # 关闭语义层 → 纯旧打分：e3（唯一可交互）入选、e41 掉出截断集，
+    # 输出按快照序重排（旧行为头名是 DFS 首位，不是 e3）。
+    ids_off = [e["id"] for e in out_off]
+    assert out_off[0]["id"] == "e0"
+    assert "e3" in ids_off and "e41" not in ids_off
+    a._step_text = "点击下载并保存"  # 缺省 query=本步 instruction
+    out_def = a._prioritize_projection(proj)
+    assert out_def[0]["id"] == "e41"
+
+
+def test_p05_a3_agent_filter_param_and_off_via_observation(monkeypatch):
+    """整窗观察走 filter 参数覆盖缺省 query（经真实桥的截断路径太贵，
+    用 41+ 条目浅树验证参数接线不改语义即可）。"""
+    kids = [FakeControl(f"k{i}", ctype="ButtonControl",
+                        rect=(i, 50 + i, i + 30, 80 + i)) for i in range(45)]
+    for k in kids:
+        k._patterns["invoke"] = _FakeInvokePattern(k)
+    kids[44].Name = "下载入口"
+    root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600),
+                       children=tuple(kids))
+    install_fake_uia(monkeypatch, root)
+    a = agent_mod.ExecutionAgent()
+    a._step_text = "下载"
+    obs = a._do_get_screen_info()
+    assert obs["success"] and len(obs["elements"]) == a._SCREEN_PROJECTION_LIMIT
+    assert obs["elements"][0]["name"] == "下载入口"  # 语义层生效
+    obs2 = a._do_get_screen_info(filter="-")
+    assert obs2["elements"][0]["name"] == "k0"  # 关闭后回 DFS 原序头名
+    assert obs2.get("truncated")  # 截断事实仍可见
+
+
+def test_p05_a3_schema_prompt_config_wiring():
+    gsi = next(t for t in agent_mod.ExecutionAgent().tools
+               if t["function"]["name"] == "get_screen_info")
+    assert set(gsi["function"]["parameters"]["properties"]) == {
+        "scope", "depth", "filter"
+    }
+    prompt = agent_mod.EXECUTION_SYSTEM_PROMPT
+    assert "下钻" in prompt and "expandable" in prompt  # 策略行入 prompt
+    from server.config import settings
+    assert settings.SCREEN_SEMANTIC_FILTER is False  # embedding 层默认关

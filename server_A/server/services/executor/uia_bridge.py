@@ -203,8 +203,9 @@ class UIABridge:
         self._handles: Dict[str, object] = {}  # eid → UIA control（act/verify 消费）
         self._ui_cache: Dict[str, UIElement] = {}  # eid → 最近一次观察的 UIElement 投影
         self._fallback_seq = 0  # 烂控件回退 u{n} 计数（桥实例内单调，防旧号段鬼魂复用）
-        self._outline_seq = 0  # A3 预留：大纲临时 id o{n} 计数（不进句柄表）
+        self._outline_seq = 0  # A3：大纲临时 id o{n} 计数（不进句柄表）
         self._proj_seq = 0  # 投影 seq 计数器（快照重置、drill 续编）
+        self._last_drill_info: dict = {}  # A3/A2：最近一次 drill 根信息
         self._auto = _import_auto()
         self._available = self._auto is not None and platform.system() == "Windows"
         if not self._available:
@@ -216,8 +217,12 @@ class UIABridge:
 
     # ── 采集 ──
 
-    def snapshot(self, max_depth: int = None, max_nodes: int = None) -> List[UIElement]:
+    def snapshot(self, max_depth: int = 3, max_nodes: int = 160) -> List[UIElement]:
         """遍历前台窗口 UIA 树，返回 UIElement 列表（含空间/模式信息）。
+
+        A3 浅探默认：max_depth=3 / max_nodes=160——默认观察比旧值（6/120）更
+        便宜，被深度预算挡住未展开的容器产"大纲条目"（items 计数 +
+        expandable，见 _emit_outline），深扫交给 drill(scope)。
 
         A4 稳定 id：eid 由 GetRuntimeId(+hwnd/ProcessId) 派生，句柄表
         （_handles/_ui_cache）跨快照存活——观察不再使旧 id 作废，控件销毁
@@ -378,14 +383,19 @@ class UIABridge:
             k += 1
         return eid
 
-    def _register_handle(self, eid: str, control, ui: UIElement) -> None:
-        """句柄/投影缓存登记（A4，跨快照存活）。超容量按最久未观察淘汰。"""
+    def _register_handle(self, eid: str, control, ui: Optional[UIElement] = None) -> None:
+        """句柄/投影缓存登记（A4，跨快照存活）。超容量按最久未观察淘汰。
+
+        A3：大纲容器的稳定 id 也登记句柄（drill 可达），但不带 UIElement
+        （不进 _ui_cache → agent 端不可 act——防"对折叠容器开枪"）。
+        """
         if eid in self._handles:
             self._handles.pop(eid)
         self._handles[eid] = control
-        if eid in self._ui_cache:
-            self._ui_cache.pop(eid)
-        self._ui_cache[eid] = ui
+        if ui is not None:
+            if eid in self._ui_cache:
+                self._ui_cache.pop(eid)
+            self._ui_cache[eid] = ui
         while len(self._handles) > self._HANDLE_CAP:
             oldest = next(iter(self._handles))
             self._handles.pop(oldest, None)
@@ -404,9 +414,139 @@ class UIABridge:
         """A4：句柄表里是否有该 eid（跨快照存活判据）。"""
         return element_id in self._handles
 
+    def scope_status(self, element_id: str) -> str:
+        """A3：scope 下钻前置探测——'live'（可 drill）/'stale'（句柄已死）/'unknown'。"""
+        ctrl = self._handles.get(element_id)
+        if ctrl is None:
+            return "unknown"
+        if not self._control_alive(ctrl):
+            return "stale"
+        return "live"
+
     def ui_cache(self) -> Dict[str, UIElement]:
         """A4：eid → 最近观察 UIElement 的跨快照缓存（agent element_map 直用）。"""
         return self._ui_cache
+
+    # ── A3 按需下钻（drill = 加法，不重置既有映射）──
+
+    def drill(
+        self,
+        element_id: str,
+        max_depth: int = 6,
+        max_nodes: int = 80,
+    ) -> List[UIElement]:
+        """从 _handles[element_id] 出发子树深扫 + pattern 探测（A3）。
+
+        增量写入 _last_controls/_last_meta/_last_projection/_handles（不重置
+        既有映射——drill 是加法，其余 id 不失效）；子树内被再次观察的 id 的
+        投影条目按新结果替换。不可解析/句柄已死 → 返回 []（调用方先用
+        scope_status 区分错误语义）。返回子树 UIElement 列表（含子树自身的
+        浅探大纲条目，若子树仍超深）。
+        """
+        if not self._available:
+            return []
+        ctrl = self._handles.get(element_id)
+        if ctrl is None or not self._control_alive(ctrl):
+            return []
+        budget = [max(1, int(max_nodes or 80))]
+        depth = max(1, int(max_depth or 6))
+        out: List[UIElement] = []
+        root_type = _raw_control_type(ctrl)
+        root_rect = _control_bbox(ctrl)
+        win_rect = self._last_window_rect
+        if root_type == "window" and root_rect:
+            # A2 铺垫：scope 指向顶层窗口 → 观察基准换成该窗（切焦点观察）
+            win_rect = root_rect
+            self._last_window_rect = root_rect
+            try:
+                self._last_window_title = (ctrl.Name or "").strip()
+            except Exception:
+                pass
+        before = len(self._last_projection)
+        self._walk(ctrl, 0, depth, budget, out, self._last_controls, win_rect)
+        new_entries = self._last_projection[before:]
+        new_ids = {p["id"] for p in new_entries}
+        new_objs = {id(p) for p in new_entries}
+        self._last_projection = [
+            p for p in self._last_projection
+            if id(p) in new_objs or p.get("id") not in new_ids
+        ]
+        try:
+            root_name = (ctrl.Name or "").strip()
+        except Exception:
+            root_name = ""
+        self._last_drill_info = {
+            "scope": element_id,
+            "root_type": root_type,
+            "title": root_name if root_type == "window" else "",
+            # 本次 drill 写入/刷新的全部投影 id（含子树内新生成的浅探大纲条目）
+            "ids": set(new_ids),
+        }
+        return out
+
+    def last_drill_info(self) -> dict:
+        """最近一次 drill 的根信息（A2：observing_window 用）。"""
+        return getattr(self, "_last_drill_info", {}) or {}
+
+    def _emit_outline(
+        self,
+        control,
+        children: List[object],
+        bbox: Optional[List[int]],
+        win_rect: Optional[List[int]],
+        existing_entry: Optional[dict],
+    ) -> None:
+        """A3 大纲条目：被深度预算挡住未展开的容器（仍有 children 且
+        d==max_depth）也要"被看见"。只数 children 不做 pattern 探测（成本红线）。
+
+        - 容器本身已在投影里（白名单类型等）→ 原地补 items/expandable 字段；
+        - 否则产独立条目：id 可解析 runtime-id → 稳定 eid（进句柄表可 drill，
+          不进 ui_cache 不可 act）；不可解析 → 临时 "o{n}"（不进句柄表，
+          drill/act 都不接受——agent 端按 o 前缀直接给"先整窗观察"hint）。
+        """
+        n = len(children)
+        items = n if n <= 200 else "200+"
+        if existing_entry is not None:
+            existing_entry["items"] = items
+            existing_entry["expandable"] = True
+            return
+        if bbox is None:
+            return  # 不可见容器不进大纲
+        eid = self._stable_base_eid(control)
+        if eid is None or eid in self._last_controls or eid in {
+            p.get("id") for p in self._last_projection
+        }:
+            self._outline_seq += 1
+            eid = f"o{self._outline_seq}"
+        else:
+            self._register_handle(eid, control)
+        try:
+            name = (control.Name or "").strip()
+        except Exception:
+            name = ""
+        rel = bbox
+        if win_rect:
+            rel = [
+                bbox[0] - win_rect[0],
+                bbox[1] - win_rect[1],
+                bbox[2] - bbox[0],
+                bbox[3] - bbox[1],
+            ]
+        self._last_projection.append(
+            {
+                "id": eid,
+                "type": _raw_control_type(control) or "pane",
+                "name": name,
+                "class": "",
+                "enabled": True,
+                "patterns": [],
+                "bbox": rel,
+                "seq": self._proj_seq,
+                "items": items,
+                "expandable": True,
+            }
+        )
+        self._proj_seq += 1
 
     def _walk(
         self,
@@ -425,6 +565,7 @@ class UIABridge:
         budget[0] -= 1
         try:
             bbox = _control_bbox(control)
+            entry_for_outline: Optional[dict] = None  # A3：本节点已发的投影条目
             if bbox is not None:
                 name = (control.Name or "").strip()
                 raw_type = _raw_control_type(control)
@@ -489,7 +630,13 @@ class UIABridge:
                             }
                         )
                         self._proj_seq += 1
+                        entry_for_outline = self._last_projection[-1]
             children = control.GetChildren()
+            # A3 浅探大纲：被深度预算挡住未展开的容器（仍有 children 且
+            # d==max_depth）暴露"被折叠"的事实——items 计数 + expandable。
+            # 复用刚取到的 children，只数不做 pattern 探测（成本红线）。
+            if store is self._last_controls and depth == max_depth and children:
+                self._emit_outline(control, children, bbox, win_rect, entry_for_outline)
             for child in children:
                 if budget[0] <= 0:
                     break
@@ -1227,3 +1374,5 @@ class UIABridge:
         self._handles = {}
         self._ui_cache = {}
         self._fallback_seq = 0
+        self._outline_seq = 0
+        self._last_drill_info = {}
