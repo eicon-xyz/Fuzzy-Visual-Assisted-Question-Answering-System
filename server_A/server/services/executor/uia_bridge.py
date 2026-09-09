@@ -20,6 +20,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import platform
 import time
 from typing import Dict, List, Optional, Tuple
@@ -187,14 +188,23 @@ class UIABridge:
 
     _MAX_DEPTH = 6
     _MAX_NODES = 120
+    # A4: 句柄表容量上限，超限按"最久未被观察"淘汰（FIFO）
+    _HANDLE_CAP = 400
 
     def __init__(self) -> None:
+        # ── 当次视图（每次 snapshot 重建，drill 增量）──
         self._last_controls: Dict[str, object] = {}
         self._last_meta: Dict[str, dict] = {}  # B2: {eid: {type, patterns}} 快照期缓存
         self._last_projection: List[dict] = []
         self._last_window_title: str = ""
         self._last_window_rect: Optional[List[int]] = None
         self._last_focused: Optional[dict] = None  # B3: 快照时焦点控件 {name,type,class,bbox}
+        # ── A4: 跨快照存活的持久句柄表（clear() 才全清）──
+        self._handles: Dict[str, object] = {}  # eid → UIA control（act/verify 消费）
+        self._ui_cache: Dict[str, UIElement] = {}  # eid → 最近一次观察的 UIElement 投影
+        self._fallback_seq = 0  # 烂控件回退 u{n} 计数（桥实例内单调，防旧号段鬼魂复用）
+        self._outline_seq = 0  # A3 预留：大纲临时 id o{n} 计数（不进句柄表）
+        self._proj_seq = 0  # 投影 seq 计数器（快照重置、drill 续编）
         self._auto = _import_auto()
         self._available = self._auto is not None and platform.system() == "Windows"
         if not self._available:
@@ -209,14 +219,19 @@ class UIABridge:
     def snapshot(self, max_depth: int = None, max_nodes: int = None) -> List[UIElement]:
         """遍历前台窗口 UIA 树，返回 UIElement 列表（含空间/模式信息）。
 
-        注意：会重置 _last_controls 并重新编号 element_id（旧 id 全部失效）。
-        同时刷新 _last_projection（0.1 感知序列化：type/name/class/enabled/
-        patterns/窗口相对 bbox 的投影视图）与 _last_meta（B2 决策表缓存）。
+        A4 稳定 id：eid 由 GetRuntimeId(+hwnd/ProcessId) 派生，句柄表
+        （_handles/_ui_cache）跨快照存活——观察不再使旧 id 作废，控件销毁
+        后由 act/verify 报 element_stale。会重置的只是"当次视图"
+        （_last_controls/_last_projection/_last_meta/_last_focused），
+        刷新为本次观察到的控件视图。_last_projection 为 0.1 感知序列化
+        （type/name/class/enabled/patterns/窗口相对 bbox/seq），_last_meta
+        为 B2 决策表缓存。
         """
         self._last_controls = {}
         self._last_meta = {}
         self._last_projection = []
         self._last_focused = None
+        self._proj_seq = 0
         out = self._snapshot_into(self._last_controls, max_depth, max_nodes)
         # B3: 快照成功后记录当前焦点控件（供 agent 观察结果头部附 focused 字段）
         if self._available:
@@ -304,6 +319,95 @@ class UIABridge:
         """最近一次 snapshot() 的投影字段列表（0.1 感知序列化）。"""
         return self._last_projection
 
+    # ── A4 稳定 id / 持久句柄 ──
+
+    @staticmethod
+    def _stable_base_eid(control) -> Optional[str]:
+        """eid = 'e' + sha1(hwnd|'/' + runtime-id)[:10]。
+
+        hwnd 前缀尽力取 ProcessId → 顶层窗口 NativeWindowHandle（都取不到
+        用空串，runtime-id 本身在 UIA 会话内已唯一）。GetRuntimeId 缺失/
+        异常/空 → None（调用方回退现场序 u{n}，兼容烂控件）。
+        """
+        try:
+            rid = control.GetRuntimeId()
+            if rid is None:
+                return None
+            rid_part = "|".join(str(x) for x in rid)
+        except Exception:
+            return None
+        if not rid_part:
+            return None
+        hwnd = ""
+        try:
+            pid = getattr(control, "ProcessId", None)
+            if pid is not None:
+                hwnd = str(pid)
+        except Exception:
+            pass
+        if not hwnd:
+            try:
+                top = control.GetTopLevelControl()
+                h = getattr(top, "NativeWindowHandle", None)
+                if h is not None:
+                    hwnd = str(h)
+            except Exception:
+                pass
+        try:
+            key = ((hwnd or "") + "/" + rid_part).encode("utf-8", "replace")
+            return "e" + hashlib.sha1(key).hexdigest()[:10]
+        except Exception:
+            return None
+
+    def _assign_eid(self, control, view: Dict[str, object]) -> str:
+        """为控件定 eid（A4）。
+
+        - 可解析 runtime-id → 稳定 e<hash>；同一次观察内撞号（不同控件算出
+          同一 base）→ 追加 #2 序号；跨观察同 base = 同一控件，原地刷新句柄。
+        - 不可解析 → 回退现场序 u{n}，桥实例内单调递增不回头（防旧 id 被
+          重建控件"鬼魂"解析——台账 A4 反鬼魂协议）。
+        """
+        base = self._stable_base_eid(control)
+        if base is None:
+            self._fallback_seq += 1
+            return f"u{self._fallback_seq}"
+        eid = base
+        k = 2
+        while eid in view:  # 仅当次观察占用才算冲突（句柄表里旧条目=同控件，直接覆盖）
+            eid = f"{base}#{k}"
+            k += 1
+        return eid
+
+    def _register_handle(self, eid: str, control, ui: UIElement) -> None:
+        """句柄/投影缓存登记（A4，跨快照存活）。超容量按最久未观察淘汰。"""
+        if eid in self._handles:
+            self._handles.pop(eid)
+        self._handles[eid] = control
+        if eid in self._ui_cache:
+            self._ui_cache.pop(eid)
+        self._ui_cache[eid] = ui
+        while len(self._handles) > self._HANDLE_CAP:
+            oldest = next(iter(self._handles))
+            self._handles.pop(oldest, None)
+            self._ui_cache.pop(oldest, None)
+
+    @staticmethod
+    def _control_alive(ctrl) -> bool:
+        """存活探针：已销毁控件读廉价属性即抛（COMError/ElementNotAvailable）。"""
+        try:
+            _ = ctrl.Name
+            return True
+        except Exception:
+            return False
+
+    def has_handle(self, element_id: str) -> bool:
+        """A4：句柄表里是否有该 eid（跨快照存活判据）。"""
+        return element_id in self._handles
+
+    def ui_cache(self) -> Dict[str, UIElement]:
+        """A4：eid → 最近观察 UIElement 的跨快照缓存（agent element_map 直用）。"""
+        return self._ui_cache
+
     def _walk(
         self,
         control,
@@ -332,27 +436,28 @@ class UIABridge:
                 if keep:
                     ctrl_type = _control_type(control)
                     cx, cy = (bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2
-                    eid = f"u{len(store) + 1}"
+                    eid = self._assign_eid(control, store)  # A4 稳定 id
                     try:
                         enabled = bool(control.IsEnabled)
                     except Exception:
                         enabled = True
                     store[eid] = control
-                    out.append(
-                        UIElement(
-                            element_id=eid,
-                            bbox=bbox,
-                            element_type=ctrl_type,
-                            text=name,
-                            confidence=0.9,
-                            center=[cx, cy],
-                            left_elem_ids=[],
-                            right_elem_ids=[],
-                            top_elem_ids=[],
-                            bottom_elem_ids=[],
-                        )
+                    ui = UIElement(
+                        element_id=eid,
+                        bbox=bbox,
+                        element_type=ctrl_type,
+                        text=name,
+                        confidence=0.9,
+                        center=[cx, cy],
+                        left_elem_ids=[],
+                        right_elem_ids=[],
+                        top_elem_ids=[],
+                        bottom_elem_ids=[],
                     )
+                    out.append(ui)
                     if store is self._last_controls:
+                        # A4: 句柄表跨快照存活（act/verify 消费 _handles）
+                        self._register_handle(eid, control, ui)
                         # B2: 决策表缓存——eid → {type(raw), patterns}，act 期零探测
                         self._last_meta[eid] = {"type": raw_type, "patterns": patterns}
                         # 投影字段：bbox 换算为相对前台窗口左上角，
@@ -369,6 +474,8 @@ class UIABridge:
                             cls = (control.ClassName or "").strip()
                         except Exception:
                             cls = ""
+                        # A4: seq=快照（DFS）序。id 不再编码索引后，agent 截断
+                        # 重排改消费该字段（旧实现从 id 后缀整数推索引序）。
                         self._last_projection.append(
                             {
                                 "id": eid,
@@ -378,8 +485,10 @@ class UIABridge:
                                 "enabled": enabled,
                                 "patterns": patterns,
                                 "bbox": rel,  # [左, 上, 宽, 高]（相对窗口，px）
+                                "seq": self._proj_seq,
                             }
                         )
+                        self._proj_seq += 1
             children = control.GetChildren()
             for child in children:
                 if budget[0] <= 0:
@@ -614,13 +723,30 @@ class UIABridge:
           prop_diff    —— before/after 属性差异
           expect_ok    —— 期望条件（wait_for_text）是否满足；未提供 expect 时为 None
         """
-        ctrl = self._last_controls.get(element_id)
+        ctrl = self._handles.get(element_id)  # A4: 消费持久句柄表（跨快照存活）
         if ctrl is None:
             return {
                 "success": False,
                 "error": f"uia element '{element_id}' not found",
                 "via": None,
                 "action_ok": False,
+            }
+        # A4 element_stale 协议（优先级高于 not_actionable/pattern_failed：
+        # 先判存活再执行；死控件读属性会抛，绝不能落到坐标点击）。
+        if not self._control_alive(ctrl):
+            return {
+                "success": False,
+                "error_code": "element_stale",
+                "error": (
+                    f"uia element '{element_id}' is stale "
+                    "(control destroyed or UI repainted)"
+                ),
+                "via": None,
+                "action_ok": False,
+                "hint": (
+                    "控件已销毁或界面已重绘，get_screen_info 重新观察后选新 id；"
+                    "不要重试旧 id"
+                ),
             }
 
         # 0.8 唯一解析软校验：同名多控件提醒（不阻断，由 agent/LLM 消歧）
@@ -969,7 +1095,7 @@ class UIABridge:
             }
         ctrl = None
         if element_id:
-            src = self._last_controls.get(element_id)
+            src = self._handles.get(element_id)  # A4: 跨快照句柄
             if src is not None:
                 top = getattr(src, "GetTopLevelControl", None)
                 if callable(top):
@@ -1071,11 +1197,13 @@ class UIABridge:
     # ── 校验 ──
 
     def verify(self, element_id: str, timeout: float = 3.0) -> dict:
-        """执行后校验：控件存在、已启用、未离屏（带轮询）。"""
+        """执行后校验：控件存在、已启用、未离屏（带轮询）。A4 走持久句柄表。"""
         deadline = time.time() + timeout
-        ctrl = self._last_controls.get(element_id)
+        ctrl = self._handles.get(element_id)
         if ctrl is None:
             return {"success": False, "reason": "element gone from last snapshot"}
+        if not self._control_alive(ctrl):  # A4: 控件销毁 → stale，不进轮询
+            return {"success": False, "reason": "element stale (control destroyed)"}
         while time.time() < deadline:
             try:
                 if not bool(ctrl.IsEnabled):
@@ -1090,6 +1218,12 @@ class UIABridge:
         return {"success": False, "reason": "control not ready (disabled/offscreen)"}
 
     def clear(self) -> None:
+        """全清（换步语义：agent clear_element_map 调用）。A4 起这是唯一使
+        全部 element_id 作废的通道——snapshot 不再作废任何 id。"""
         self._last_controls = {}
         self._last_meta = {}
+        self._last_projection = []
         self._last_focused = None
+        self._handles = {}
+        self._ui_cache = {}
+        self._fallback_seq = 0

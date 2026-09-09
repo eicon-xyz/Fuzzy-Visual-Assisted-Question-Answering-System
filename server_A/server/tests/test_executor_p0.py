@@ -1947,3 +1947,197 @@ def test_p05_b1_batch_redline_and_name_guard_apply_per_subaction(monkeypatch):
     ]})
     assert r2["ok"] is False and r2["error_code"] == "confirm_required"
     assert r2["failed_at"] == 0 and bridge.calls == []
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# P0.5-A4 稳定 id + element_stale 协议（台账 A4）
+# eid = e<sha1(hwnd/ProcessId + runtime-id)[:10]>；句柄表跨快照存活；
+# 控件销毁 → act/verify 报 element_stale（不落坐标）；clear()（换步）才全废。
+# ═══════════════════════════════════════════════════════════════════════════
+
+import re as _re  # noqa: E402
+
+
+class _RuntimeIdControl(FakeControl):
+    """带 GetRuntimeId 的假控件（A4 稳定 id 路径；基类默认无 → 回退 u{n}）。"""
+
+    def __init__(self, *a, runtime_id=(4, 100), **k):
+        super().__init__(*a, **k)
+        self._rid = list(runtime_id)
+
+    def GetRuntimeId(self):
+        return list(self._rid)
+
+
+class _DestroyedControl(FakeControl):
+    """A4 销毁模拟：dead=True 后属性读取抛异常（COMError/ElementNotAvailable 语义）。"""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self._destroyed = False
+
+    @property
+    def Name(self):  # noqa: N802 —— 覆盖基类实例属性，模拟销毁后属性读取抛
+        if self._destroyed:
+            raise RuntimeError("ElementNotAvailable: control destroyed")
+        return self._name
+
+    @Name.setter
+    def Name(self, v):
+        self._name = v
+
+    def destroy(self):
+        self._destroyed = True
+
+
+def _a4_tree():
+    a = _RuntimeIdControl("甲按钮", ctype="ButtonControl", rect=(10, 10, 60, 30),
+                          runtime_id=(4, 100))
+    a._patterns["invoke"] = _FakeInvokePattern(a)
+    b = _RuntimeIdControl("乙输入", ctype="EditControl", rect=(10, 50, 200, 80),
+                          runtime_id=(4, 200))
+    b._patterns["value"] = _FakeValuePattern(b)
+    root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600),
+                       children=(a, b))
+    return root, a, b
+
+
+def test_p05_a4_stable_eid_identical_across_snapshots(monkeypatch):
+    """同一控件两次 snapshot → eid 相同，形状 e<10hex>（A4 核心契约）。"""
+    root, a_btn, _ = _a4_tree()
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    e1 = find_el(b.snapshot(), "甲按钮").element_id
+    e2 = find_el(b.snapshot(), "甲按钮").element_id
+    assert e1 == e2
+    assert _re.fullmatch(r"e[0-9a-f]{10}", e1)
+    # 不同控件 → 不同 eid
+    e3 = find_el(b.snapshot(), "乙输入").element_id
+    assert e3 != e1
+
+
+def test_p05_a4_fallback_u_n_without_runtime_id(monkeypatch):
+    """GetRuntimeId 缺失的烂控件 → 回退现场序 u{n} 且仍可 act（兼容旧形状）。"""
+    btn = FakeControl("确定", ctype="ButtonControl", rect=(10, 10, 60, 30))
+    btn._patterns["invoke"] = _FakeInvokePattern(btn)
+    root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600),
+                       children=(btn,))
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    eid = find_el(b.snapshot(), "确定").element_id
+    assert _re.fullmatch(r"u\d+", eid)
+    r = b.act(eid, action="click", verify_timeout=0.2)
+    assert r["success"] is True and "invoke" in btn.log
+
+
+def test_p05_a4_collision_same_traversal_appends_number(monkeypatch):
+    """同一次观察内两个控件算出同一 base eid → 第二个追加 #2（防互相覆盖）。"""
+    c1 = _RuntimeIdControl("一", ctype="ButtonControl", rect=(0, 0, 50, 20),
+                           runtime_id=(7, 7))
+    c1._patterns["invoke"] = _FakeInvokePattern(c1)
+    c2 = _RuntimeIdControl("二", ctype="ButtonControl", rect=(0, 30, 50, 50),
+                           runtime_id=(7, 7))
+    c2._patterns["invoke"] = _FakeInvokePattern(c2)
+    root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600),
+                       children=(c1, c2))
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    els = b.snapshot()
+    ids = sorted(e.element_id for e in els)
+    assert len(set(ids)) == 2  # 没有互相覆盖
+    assert any(_re.fullmatch(r"e[0-9a-f]{10}#\d+", i) for i in ids)
+
+
+def test_p05_a4_destroyed_control_act_stale_no_coord(monkeypatch):
+    """句柄死亡 → act 报 element_stale（先于 pattern/actionability 判定）且不落坐标。"""
+    calls = _capture_clicker(monkeypatch)
+    btn = _DestroyedControl("确定", ctype="ButtonControl", rect=(10, 10, 60, 30))
+    btn._patterns["invoke"] = _FakeInvokePattern(btn)
+    root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600),
+                       children=(btn,))
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    eid = find_el(b.snapshot(), "确定").element_id
+    btn.destroy()
+    r = b.act(eid, action="click", action_timeout=0.2)
+    assert r["success"] is False
+    assert r["error_code"] == "element_stale"
+    assert r["action_ok"] is False and r["via"] is None
+    assert "重新观察" in r["hint"]
+    assert calls == []  # 绝不落坐标
+    v = b.verify(eid, timeout=0.2)
+    assert v["success"] is False and "stale" in v["reason"]
+
+
+def test_p05_a4_clear_invalidates_all_ids(monkeypatch):
+    """换步 clear() → 稳定 id 也全废：act 回到旧 element_not_found 语义。"""
+    root, *_ = _a4_tree()
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    eid = find_el(b.snapshot(), "甲按钮").element_id
+    b.clear()
+    r = b.act(eid, action="click")
+    assert r["success"] is False
+    assert "not found" in r["error"]  # 从未见过/已作废 → 旧语义不变
+    assert r.get("error_code") is None
+
+
+def test_p05_a4_surviving_handle_actable_when_absent_from_view(monkeypatch):
+    """控件存活但掉出当次视图（树重排后不再被观察）→ 旧 id 仍可按句柄 act。"""
+    root, a_btn, b_edit = _a4_tree()
+    install_fake_uia(monkeypatch, root)
+    b = UIABridge()
+    els = b.snapshot()
+    edit_eid = find_el(els, "乙输入").element_id
+    # 乙控件从树上移除（对象仍存活），重新观察
+    root._children = [a_btn]
+    b.snapshot()
+    assert edit_eid not in b._last_controls  # 不在当次视图
+    r = b.act(edit_eid, action="type", text="hi")  # 但句柄存活
+    assert r["success"] is True
+    assert ("setvalue", "hi") in b_edit.log
+
+
+def test_p05_a4_agent_element_map_survives_observation(monkeypatch):
+    """agent 侧：新一次观察不使存活控件旧 id 出局（element_map=跨快照缓存）。"""
+    root, a_btn, b_edit = _a4_tree()
+    install_fake_uia(monkeypatch, root)
+    a = agent_mod.ExecutionAgent()
+    obs = a._do_get_screen_info()
+    ids_v1 = {e["id"] for e in obs["elements"]}
+    root._children = [a_btn]  # 乙控件掉出树（对象未死）
+    obs2 = a._do_get_screen_info()
+    ids_v2 = {e["id"] for e in obs2["elements"]}
+    # 稳定 id 跨观察一致
+    assert ids_v2 & ids_v1  # 甲的 id 两次的投影里相同
+    gone = (ids_v1 - ids_v2).pop()
+    assert gone in a.element_map  # 但句柄缓存仍认识它（可 act，死了才报 stale）
+
+
+def test_p05_a4_agent_error_contract_wiring():
+    """element_stale 进分类器与默认 hint；'失效' 文案手术完整（prompt 无旧协议残留）。"""
+    cls = agent_mod.ExecutionAgent._classify_error_code
+    assert cls("uia element 'e012345678' is stale (control destroyed)") == "element_stale"
+    assert cls("UIA 操作失败: uia element 'x' is stale") == "element_stale"
+    assert agent_mod.ExecutionAgent._ERROR_HINTS["element_stale"]
+    prompt = agent_mod.EXECUTION_SYSTEM_PROMPT
+    assert "全部失效" not in prompt  # 旧"全部失效"条款清零
+    assert "element_stale" in prompt  # 新协议已入 prompt
+    gsi = next(t for t in agent_mod.ExecutionAgent().tools
+               if t["function"]["name"] == "get_screen_info")
+    assert "全部失效" not in gsi["function"]["description"]  # schema 文案同步手术
+
+
+def test_p05_a4_agent_propagates_element_stale(monkeypatch):
+    """agent 层把桥的 element_stale + 具体 hint 透传进统一错误契约。"""
+    bridge = _BridgeStub(
+        {"success": False, "via": None, "action_ok": False,
+         "error_code": "element_stale",
+         "error": "uia element 'e123' is stale (control destroyed or UI repainted)",
+         "hint": "控件已销毁或界面已重绘，get_screen_info 重新观察后选新 id；不要重试旧 id"}
+    )
+    a = _make_agent_with_fake_bridge(bridge)
+    r = a.dispatch_tool("click", {"element_id": "u1", "name": "确定"})
+    assert r["ok"] is False
+    assert r["error_code"] == "element_stale"
+    assert "不要重试旧 id" in r["hint"]

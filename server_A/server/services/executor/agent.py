@@ -68,7 +68,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 
 ## 可用工具
 - launch_app(app_name): 通过系统级命令启动应用（Win+搜索）。当步骤为打开应用时，优先使用此工具。
-- get_screen_info(): 获取当前屏幕控件投影列表，字段：id / type(控件类型) / name(控件文本) / class(框架类名) / enabled(是否可用) / patterns(可用交互模式: invoke,value,toggle,selectionitem,expandcollapse,rangevalue,window) / bbox(相对窗口左上角 [左,上,宽,高] 像素)。附带 window_title / window_size 与 focused(当前焦点控件 name/type/class)
+- get_screen_info(): 获取当前屏幕控件投影列表，字段：id / type(控件类型) / name(控件文本) / class(框架类名) / enabled(是否可用) / patterns(可用交互模式: invoke,value,toggle,selectionitem,expandcollapse,rangevalue,window) / bbox(相对窗口左上角 [左,上,宽,高] 像素)。附带 window_title / window_size 与 focused(当前焦点控件 name/type/class)。id 稳定：控件存活期间跨观察有效，无需因"刚观察过"而重取
 - click(element_id, name[, expect]): 单击指定元素（UIA 绑定优先：Invoke/Select 等精确模式；失败回退坐标点击）。name 必填=该元素的 name 字段，服务端交叉验证防幻觉点击；expect 可选，声明期望的界面变化
 - double_click(element_id, name[, expect]): 双击指定元素。桌面图标、文件通常需要双击打开。
 - right_click(element_id, name[, expect]): 右键单击指定元素（弹系统上下文菜单）。需要右键菜单且投影里看不到菜单入口时用；name 同样交叉验证。
@@ -95,8 +95,8 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 6. 验证操作结果（见下方验证标准）
 7. 确认完成后调用 mark_step_done，evidence 写支持判定的屏幕事实（不是"我觉得完成了"）
 
-## 警告：element_id 生命周期
-调用 get_screen_info 后，所有之前的 element_id 立即失效。你必须基于最新一次返回的元素列表选择目标。不得引用之前调用的 element_id。如果工具返回 "element_id not found in current screen"，你必须重新调用 get_screen_info。
+## element_id 生命周期（A4 稳定 id 协议）
+element_id 是稳定的：控件存活期间跨观察有效——重新 get_screen_info 不会让旧 id 作废，你之前记住的 id 可以继续用。界面重绘/控件销毁后，对旧 id 的动作会返回 element_stale——收到该错误码时必须重新 get_screen_info 选新 id，严禁重试旧 id。如果工具返回 "element_id not found in current screen"（该 id 从未观察过或已换步作废），也必须重新观察。
 
 ## 元素定位策略
 - 元素来自 Windows UI Automation 结构化采集，每个元素带 type/name/class/enabled/patterns/bbox 投影字段
@@ -106,14 +106,14 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - 同名多控件时用 bbox 区分：bbox=[左,上,宽,高] 为相对窗口左上角像素，"左边的按钮"→ 取左值小者，"顶部菜单"→ 取上值小者，"第 N 行"→ 按上值排序
 - 找不到时，先 wait(2) 再重新 get_screen_info
 - 调用 click/double_click/type_text 时必须同时传 name 参数（你选定条目的 name 值）：服务端会拿它与快照核对，若该 id 实际不是你说的控件会拒绝执行并回报真实名称——按真名重新决策，不要重复同一个错误 id
-- 菜单/下拉框（type=menu/menuitem/combobox，或 patterns 含 expandcollapse）：**多级菜单优先 select_menu_path 一次走完**（服务端每级自动重观察，比逐级 click 省轮次）；失败按返回的 visible_at_level 修正路径，或退回逐级 click——直接 click 菜单头会自动走 ExpandCollapse 展开并返回新选项列表（new_elements，旧 id 失效），从中选下一级再 click；禁止用坐标盲点菜单
+- 菜单/下拉框（type=menu/menuitem/combobox，或 patterns 含 expandcollapse）：**多级菜单优先 select_menu_path 一次走完**（服务端每级自动重观察，比逐级 click 省轮次）；失败按返回的 visible_at_level 修正路径，或退回逐级 click——直接 click 菜单头会自动走 ExpandCollapse 展开并返回新选项列表（new_elements 为展开新增项；存活旧 id 仍有效，销毁项重用时报 element_stale），从中选下一级再 click；禁止用坐标盲点菜单
 - click 返回 action_ambiguous/pattern_failed 时：pattern_failed 说明动作可能已部分生效，先观察再决策，严禁原样补刀；action_ambiguous 说明选错控件类型，换 type_text/press_key 或换控件，最后手段才是显式传 via="coordinate"
 
 ## 验证标准
 - 动作下发前服务端自动做 actionability 预检（可见/启用/位置稳定/不被遮挡，在超时内轮询等待条件而非固定等待）；预检不过返回 error_code=not_actionable + missing_predicates——界面在加载就 wait 后重试，控件不可用就换 enabled 的同功能控件，不要硬点同一个 id
 - 动作工具（click/double_click/type_text/paste_text）会自动做动作后验证，返回：
   action_ok（动作是否送达）、verified（控件是否仍可用且在屏内）、state_changed（控件属性是否变化）、prop_diff（变化明细）
-- 对界面状态有把握的动作用 expect 参数声明期望（如 click(确定, expect="已发送")），服务端在调用内轮询验证；expect_ok=false 时结果会附 new_elements（自动重观察），旧 id 全部失效
+- 对界面状态有把握的动作用 expect 参数声明期望（如 click(确定, expect="已发送")），服务端在调用内轮询验证；expect_ok=false 时结果会附 new_elements（自动重观察；存活旧 id 仍可用，被销毁控件的新动作会报 element_stale）
 - type_text 返回 state_changed=true 即输入已生效（value 属性变化），无需再次 get_screen_info
 - 若动作返回 verified=false 且 state_changed=false（界面毫无变化），说明点击/输入未生效：基于返回的 new_elements 换目标或换策略，不要原样重试
 - 桌面图标、文件操作使用 double_click 而非 click
@@ -137,7 +137,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - 禁止假设屏幕上看不到的元素存在
 - 禁止在一次响应中调用多个工具（串行调用，每次只调一个）
 - 禁止跳过 get_screen_info 直接操作（除非只是按键等待）
-- 禁止在 get_screen_info 之后引用之前的 element_id
+- 禁止收到 element_stale 后重试旧 element_id（必须先 get_screen_info 换新 id）
 
 ## 浏览器工具（browser_ 前缀）
 当需要操作网页时，优先使用 browser_ 前缀的工具。它们基于 DOM 操作，比视觉点击更精确：
@@ -192,7 +192,7 @@ def _build_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "get_screen_info",
-                "description": "获取当前屏幕控件投影列表（UIA 结构化采集）。每个元素含 id/type/name/class/enabled/patterns/bbox(相对窗口像素)。每次调用会刷新 element_map，旧的 element_id 全部失效。",
+                "description": "获取当前屏幕控件投影列表（UIA 结构化采集）。每个元素含 id/type/name/class/enabled/patterns/bbox(相对窗口像素)。id 稳定：控件存活期间跨观察有效，无需重取；重绘销毁的控件动作时报 element_stale，届时重新观察选新 id。",
                 "parameters": {"type": "object", "properties": {}},
             },
         },
@@ -1209,8 +1209,9 @@ class ExecutionAgent:
                 else f"动作后控件校验未通过（{r.get('verify_reason', '')}）"
             )
             base["hint"] = (
-                f"{why}，已自动重新观察屏幕（上方 new_elements 是最新元素列表，"
-                "旧 element_id 全部失效）。请基于新列表改变策略重试，或 mark_step_failed。"
+                f"{why}，已自动重新观察屏幕（上方 new_elements 是最新元素列表；"
+                "存活控件的 id 不变可直接续用，被销毁控件再动作会报 element_stale）。"
+                "请基于新列表改变策略重试，或 mark_step_failed。"
             )
         return base
 
@@ -1221,6 +1222,8 @@ class ExecutionAgent:
 
         优先级：可交互 patterns > 白名单类型 > 有名字 > 可用状态；
         截断后按快照（DFS）顺序重排，保持空间阅读顺序。
+        A4: 快照序改用投影条目自带的 seq 字段（稳定 id 不再编码索引；
+        缺 seq 的旧条目回退列表位序）。
         """
         if len(proj) <= self._SCREEN_PROJECTION_LIMIT:
             return proj
@@ -1233,20 +1236,17 @@ class ExecutionAgent:
             )
 
         ranked = sorted(enumerate(proj), key=lambda p: -_score(p[1]))
-        picked = sorted(ranked[: self._SCREEN_PROJECTION_LIMIT], key=lambda p: p[0])
+        picked = sorted(
+            ranked[: self._SCREEN_PROJECTION_LIMIT],
+            key=lambda p: p[1].get("seq", p[0]),
+        )
         out = []
         for _, item in picked:
-            entry = {
-                "id": item["id"],
-                "type": item["type"],
-                "name": item["name"],
-                "enabled": item["enabled"],
-            }
-            if item.get("class"):
-                entry["class"] = item["class"]
-            if item.get("patterns"):
-                entry["patterns"] = item["patterns"]
-            entry["bbox"] = item["bbox"]
+            # A4: 全字段透传（大纲条目的 items/expandable 等附加字段必须到达
+            # LLM——"被折叠"的事实正是大窗口截断场景要暴露的）；空 class 不占位。
+            entry = dict(item)
+            if not entry.get("class"):
+                entry.pop("class", None)
             out.append(entry)
         return out
 
@@ -1266,7 +1266,9 @@ class ExecutionAgent:
                 et.tally_snapshot(
                     self._step_tel, _snap_ms, len(uia.last_projection())
                 )
-                self.element_map = {e.element_id: e for e in uia_elements}
+                # A4: element_map 直接取桥的跨快照句柄缓存——存活控件的旧 id
+                # 继续可 act/name-guard；控件销毁后由桥报 element_stale。
+                self.element_map = uia.ui_cache()
                 self.screen_elements = _filter_elements_for_llm(uia_elements)
                 self.screen_source = "uia"
                 proj = uia.last_projection()
@@ -1497,7 +1499,8 @@ class ExecutionAgent:
                     base["new_elements"] = obs.get("elements")
                     base["hint"] = (
                         "已通过 ExpandCollapse 展开菜单/下拉框，下方 new_elements 是"
-                        "展开后的最新选项列表（旧 element_id 全部失效）。"
+                        "展开后的最新选项列表（浮层新选项是新增 id；存活旧 id 仍有效，"
+                        "销毁项重用会报 element_stale）。"
                         "请从中选择目标项再次 click，不要点坐标。"
                     )
                 return base
@@ -1835,7 +1838,8 @@ class ExecutionAgent:
             "action_summary": f"菜单路径 {'>'.join(items)} 走完",
         }
         base = self._post_action_result(base, last_r, expect)
-        # element_id 全失效（循环内每级都 snapshot）：强制刷新映射并给回最新投影
+        # A4：循环内每级 snapshot 只刷新当次视图，稳定 id 跨快照存活；
+        # 仍强制刷新 element_map 并把最新投影交回，保证浮层新选项可见
         if not base.get("reobserved"):
             obs = self._do_get_screen_info()
             base["new_elements"] = (obs.get("elements") or [])[:20]
@@ -2142,9 +2146,9 @@ class ExecutionAgent:
             if new_elements is None:
                 new_elements = self._batch_latest_observation()
             result["hint"] = (
-                f"批次内触发了自动重观察，旧 element_id 全部失效，剩余 {len(not_executed)} 项"
+                f"批次内触发了自动重观察，批次到此保守截断，剩余 {len(not_executed)} 项"
                 "未执行（见 not_executed）。请基于 new_elements 重新编排剩余动作，"
-                "不要引用旧 id；已完成的动作不要重做。"
+                "已完成的动作不要重做；截断前存活控件的 id 并未作废。"
             )
         if failed_at is not None:
             result["action_summary"] = (
@@ -2160,8 +2164,9 @@ class ExecutionAgent:
             hint = failure.get("hint") or ""
             if failure["error_code"] == "element_not_found" and saw_ids_refreshed:
                 hint = (
-                    "此前子动作触发的自动重观察已使旧 element_id 失效，"
-                    "本项引用的是作废 id——请基于 new_elements 重新编排剩余动作。"
+                    "本项引用的 id 当前观察未知（批次内截断后保守停发；存活控件的 id"
+                    "其实并未作废，但该 id 从未观察或已不可用）——"
+                    "请基于 new_elements 重新编排剩余动作。"
                     + hint
                 )
             if not_executed:
@@ -2178,8 +2183,12 @@ class ExecutionAgent:
     # 0.6 错误契约：error_code → 面向 LLM 下一轮自纠的默认 hint
     _ERROR_HINTS = {
         "element_not_found": (
-            "element_id 不在当前快照（每次观察后旧 id 全部失效）。"
+            "element_id 当前观察未知（从未返回过，或已换步清空/句柄被逐出）。"
             "先 get_screen_info，再基于最新列表的 id+name 重新选择目标。"
+        ),
+        "element_stale": (
+            "控件已销毁或界面已重绘（A4 稳定 id 协议）。禁止重试旧 id——"
+            "get_screen_info 重新观察后选新 id。"
         ),
         "name_mismatch": (
             "目标 id 与名称不符：按回报的真实名称换 id，"
@@ -2256,6 +2265,8 @@ class ExecutionAgent:
             return "window_not_found"
         if "no_range_pattern" in e:
             return "no_range_pattern"
+        if "element_stale" in e or " is stale" in e:
+            return "element_stale"  # A4：先于 not found / failed 泛化分支
         if "not found in current screen" in e or "not found" in e and "element" in e:
             return "element_not_found"
         if "name_mismatch" in e:
