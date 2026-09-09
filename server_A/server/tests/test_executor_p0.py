@@ -826,10 +826,11 @@ def test_execute_step_failed_gets_second_chance(monkeypatch):
     assert "点不动" in result.action_summary
 
 
-def test_engine_terminal_actions_skip_blind_retry(monkeypatch):
+def test_engine_terminal_actions_skip_blind_retry(monkeypatch, tmp_path):
     """engine：ask_user/infeasible 不再走同指令盲重试，ask_user 发 step_blocked。"""
     from server.services.executor import engine
 
+    monkeypatch.setenv("HAJIMI_EVAL_DIR", str(tmp_path))  # T1：遥测落盘隔离
     q = engine.register_task("t-terminal")
     calls = {"n": 0}
 

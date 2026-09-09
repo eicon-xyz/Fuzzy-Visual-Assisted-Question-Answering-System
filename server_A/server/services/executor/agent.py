@@ -20,6 +20,7 @@ import pyperclip
 
 from server.config import settings
 from server.models.schemas import ExecutedStep, UIElement
+from server.services import eval_telemetry as et
 from server.services.browser.controller import BrowserController
 from server.services.executor.safety import check_step
 from server.services.llm.providers import extract_json_object
@@ -534,13 +535,26 @@ class _LoopDetector:
     STAGNATION_OBS = 5     # 观测指纹连续 N 次不变 = 界面停滞
     FAIL_STREAK = 3        # 连续 N 次工具失败（OpenHands 3×Error 规则）
 
-    def __init__(self) -> None:
+    def __init__(self, events: Optional[dict] = None) -> None:
         from collections import deque
 
         self._recent = deque(maxlen=self.WINDOW)
         self._last_fp: Optional[str] = None
         self._same_obs = 0
         self._fail_streak = 0
+        # T1 遥测：阈值越界事件计数（可注入步遥测的 loop_events 字典，就地累加）
+        self.events = (
+            events
+            if events is not None
+            else {
+                "repeat5": 0,
+                "repeat8": 0,
+                "repeat12": 0,
+                "stagnation": 0,
+                "replan": 0,
+            }
+        )
+        self._repeat_flag = 0  # 上次越过的最高重复档（1/2/3），回落清零
 
     @staticmethod
     def action_key(tool: str, args: dict) -> str:
@@ -598,9 +612,21 @@ class _LoopDetector:
         return n
 
     def build_nudge(self) -> str:
-        """当前轮应注入的 nudge 文本；无异常返回空串。"""
+        """当前轮应注入的 nudge 文本；无异常返回空串。
+
+        T1 遥测：每次「越过」阈值记一次事件（持续处于阈值内不重复计数，
+        回落后再次越过会再记，用于评测台统计卡死检测的实际触发次数）。
+        """
         parts: list[str] = []
         n = self.repeat_count()
+        tier = 3 if n >= self.REPEAT_L3 else 2 if n >= self.REPEAT_L2 else 1 if n >= self.REPEAT_L1 else 0
+        if tier > self._repeat_flag:
+            key = {1: "repeat5", 2: "repeat8", 3: "repeat12"}[tier]
+            self.events[key] = self.events.get(key, 0) + 1
+        if tier == 0:
+            self._repeat_flag = 0
+        elif tier > self._repeat_flag:
+            self._repeat_flag = tier
         if n >= self.REPEAT_L3:
             parts.append(
                 f"⛔ 同一动作已重复 {n} 次，已判定卡死。禁止再次调用相同工具与参数："
@@ -617,12 +643,20 @@ class _LoopDetector:
                 f"注意：同一动作已连续 {n} 次。若上次返回 state_changed=false 或 "
                 "expect_ok=false，请勿原样重复，先换策略。"
             )
-        if self._same_obs >= self.STAGNATION_OBS:
+        stag = self._same_obs >= self.STAGNATION_OBS
+        if stag and not getattr(self, "_stag_flag", False):
+            self.events["stagnation"] = self.events.get("stagnation", 0) + 1
+        self._stag_flag = stag
+        if stag:
             parts.append(
                 f"界面观测指纹已连续 {self._same_obs + 1} 次观察完全相同——环境停滞。"
                 "反复观察不会改变画面，执行一个完全不同的动作或承认步骤失败。"
             )
-        if self._fail_streak >= self.FAIL_STREAK:
+        replan = self._fail_streak >= self.FAIL_STREAK
+        if replan and not getattr(self, "_replan_flag", False):
+            self.events["replan"] = self.events.get("replan", 0) + 1
+        self._replan_flag = replan
+        if replan:
             parts.append(
                 f"连续 {self._fail_streak} 次工具调用失败（OpenHands 级联失败规则）。"
                 "REPLAN SUGGESTED：不要在失效假设上继续，重新观察并重排本步骤做法。"
@@ -646,6 +680,7 @@ class ExecutionAgent:
         self._uia = None  # lazy: server.services.executor.uia_bridge.UIABridge
         self.screen_source: Optional[str] = None  # "uia" | "omniparser" | "none"
         self._reset_step_ledger()  # 0.7 证据账本（每步在 execute_step 再重置）
+        self._step_tel: Optional[dict] = None  # T1 步遥测（execute_step 内新建）
 
     @property
     def browser(self) -> BrowserController:
@@ -1005,8 +1040,13 @@ class ExecutionAgent:
         # 1) UIA 优先（主感知通道：结构化投影，非截扁的 id+content）
         uia = self._get_uia()
         if uia.available:
+            _t_snap = time.perf_counter()
             uia_elements = uia.snapshot()
+            _snap_ms = (time.perf_counter() - _t_snap) * 1000
             if uia_elements:
+                et.tally_snapshot(
+                    self._step_tel, _snap_ms, len(uia.last_projection())
+                )
                 self.element_map = {e.element_id: e for e in uia_elements}
                 self.screen_elements = _filter_elements_for_llm(uia_elements)
                 self.screen_source = "uia"
@@ -1661,7 +1701,10 @@ class ExecutionAgent:
         """
         step.status = "executing"
         self.clear_element_map()
-        loop_detector = _LoopDetector()  # 0.4 卡死检测（每步独立）
+        self._step_tel = et.new_step_telemetry()  # T1 遥测（engine 步末读取）
+        loop_detector = _LoopDetector(
+            self._step_tel["loop_events"]
+        )  # 0.4 卡死检测（每步独立，越界事件直接写入遥测）
         self._reset_step_ledger()  # 0.7 证据账本（每步独立）
         step.terminal_kind = None
         step.user_question = None
@@ -1718,7 +1761,9 @@ class ExecutionAgent:
                         or "继续。你还可以调用工具。每次只调用一个工具。",
                     }
                 )
-                time.sleep(1.5)  # throttle OmniParser load
+                # R2：原 time.sleep(1.5) "throttle OmniParser load" 为已退役组件的
+                # 化石节流（OmniParser 已下线），50 轮一步纯睡 ~73s，删除。
+                # LLM 限流由 API 层重试/退避处理，不在此处。
 
             # Call LLM with tool definitions
             try:
@@ -1806,6 +1851,8 @@ class ExecutionAgent:
             if tool_name == "get_screen_info" and isinstance(result, dict):
                 loop_detector.record_observation(result.get("elements"))
             duration_ms = int((time.perf_counter() - t0) * 1000)
+            # T1 遥测：本次工具调用记入步遥测
+            et.tally_tool(self._step_tel, tool_name, result, duration_ms)
             if on_tool_event and result:
                 try:
                     on_tool_event(
@@ -1834,6 +1881,10 @@ class ExecutionAgent:
                         on_screenshot(annotated)
                     except Exception:
                         pass
+            # R1：截图 base64 只供 B 端渲染（SSE），绝不进 LLM 上下文——
+            # deepseek-chat 是纯文本模型，这串 base64 是每次数万 token 的纯噪声。
+            if isinstance(result, dict):
+                result.pop("annotated_image", None)
 
             # Check for step completion signals
             if result and result.get("__step_complete__"):
@@ -1929,6 +1980,8 @@ class ExecutionAgent:
             response = client.post(url, headers=headers, json=body)
             response.raise_for_status()
             data = response.json()
+            # T1 遥测：采集 token 用量（此前 data["usage"] 一直被丢弃）
+            et.tally_llm_usage(getattr(self, "_step_tel", None), data.get("usage") or {})
             choice = data["choices"][0]
             msg = choice["message"]
             # Check for tool_calls in response
