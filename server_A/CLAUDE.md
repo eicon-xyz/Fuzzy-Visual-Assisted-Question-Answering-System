@@ -1,119 +1,52 @@
-# HAJIMI — AI 驱动的桌面自动化助手
+# server_A — L5 Sidecar 上下文速览
 
-## 一句话概述
-用户用自然语言描述任务，HAJIMI 截屏 → 用多模态 LLM 理解屏幕 → 生成操作计划 → 自动执行点击/输入/按键等操作。
+> **唯一权威开发指南 = 仓库根 [`AGENTS.md`](../AGENTS.md)**；本文件只补 server_A 内部事实。**与代码冲突时，以代码为准。**
+> 动执行链（`server/services/executor/`）前必读：根目录《调研报告_L5-Agent架构对标开源.md》§四（含 P0 实施状态列）与《审查台账_L5执行链全流程质疑与决策.md》（当前问题队列与 P0.5 批次）。
+>
+> ⚠️ 本文件在 2026-09-03 前是 L4 时代旧稿（描述 :8010 A 端 / OmniParser / 截图多模态管线——均已删除），因会被工具自动注入为 agent 指令、构成误导源，已按实况重写。
 
-## 架构：A/B 双端分离
+## 现状
 
-```
-用户输入 → B端(PyQt5) 截图(mss) → A端(FastAPI) LLM推理/计划 → B端覆盖层渲染 → SSE推送执行
-```
+- FastAPI 后端，**唯一端口 :8011**：`python3 -m uvicorn server.main:app --port 8011`（工作目录 = `server_A/`）。
+- **:8010 旧 A 端 / OmniParser / GPU 隧道 / 内网联调 / Mock 已整体删除，禁止复活。** L4 史料归档于 `server/docs/archive/legacy-L4/`，只可查阅、禁止照做。
+- 模型 key 唯一存放 `server/.env`（安装脚本创建；B 端设置页经 env_sync 同步写入），不入 git。
+- 分支口径：`master` = PyQt B 端（`HAJIMI_UI/`）；`front` = 并行的 Electron B 端（`desktop/`，验收后切换）——**master 上不存在 desktop/ 目录与红线只读评估端点（`/api/demo/redline/evaluate`，front 独有）**，跨端契约变更需两分支同步。
+- `server_A` 顶层的 `core/`、`ui/`、`main.py` 是 L4 死 fork（台账 R5 待清理），勿新增引用、勿当作运行时代码阅读。
 
-- **A 端** (`server/`)：FastAPI 后端，运行在 `127.0.0.1:8010`
-- **B 端** (根目录)：PyQt5 桌面应用，负责截屏、覆盖层渲染、用户交互
+## 路由（server/routes/）
 
-## 目录结构要点
+| 文件 | 内容 |
+|---|---|
+| `demo.py` | L5 核心：`POST /api/demo/execute`、`GET /api/demo/stream/{task_id}`(SSE)、`/cancel`、`/health*`、`/debug/click` |
+| `admin.py` | 管理统计 + `/users/*`（web-admin 后端） |
+| `audit.py` `auth.py` `flow.py` `monitor.py` `config_client.py` | 审计 / 鉴权 / 流程 / 监控 / C 端配置拉取 |
 
-| 路径 | 用途 |
-|------|------|
-| `main.py` | B 端入口 (PyQt5 UI) |
-| `config.py` | B 端全局配置 |
-| `core/` | B 端核心：截屏、API通信、用户设置、服务管理 |
-| `ui/` | B 端 UI：主界面、聊天气泡、覆盖层、Web 桥接 |
-| `server/main.py` | A 端入口 (FastAPI) |
-| `server/config.py` | A 端配置 (.env) |
-| `server/database/` | SQLAlchemy ORM (SQLite `data/hajimi.db`) |
-| `server/models/schemas.py` | Pydantic 请求/响应模型 |
-| `server/routes/demo.py` | 核心 API (`/api/demo/*`) |
-| `server/routes/admin.py` | 管理 API (`/api/admin/*`) |
-| `server/services/` | 所有核心业务逻辑（见下文） |
-| `server/storage/memory.py` | 运行时内存任务存储 |
-| `docs/` | 设计文档和 spec |
+除 health 外 `/api/demo/*` 需头 `X-Demo-Key`（默认 `hajimi-demo-2026`）。
 
-## 核心处理管线
+## 执行链（server/services/executor/）— P0/P0.5 改造落点
 
-```
-用户查询
-  → 红线检测 (redline_service.py) — 拒绝危险操作
-  → 意图分类 (setfit_classifier.py) — 9 类别
-  → 复杂度路由 (complexity_router.py) — L2 模板 vs L3 LLM
-  → [并行] Planning Agent + OmniParser 检测
-  → 步骤↔元素绑定 → ProcessResponse
-  → [可选] 执行引擎 (executor/engine.py → agent.py)
-  → 反馈收集 (t_feedback / t_failures)
-```
+- `engine.py` — `run_plan_agent_loop`：步骤循环 + SSE 事件队列 + 崩溃保护壳（异常统一转 task_failed 事件并落遥测）+ Transaction 统计回写。
+- `agent.py` — `ExecutionAgent`，每步 ≤50 轮 LLM 工具循环（deepseek-chat，纯文本 function-calling）：
+  - 统一错误契约 `{ok, error_code, message, hint}`（`dispatch_tool` 包装，工具异常不再掀翻整步）；
+  - 证据账本 + `mark_step_done` gate（无独立证据拒收一次）+ `report_infeasible` / `ask_user` 终止动作（engine 跳过盲重试，ask_user→`step_blocked` 事件）；
+  - `_LoopDetector` 卡死检测（动作哈希滑窗 5/8/12 三级 + 观测内容指纹停滞 + 连续失败 REPLAN 提示）；
+  - `_strip_for_llm`：截图 base64 只走 SSE 给 B 端渲染，进 LLM messages 前剥离。
+- `uia_bridge.py` — UIA 四件套：投影快照（10 类 ControlType 白名单，`_last_projection` + `_last_meta` 缓存 patterns）→ `_check_actionable` 前置谓词（可见/启用/稳定/可点；等待条件不等待时间）→ `_CLICK_PATTERN_TABLE` 决策表选模式 + **fail-closed 执行**（无自动坐标回退；`via="coordinate"` 显式声明是唯一坐标通道）→ 动作后 `verify` + 属性 diff + `wait_for_text`(expect 后置断言)。
+- `safety.py` — 执行层红线（绿/黄/红，`check_query/check_step`）；`clicker.py` — 键鼠封装。
+- 记忆 `services/memory/`（成功/失败轨迹抽取→检索注入 system prompt）；浏览器 `services/browser/`（Playwright DOM，`browser_*` 工具）。
+- 评测：`server/services/eval_telemetry.py`（步/任务遥测→`server_A/data/eval/runs.jsonl`）+ `server_A/eval/`（回归任务集/oracle 判分/runner/report；**未校准任务不计 KPI**，Windows 跑分手册 `server_A/eval/HOWTO_WINDOWS.md`）。
 
-同时存在一个更新的 Agent 管线 (`agent/orchestrator.py`)：
-```
-用户查询 → plan_and_locate() [单次LLM调用] → 用户操作 → evaluate_step() → advance/replan
-```
+**契约纪律**：工具参数、错误码、SSE 事件字段（`evidence`/`error_code`/`step_blocked.question`…）任何改动必须同步两个 B 端（`HAJIMI_UI`，及 front 上的 `desktop/`）。
 
-## 关键服务模块
+## 测试
 
-### Agent 编排 (`services/agent/`)
-- **orchestrator.py** — TaskOrchestrator 状态机：process_query → plan+locate → evaluate → advance/replan。单例。
-- **chains.py** — 6 个 LLM 链：plan_and_locate, plan_goal, locate_step_target, evaluate_step, replan_goal, fast_mode_chat
-- **prompts.py** — Planner/Locator/Evaluator/Replanner 的 System+User prompt 模板
+- `server/tests/`（pytest，标记配置在 `server_A/pyproject.toml`）。executor 回归 = `test_executor_p0.py` + `test_uia_bridge.py`（Linux 可全跑：文件头「缺啥补啥」注入 pyautogui/uiautomation 桩，勿改成依赖真件）。
+- 部分模块在 Linux 收集失败属预存环境问题（缺 pytest_asyncio/playwright）——基线口径 = 全量 failed/error 集合「零新增」。
+- B 端门：`cd ../HAJIMI_UI && QT_QPA_PLATFORM=offscreen python3 -m pytest tests -q`（基线 35 passed / 6 个环境预存失败）。
+- 端到端冒烟（Linux 只能验到路由/SSE/规划层）：起 uvicorn :8011 → `python3 HAJIMI_UI/scripts/verify_l5.py --require-l5`。真实 UIA 执行仅 Windows 有效。
 
-### LLM 客户端 (`services/llm/`)
-- **providers.py** — 统一多供应商客户端，支持 openai/claude/gemini/groq/openrouter/ollama/qwen/glm/deepseek。包含 `[POINT:x,y:label]` 标签解析器、JSON 修复、自适应 token 重试。
-- **client.py** — 旧版 `call_deepseek()` 兼容层
+## 数据
 
-### 执行引擎 (`services/executor/`)
-- **engine.py** — `run_plan_agent_loop()` 主循环，SSE 事件队列推送到前端
-- **agent.py** — LLM 驱动的工具调用循环，17 个工具：launch_app/get_screen_info/click/type_text/scroll/browser_* 等。每步最多 15 轮。
-- **safety.py** — 三层安全分类（绿/黄/红），23 条红线 + 12 条黄线
-
-### 规划 (`services/planning/`)
-- **router.py** — 旧版管线主入口：红线→意图→并行(Planning+OmniParser)
-- **blueprint_engine.py** — 蓝图状态机：advance/rollback/skip/terminate
-- **complexity_router.py** — L2/L3 复杂度分级
-
-### 意图 (`services/intent/`)
-- **setfit_classifier.py** — SetFit + 关键词回退，9 类别中文意图分类
-- **train_intent.py** — 手动训练脚本（非运行时）
-
-### 其他
-- **session/manager.py** — SessionManager 单例：消息历史(80条)、计划状态、评估历史(40条)
-- **context/distiller.py** — 快速纯文本 LLM 预调用，减少主调用 token
-- **context/embedding_matcher.py** — all-MiniLM-L6-v2 语义匹配 (384维余弦相似度)
-- **omniparser_client.py** — 远程 GPU OmniParser HTTP 客户端
-- **fingerprint_service.py** — SHA-256 屏幕指纹 + Jaccard 相似度
-- **cache.py** — 截图缓存 (900ms TTL)
-- **redline_service.py** — 18 条红线正则规则
-- **launcher.py** — Win+搜索应用启动 + 中英文名称映射
-
-## 数据库 (7 张表)
-
-| 表 | 类 | 说明 |
-|----|-----|------|
-| `t_users` | User | 用户，preferences(JSON, 空壳), role |
-| `t_transactions` | Transaction | 任务记录，intent/complexity/result/duration |
-| `t_step_logs` | StepLog | 步骤日志，action/status/fingerprint |
-| `t_feedback` | Feedback | 反馈 (useful/useless/neutral) |
-| `t_failures` | Failure | 失败记录，llm_snapshot |
-| `t_system_configs` | SystemConfig | 系统配置 KV |
-| `t_redline_logs` | RedlineLog | 红线拦截日志 |
-
-## 配置要点
-
-- A 端 `.env` 配置：`LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `OMNIPARSER_URL`, `INTENT_MODEL_PATH`
-- B 端用户设置：`%LOCALAPPDATA%/HAJIMI/user_settings.json`（部署模式、主题、字体、透明度）
-- `DISTILLATION_ENABLED` 控制语境蒸馏开关
-- `EVALUATOR_ENABLED` 控制步骤评估开关
-
-## 关键约定
-
-- 坐标系统：归一化 0-1000 比例，通过 `validation/coords.py` 转为绝对像素
-- 指针格式：`[POINT:x,y:label]` 标签
-- 安全：输入查询通过 `redline_service.py`，执行步骤通过 `executor/safety.py`
-- 单例模式：TaskOrchestrator、SessionManager、SetFitIntentClassifier
-- 意图类别：operation_guide, element_cognition, error_diagnosis, ui_navigation, content_cognition, file_management, proactive_alert, tutorial_generation, emotion_comfort
-
-## 当前局限性
-
-- `User.preferences` 字段已定义但未使用
-- 反馈已收集但未形成闭环（无自动微调/个性化）
-- 无用户行为学习系统
-- 运行时状态仅内存存储，重启丢失
-- 中英文混合场景较多（应用名映射、提示词等）
+- SQLAlchemy ORM：`server/database/`，SQLite 默认 `server_A/data/hajimi.db`（环境变量 `HAJIMI_DATABASE_URL` 可覆盖）。
+- 任务/步骤运行态：`server/storage/memory.py` 内存存储，重启丢失（演示期设计）。
+- 审计队列等运行产物落 `server_A/data/`（gitignore）。
