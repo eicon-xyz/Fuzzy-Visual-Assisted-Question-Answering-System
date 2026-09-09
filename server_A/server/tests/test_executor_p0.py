@@ -1270,3 +1270,143 @@ def test_p05_b2_agent_propagates_pattern_failed_error_code():
     assert r["ok"] is False
     assert r["error_code"] == "pattern_failed"
     assert "补刀" in r["hint"]  # 底层已带具体 hint，_ERROR_HINTS 通用 hint 不覆盖
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# P0.5-B3 焦点感知（台账 B3）
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _focused_auto(monkeypatch, root, focused):
+    """install_fake_uia + 补 GetFocusedControl（B3）。"""
+    install_fake_uia(monkeypatch, root)
+    sys.modules["uiautomation"].GetFocusedControl = lambda: focused
+
+
+class _UnavailableBridge(_BridgeStub):
+    """available=False 的桥：_do_paste_text 应跳过焦点断言且完全不触碰焦点。"""
+
+    available = False
+
+    def get_focused_now(self):
+        raise AssertionError("桥不可用时不应触碰焦点")
+
+
+def test_p05_b3_snapshot_captures_focused_and_agent_surfaces_it(monkeypatch):
+    """① fake auto 带 GetFocusedControl：snapshot 后 last_focused 有值，result['focused'] 正确。"""
+    focused = FakeControl("搜索框", ctype="EditControl", rect=(100, 10, 300, 40))
+    btn = FakeControl("确定", ctype="ButtonControl", rect=(10, 10, 60, 30))
+    btn._patterns["invoke"] = _FakeInvokePattern(btn)
+    root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(btn,))
+    _focused_auto(monkeypatch, root, focused)
+
+    b = UIABridge()
+    els = b.snapshot()
+    assert els, "snapshot 应有控件"
+    f = b.last_focused()
+    assert f is not None
+    assert f["name"] == "搜索框"
+    assert f["type"] == "edit"
+    assert f["class"] == "DummyClass"
+    assert f["bbox"] == [100, 10, 300, 40]  # 绝对坐标
+
+    # agent 层：观察结果头部 focused 字段（bbox 转相对窗口同投影口径）
+    a = agent_mod.ExecutionAgent()
+    a._uia = b
+    a.screen_source = "uia"
+    r = a._do_get_screen_info()
+    assert r["focused"]["name"] == "搜索框"
+    assert r["focused"]["type"] == "edit"
+    assert r["focused"]["bbox"] == [100, 10, 200, 30]  # [左,上,宽,高] 相对窗口
+
+
+def test_p05_b3_paste_expect_focus_match_allows_and_pastes(monkeypatch):
+    """② expect_focus 匹配（双向包含）→ 放行且粘贴执行。"""
+    focused = FakeControl("全局搜索框", ctype="EditControl", rect=(100, 10, 300, 40))
+    _focused_auto(monkeypatch, None, focused)
+    b = UIABridge()
+    a = _make_agent_with_fake_bridge(b)
+    pasted = []
+    import pyautogui as _pag
+
+    monkeypatch.setattr(_pag, "hotkey", lambda *a, **k: pasted.append(a))
+    monkeypatch.setattr(agent_mod.pyperclip, "paste", lambda: "")
+    monkeypatch.setattr(agent_mod.pyperclip, "copy", lambda v: None)
+    r = a._do_paste_text("你好", expect_focus="搜索框")  # "搜索框" 真含于 "全局搜索框"（双向包含放行）
+    assert r["success"] is True
+    assert pasted  # ctrl+v 已执行
+
+
+def test_p05_b3_paste_expect_focus_mismatch_rejects(monkeypatch):
+    """③ 不匹配 → focus_mismatch、不粘贴、actual_focus 回报真名。"""
+    focused = FakeControl("地址栏", ctype="EditControl", rect=(100, 10, 300, 40))
+    _focused_auto(monkeypatch, None, focused)
+    b = UIABridge()
+    a = _make_agent_with_fake_bridge(b)
+    pasted = []
+    import pyautogui as _pag
+
+    monkeypatch.setattr(_pag, "hotkey", lambda *a, **k: pasted.append(a))
+    monkeypatch.setattr(agent_mod.pyperclip, "paste", lambda: "")
+    monkeypatch.setattr(agent_mod.pyperclip, "copy", lambda v: None)
+    r = a._do_paste_text("你好", expect_focus="搜索框")
+    assert r["success"] is False
+    assert r["error_code"] == "focus_mismatch"
+    assert "地址栏" in r["error"]
+    assert r["actual_focus"]["name"] == "地址栏"
+    assert "禁止盲粘" in r["hint"]
+    assert pasted == []  # 未下发粘贴
+
+
+def test_p05_b3_paste_expect_focus_none_focus_conservative_reject(monkeypatch):
+    """桥 available 但拿不到焦点（None）→ 保守按不匹配拒发。"""
+    _focused_auto(monkeypatch, None, None)  # GetFocusedControl 返回 None
+    b = UIABridge()
+    a = _make_agent_with_fake_bridge(b)
+    pasted = []
+    import pyautogui as _pag
+
+    monkeypatch.setattr(_pag, "hotkey", lambda *a, **k: pasted.append(a))
+    monkeypatch.setattr(agent_mod.pyperclip, "paste", lambda: "")
+    monkeypatch.setattr(agent_mod.pyperclip, "copy", lambda v: None)
+    r = a._do_paste_text("你好", expect_focus="搜索框")
+    assert r["success"] is False
+    assert r["error_code"] == "focus_mismatch"
+    assert "未知" in r["error"]
+    assert pasted == []
+
+
+def test_p05_b3_paste_expect_focus_skipped_when_bridge_unavailable(monkeypatch):
+    """④ 桥不可用（available False）→ 跳过断言照常粘贴。"""
+    bridge = _UnavailableBridge({"success": True})
+    a = _make_agent_with_fake_bridge(bridge)
+    pasted = []
+    import pyautogui as _pag
+
+    monkeypatch.setattr(_pag, "hotkey", lambda *a, **k: pasted.append(a))
+    monkeypatch.setattr(agent_mod.pyperclip, "paste", lambda: "")
+    monkeypatch.setattr(agent_mod.pyperclip, "copy", lambda v: None)
+    r = a._do_paste_text("你好", expect_focus="搜索框")
+    assert r["success"] is True
+    assert pasted
+
+
+def test_p05_b3_paste_schema_has_expect_focus_and_dispatch_forwards(monkeypatch):
+    """paste_text schema 增 expect_focus（可选）；dispatch 透传。"""
+    a = agent_mod.ExecutionAgent()
+    tools = {t["function"]["name"]: t["function"] for t in a.tools}
+    fn = tools["paste_text"]
+    assert "expect_focus" in fn["parameters"]["properties"]
+    assert "expect_focus" not in fn["parameters"]["required"]
+    # dispatch 透传
+    bridge = _UnavailableBridge({"success": True})
+    a2 = _make_agent_with_fake_bridge(bridge)
+    monkeypatch.setattr(a2, "_do_paste_text", lambda *args, **kw: {"seen": kw})
+    r = a2.dispatch_tool("paste_text", {"text": "x", "expect_focus": "搜索框"})
+    assert r["seen"]["expect_focus"] == "搜索框"
+    # 错误分类：focus_mismatch 先于 action_failed
+    cls = agent_mod.ExecutionAgent._classify_error_code
+    assert cls("UIA 操作失败: focus_mismatch") == "focus_mismatch"
+    assert cls("focus_mismatch: 粘贴已拒绝") == "focus_mismatch"
+    # 契约 hint 存在
+    assert "禁止盲粘" in agent_mod.ExecutionAgent._ERROR_HINTS["focus_mismatch"]

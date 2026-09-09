@@ -53,7 +53,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 - get_screen_info(): 获取当前屏幕控件投影列表，字段：id / type(控件类型) / name(控件文本) / class(框架类名) / enabled(是否可用) / patterns(可用交互模式: invoke,value,toggle,selectionitem,expandcollapse) / bbox(相对窗口左上角 [左,上,宽,高] 像素)。附带 window_title 与 window_size
 - click(element_id, name[, expect]): 单击指定元素（UIA 绑定优先：Invoke/Select 等精确模式；失败回退坐标点击）。name 必填=该元素的 name 字段，服务端交叉验证防幻觉点击；expect 可选，声明期望的界面变化
 - double_click(element_id, name[, expect]): 双击指定元素。桌面图标、文件通常需要双击打开。
-- paste_text(text[, expect]): 将文本粘贴到当前获得焦点的位置（通过剪贴板）。启动应用后或点击输入框后，文本会自动粘贴到光标所在位置，不需要 element_id。用于无法检测到输入框的场景（如记事本文本区、聊天输入框等纯文本区域）。
+- paste_text(text[, expect, expect_focus]): 将文本粘贴到当前获得焦点的位置（通过剪贴板）。启动应用后或点击输入框后，文本会自动粘贴到光标所在位置，不需要 element_id。用于无法检测到输入框的场景（如记事本文本区、聊天输入框等纯文本区域）。目标输入框可断言：传 expect_focus（期望焦点控件名），焦点不符直接拒发。
 - type_text(element_id, name, text[, expect]): 向输入元素输入文本（UIA 绑定优先：ValuePattern.SetValue 精确设置）
 - press_key(keys): 按键盘组合键，如 "enter", "ctrl+v", "win"
 - scroll(direction, amount): 滚轮滚动
@@ -228,7 +228,7 @@ def _build_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "paste_text",
-                "description": "将文本粘贴到当前获得焦点的位置（通过剪贴板）。不需要 element_id，适用于记事本文本区、聊天输入框等检测不到输入框的场景。",
+                "description": "将文本粘贴到当前获得焦点的位置（通过剪贴板）。不需要 element_id，适用于记事本文本区、聊天输入框等检测不到输入框的场景。可传 expect_focus 断言目标输入框名（焦点不符直接拒发，防盲粘）。",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -239,6 +239,10 @@ def _build_tool_definitions() -> list[dict]:
                         "expect": {
                             "type": "string",
                             "description": "可选：粘贴后期望出现的界面文本，服务端轮询验证",
+                        },
+                        "expect_focus": {
+                            "type": "string",
+                            "description": "可选：目标输入框的期望控件名（粘贴前校验当前焦点，不符则拒发 focus_mismatch）",
                         },
                     },
                     "required": ["text"],
@@ -1085,6 +1089,23 @@ class ExecutionAgent:
                 rect = getattr(uia, "_last_window_rect", None)
                 if rect:
                     result["window_size"] = [rect[2] - rect[0], rect[3] - rect[1]]
+                # B3 焦点感知：观察结果头部附当前焦点控件（bbox 转相对窗口同投影口径）
+                focused = uia.last_focused()
+                if focused:
+                    fout = {
+                        "name": focused.get("name", ""),
+                        "type": focused.get("type", ""),
+                        "class": focused.get("class", ""),
+                    }
+                    fb = focused.get("bbox")
+                    if fb and rect:
+                        fout["bbox"] = [
+                            fb[0] - rect[0],
+                            fb[1] - rect[1],
+                            fb[2] - fb[0],
+                            fb[3] - fb[1],
+                        ]
+                    result["focused"] = fout
                 # 附带截图供前端展示视觉更新（无标注框）
                 try:
                     from core.screen_capture import capture_to_base64
@@ -1321,7 +1342,12 @@ class ExecutionAgent:
                     )
         return base
 
-    def _do_paste_text(self, text: str, expect: Optional[str] = None) -> dict:
+    def _do_paste_text(
+        self,
+        text: str,
+        expect: Optional[str] = None,
+        expect_focus: Optional[str] = None,
+    ) -> dict:
         """Paste text via clipboard into the currently focused element.
         No element_id needed — uses the current window focus.
         """
@@ -1337,6 +1363,24 @@ class ExecutionAgent:
                 "error": f"paste requires confirmation (zone: yellow): {safety.reason}. "
                 f"Choose a different target or try an alternative approach.",
             }
+
+        # B3 焦点前置断言：expect_focus 非空时校验当前焦点控件名，不符拒发（防盲粘）
+        if expect_focus:
+            uia = self._get_uia()
+            if uia.available:  # 桥不可用 → 跳过断言（向后兼容）
+                f = uia.get_focused_now()
+                f_name = (f.get("name") or "").strip().lower() if f else ""
+                exp = (expect_focus or "").strip().lower()
+                if not f or not (exp in f_name or f_name in exp):
+                    return {
+                        "success": False,
+                        "error_code": "focus_mismatch",
+                        "error": (
+                            f"当前焦点控件是「{f_name or '未知'}」而非「{expect_focus}」，粘贴已拒绝"
+                        ),
+                        "actual_focus": f,
+                        "hint": "先 click 目标输入框再粘贴，或修正 expect_focus；禁止盲粘。",
+                    }
 
         old_clipboard = pyperclip.paste()
         try:
@@ -1512,6 +1556,10 @@ class ExecutionAgent:
             "选定交互模式执行失败，且动作可能已部分生效。严禁原样补刀重试——"
             "先 get_screen_info 确认界面实际状态（动作可能已生效）再决策换目标/换策略。"
         ),
+        "focus_mismatch": (
+            "当前焦点控件与 expect_focus 不符，粘贴已拒发（防盲粘错目标）。"
+            "先 click 目标输入框（用其 name 作 expect_focus）再重试粘贴，或改用 type_text 指定元素；禁止盲粘。"
+        ),
         "unknown_tool": "工具名不存在，只能使用工具列表中列出的工具。",
         "tool_exception": (
             "工具执行抛出异常。换一条更简单的路径完成本步骤"
@@ -1525,6 +1573,8 @@ class ExecutionAgent:
     @staticmethod
     def _classify_error_code(err_text: str) -> str:
         e = (err_text or "").lower()
+        if "focus_mismatch" in e:
+            return "focus_mismatch"
         if "not found in current screen" in e or "not found" in e and "element" in e:
             return "element_not_found"
         if "name_mismatch" in e:
@@ -1617,6 +1667,7 @@ class ExecutionAgent:
             return self._do_paste_text(
                 tool_args.get("text", ""),
                 expect=tool_args.get("expect"),
+                expect_focus=tool_args.get("expect_focus"),
             )
         elif tool_name == "press_key":
             return self._do_press_key(tool_args.get("keys", "enter"))

@@ -192,6 +192,7 @@ class UIABridge:
         self._last_projection: List[dict] = []
         self._last_window_title: str = ""
         self._last_window_rect: Optional[List[int]] = None
+        self._last_focused: Optional[dict] = None  # B3: 快照时焦点控件 {name,type,class,bbox}
         self._auto = _import_auto()
         self._available = self._auto is not None and platform.system() == "Windows"
         if not self._available:
@@ -213,7 +214,55 @@ class UIABridge:
         self._last_controls = {}
         self._last_meta = {}
         self._last_projection = []
-        return self._snapshot_into(self._last_controls, max_depth, max_nodes)
+        self._last_focused = None
+        out = self._snapshot_into(self._last_controls, max_depth, max_nodes)
+        # B3: 快照成功后记录当前焦点控件（供 agent 观察结果头部附 focused 字段）
+        if self._available:
+            self._last_focused = self._capture_focused()
+        return out
+
+    def _capture_focused(self) -> Optional[dict]:
+        """GetFocusedControl() 属性采集（B3）。模块无此函数/取不到 → None。
+
+        逐字段 try/except；bbox 为绝对坐标（与投影相对坐标区分）。
+        不在任何缓存字段落盘——last_focused() 只是读本方法的结果快照。
+        """
+        if not self._available or self._auto is None:
+            return None
+        getter = getattr(self._auto, "GetFocusedControl", None)
+        if not callable(getter):
+            return None
+        try:
+            ctrl = getter()
+        except Exception:
+            return None
+        if ctrl is None:
+            return None
+        out: dict = {}
+        try:
+            out["name"] = (ctrl.Name or "").strip()
+        except Exception:
+            out["name"] = ""
+        try:
+            out["type"] = _raw_control_type(ctrl) or "pane"
+        except Exception:
+            out["type"] = ""
+        try:
+            out["class"] = (ctrl.ClassName or "").strip()
+        except Exception:
+            out["class"] = ""
+        bbox = _control_bbox(ctrl)
+        if bbox is not None:
+            out["bbox"] = bbox  # 绝对坐标
+        return out
+
+    def last_focused(self) -> Optional[dict]:
+        """最近一次 snapshot() 时捕获的焦点控件属性（无则 None）。"""
+        return self._last_focused
+
+    def get_focused_now(self) -> Optional[dict]:
+        """动作时刻重取当前焦点控件属性；不落任何缓存字段。"""
+        return self._capture_focused()
 
     def _snapshot_into(
         self,
@@ -836,3 +885,4 @@ class UIABridge:
     def clear(self) -> None:
         self._last_controls = {}
         self._last_meta = {}
+        self._last_focused = None
