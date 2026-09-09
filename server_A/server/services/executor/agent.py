@@ -69,7 +69,7 @@ EXECUTION_SYSTEM_PROMPT = """你是桌面自动化执行专家。你的任务是
 
 ## 可用工具
 - launch_app(app_name): 通过系统级命令启动应用（Win+搜索）。当步骤为打开应用时，优先使用此工具。
-- get_screen_info([scope, depth, filter]): 获取当前屏幕控件投影列表（默认浅探，深层以大纲条目呈现：items=子项计数、expandable=可下钻），字段：id / type(控件类型) / name(控件文本) / class(框架类名) / enabled(是否可用) / patterns(可用交互模式: invoke,value,toggle,selectionitem,expandcollapse,rangevalue,window) / bbox(相对窗口左上角 [左,上,宽,高] 像素)。附带 window_title / window_size 与 focused(当前焦点控件 name/type/class)。id 稳定：控件存活期间跨观察有效，无需因"刚观察过"而重取。scope=某条目 id 时改为下钻该子树（加法观察，其余 id 不失效）；filter 覆盖语义排序词（缺省=当前步骤指令，'-' 关闭）
+- get_screen_info([scope, depth, filter]): 获取当前屏幕控件投影列表（默认浅探，深层以大纲条目呈现：items=子项计数、expandable=可下钻），字段：id / type(控件类型) / name(控件文本) / class(框架类名) / enabled(是否可用) / patterns(可用交互模式: invoke,value,toggle,selectionitem,expandcollapse,rangevalue,window) / bbox(相对窗口左上角 [左,上,宽,高] 像素)。附带 window_title / window_size、focused(当前焦点控件 name/type/class) 与 windows(可见顶层窗口摘要：wid/title/bbox/active/items)。id 稳定：控件存活期间跨观察有效，无需因"刚观察过"而重取。scope=某条目 id 时改为下钻该子树（加法观察，其余 id 不失效）；filter 覆盖语义排序词（缺省=当前步骤指令，'-' 关闭）
 - click(element_id, name[, expect]): 单击指定元素（UIA 绑定优先：Invoke/Select 等精确模式；失败回退坐标点击）。name 必填=该元素的 name 字段，服务端交叉验证防幻觉点击；expect 可选，声明期望的界面变化
 - double_click(element_id, name[, expect]): 双击指定元素。桌面图标、文件通常需要双击打开。
 - right_click(element_id, name[, expect]): 右键单击指定元素（弹系统上下文菜单）。需要右键菜单且投影里看不到菜单入口时用；name 同样交叉验证。
@@ -102,6 +102,7 @@ element_id 是稳定的：控件存活期间跨观察有效——重新 get_scre
 ## 元素定位策略
 - 元素来自 Windows UI Automation 结构化采集，每个元素带 type/name/class/enabled/patterns/bbox 投影字段
 - 默认观察是浅探（depth 3）：列表里 items 数字大 / expandable=true 的条目代表被折叠的容器——**用 get_screen_info(scope=该条目id) 下钻目标子树，不要反复整窗观察**（整窗重扫又贵又拿不到深层）
+- 观察结果附带 windows（可见顶层窗口摘要，active 置首）：**任务涉及弹窗/别的窗口时先看 windows，用 get_screen_info(scope=wid) 观察目标窗再操作——操作错窗=灾难**（scope=wid 后对该窗控件的 act/verify 正常工作，其余 id 不失效）
 - 截断排序默认按当前步骤指令做词法相关度加权（命中的条目优先保留）；怀疑排序漏掉目标时传 filter="-" 关闭语义排序重取
 - 优先按 name 精确/部分匹配目标文本（如目标"搜索框"可能显示为"搜"）
 - 用 type+patterns 判定控件性质：输入框=edit+value，按钮=button+invoke，菜单项=menuitem，复选框=checkbox/toggle
@@ -1520,6 +1521,19 @@ class ExecutionAgent:
                 rect = getattr(uia, "_last_window_rect", None)
                 if rect:
                     result["window_size"] = [rect[2] - rect[0], rect[3] - rect[1]]
+                # A2 多顶层窗口大纲：windows 摘要（≤12，active 置首，非激活窗
+                # 仅摘要不展开）；elements 主体仍是激活窗投影（行为不变）。
+                try:
+                    wins = (
+                        uia.list_windows()
+                        if getattr(uia, "available", False)
+                        and hasattr(uia, "list_windows")
+                        else []
+                    )
+                except Exception:
+                    wins = []
+                if wins:
+                    result["windows"] = wins[:12]
                 # B3 焦点感知：观察结果头部附当前焦点控件（bbox 转相对窗口同投影口径）
                 focused = uia.last_focused()
                 if focused:

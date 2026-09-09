@@ -2333,3 +2333,124 @@ def test_p05_a3_schema_prompt_config_wiring():
     assert "下钻" in prompt and "expandable" in prompt  # 策略行入 prompt
     from server.config import settings
     assert settings.SCREEN_SEMANTIC_FILTER is False  # embedding 层默认关
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# P0.5-A2 多顶层窗口大纲 + 激活窗优先（台账 A2 三连收官段）
+# list_windows 只数不做 pattern 探测；windows 摘要进观察头；scope=wid
+# 切焦点观察（drill 整窗）；window_action(title) 解析收编到同一扫描器。
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class _ProbeGuardControl(_RuntimeIdControl):
+    """A2：rid + 任意 Get*Pattern 调用计数——list_windows 必须让它保持 0。"""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.probes = 0
+
+    def GetInvokePattern(self):
+        self.probes += 1
+        return super().GetInvokePattern()
+
+    def GetValuePattern(self):
+        self.probes += 1
+        return super().GetValuePattern()
+
+    def GetExpandCollapsePattern(self):
+        self.probes += 1
+        return super().GetExpandCollapsePattern()
+
+
+def _a2_two_windows():
+    main_btn = FakeControl("主窗按钮", ctype="ButtonControl", rect=(110, 160, 200, 190))
+    main_btn._patterns["invoke"] = _FakeInvokePattern(main_btn)
+    winA = _ProbeGuardControl("记事本主窗", ctype="WindowControl",
+                              rect=(100, 100, 700, 500), runtime_id=(10, 1),
+                              children=(main_btn,))
+    pop1 = FakeControl("保存文件", ctype="ButtonControl", rect=(120, 150, 220, 180))
+    pop1._patterns["invoke"] = _FakeInvokePattern(pop1)
+    pop2 = FakeControl("取消", ctype="ButtonControl", rect=(120, 190, 220, 220))
+    pop2._patterns["invoke"] = _FakeInvokePattern(pop2)
+    winB = _ProbeGuardControl("另存为弹窗", ctype="WindowControl",
+                              rect=(300, 200, 650, 420), runtime_id=(10, 2),
+                              children=(pop1, pop2))
+    return winA, winB, main_btn, pop1
+
+
+def test_p05_a2_list_windows_summary_active_first_no_probing(monkeypatch):
+    """两窗（激活+弹窗）：active 置首、items 浅计、wid 稳定、零 pattern 探测。"""
+    winA, winB, _, _ = _a2_two_windows()
+    install_fake_uia(monkeypatch, winA, roots=[winA, winB])
+    b = UIABridge()
+    before = winA.probes + winB.probes
+    wins = b.list_windows()
+    assert winA.probes + winB.probes == before  # 成本红线：只数不探测
+    assert len(wins) == 2
+    assert wins[0]["title"] == "记事本主窗" and wins[0]["active"] is True
+    assert wins[1]["title"] == "另存为弹窗" and wins[1]["active"] is False
+    assert wins[1]["items"] == 2 and wins[1]["expandable"] is True
+    assert wins[1]["bbox"] == [300, 200, 650, 420]  # 绝对坐标
+    assert _re.fullmatch(r"e[0-9a-f]{10}", wins[0]["wid"])
+    assert b.has_handle(wins[1]["wid"])  # 登记句柄 → 可 scope drill
+
+
+def test_p05_a2_list_windows_filters_invisible_and_no_rid_wid(monkeypatch):
+    """IsOffscreen/空 bbox 的窗口跳过（异常项不拖垮整表）；无 rid 窗口给 w{n}。"""
+    ok = _RuntimeIdControl("好窗", ctype="WindowControl", rect=(0, 0, 100, 100),
+                           runtime_id=(8, 1))
+    ghost = _RuntimeIdControl("隐形窗", ctype="WindowControl", rect=(0, 0, 100, 100),
+                              runtime_id=(8, 2), offscreen=True)
+    flat = _RuntimeIdControl("零尺寸窗", ctype="WindowControl", rect=(0, 0, 0, 0),
+                             runtime_id=(8, 3))
+    no_rid = FakeControl("旧窗口", ctype="WindowControl", rect=(0, 0, 90, 90))
+    install_fake_uia(monkeypatch, ok, roots=[ok, ghost, flat, no_rid])
+    b = UIABridge()
+    wins = b.list_windows()
+    titles = [w["title"] for w in wins]
+    assert "隐形窗" not in titles and "零尺寸窗" not in titles
+    assert wins[0]["active"] is True  # ok 与 foreground 同对象
+    old = next(w for w in wins if w["title"] == "旧窗口")
+    assert _re.fullmatch(r"w\d+", old["wid"]) and not b.has_handle(old["wid"])
+
+
+def test_p05_a2_agent_windows_header_and_scope_window_drill(monkeypatch):
+    """windows 进观察头（主体仍是激活窗）；scope=wid 切焦点观察弹窗并可 act，
+    原窗条目 id 不失效。"""
+    winA, winB, main_btn, pop1 = _a2_two_windows()
+    install_fake_uia(monkeypatch, winA, roots=[winA, winB])
+    a = agent_mod.ExecutionAgent()
+    obs = a._do_get_screen_info()
+    assert obs["window_title"] == "记事本主窗"
+    names = {e.get("name") for e in obs["elements"]}
+    assert "主窗按钮" in names and "保存文件" not in names  # 非激活窗仅摘要
+    wins = obs["windows"]
+    assert wins[0]["active"] is True and len(wins) == 2
+    wid_b = next(w["wid"] for w in wins if w["title"] == "另存为弹窗")
+    obs2 = a._do_get_screen_info(scope=wid_b)
+    assert obs2["mode"] == "drill" and obs2["additive"] is True
+    assert obs2["observing_window"] == "另存为弹窗"
+    pop_e = next(e for e in obs2["elements"] if e["name"] == "保存文件")
+    # 弹窗控件 bbox 相对弹窗窗口左上角换算
+    assert pop_e["bbox"] == [120 - 300, 150 - 200, 100, 30]
+    r = a.dispatch_tool("click", {"element_id": pop_e["id"], "name": "保存文件"})
+    assert r["ok"] is True and "invoke" in pop1.log
+    main_e = next(e for e in obs["elements"] if e["name"] == "主窗按钮")
+    r2 = a.dispatch_tool("click", {"element_id": main_e["id"], "name": "主窗按钮"})
+    assert r2["ok"] is True  # 跨窗句柄表存活：原窗 id 照常可用
+    assert "操作错窗" in agent_mod.EXECUTION_SYSTEM_PROMPT  # 策略行入 prompt
+
+
+def test_p05_a2_window_action_title_resolver_unchanged(monkeypatch):
+    """window_action(title=) 走 list_windows 同源解析：B4 语义逐条不变。"""
+    winA, winB, _, _ = _a2_two_windows()
+    install_fake_uia(monkeypatch, winA, roots=[winA, winB])
+    b = UIABridge()
+    a = _make_agent_with_fake_bridge(b)
+    r = a._do_window_action("activate", title="另存为")
+    assert r["success"] is True and "focus" in winB.log
+    assert r["window_title"] == "另存为弹窗"
+    r2 = a._do_window_action("minimize", title="主窗")
+    assert r2["success"] is True and "minimize" in winA.log
+    r3 = a._do_window_action("close", title="查无此窗")
+    assert r3["success"] is False and r3["error_code"] == "window_not_found"

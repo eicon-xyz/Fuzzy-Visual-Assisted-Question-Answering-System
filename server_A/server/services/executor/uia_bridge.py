@@ -1184,6 +1184,99 @@ class UIABridge:
             "range_value": target,
         }
 
+    # ── A2 多顶层窗口大纲 ──
+
+    def _scan_top_windows(self) -> List[Tuple[object, dict]]:
+        """桌面根窗口子级 → 可见顶层窗口 [(control, 摘要)]。
+
+        过滤：IsOffscreen False 且 bbox 非空；单项属性异常跳过（烂窗口不
+        拖垮整表）。active = 与 GetForegroundControl 同对象或同 RuntimeId。
+        摘要只数 children 不做 pattern 探测（成本红线）；有 RuntimeId 的窗口
+        wid 用稳定 e<hash> 形式并登记句柄（供 agent scope=wid 切焦点观察）。
+        """
+        if not self._available or self._auto is None:
+            return []
+        try:
+            root = self._auto.GetRootControl()
+            children = root.GetChildren() if root is not None else []
+        except Exception:
+            return []
+        try:
+            fg = self._auto.GetForegroundControl()
+        except Exception:
+            fg = None
+        fg_rid = None
+        if fg is not None:
+            try:
+                fg_rid = fg.GetRuntimeId()
+            except Exception:
+                fg_rid = None
+        out: List[Tuple[object, dict]] = []
+        seen: set = set()
+        seq = 0
+        for w in children:
+            try:
+                if bool(w.IsOffscreen):
+                    continue
+            except Exception:
+                continue
+            bbox = _control_bbox(w)
+            if bbox is None:
+                continue
+            try:
+                title = (w.Name or "").strip()
+            except Exception:
+                title = ""
+            active = False
+            if fg is not None:
+                if w is fg:
+                    active = True
+                elif fg_rid is not None:
+                    try:
+                        rid = w.GetRuntimeId()
+                        active = rid is not None and list(rid) == list(fg_rid)
+                    except Exception:
+                        active = False
+            wid = self._stable_base_eid(w)
+            base = wid
+            if wid is not None:
+                k = 2
+                while wid in seen:
+                    wid = f"{base}#{k}"
+                    k += 1
+            else:
+                seq += 1
+                wid = f"w{seq}"  # 烂窗口无 rid → 临时 wid（不可 drill，仅摘要）
+            seen.add(wid)
+            if base is not None:
+                self._register_handle(wid, w)
+            try:
+                kids = w.GetChildren()
+                n = len(kids) if kids is not None else 0
+            except Exception:
+                n = 0
+            out.append(
+                (
+                    w,
+                    {
+                        "wid": wid,
+                        "title": title,
+                        "bbox": bbox,  # 绝对坐标 [左,上,右,下]
+                        "active": active,
+                        "items": n if n <= 200 else "200+",
+                        "expandable": True,
+                    },
+                )
+            )
+        return out
+
+    def list_windows(self) -> List[dict]:
+        """可见顶层窗口摘要（active 置首，其余桌面序）。只数不做 pattern 探测。"""
+        pairs = self._scan_top_windows()
+        infos = [info for _, info in pairs]
+        infos.sort(key=lambda i: 0 if i["active"] else 1)  # 稳定排序：active 前置
+        return infos
+
     # ── B4 窗口级动作 ──
 
     _WINDOW_OPS = ("activate", "minimize", "maximize", "restore", "close")
@@ -1198,21 +1291,16 @@ class UIABridge:
     _WINDOW_VISUAL_STATE = {"minimize": "Minimized", "maximize": "Maximized", "restore": "Normal"}
 
     def _find_window_by_title(self, title: str):
-        """桌面根窗口子级中按 Name 含 title（小写）找顶层窗口；无匹配 None。"""
+        """桌面根窗口子级中按 Name 含 title（小写）找顶层窗口；无匹配 None。
+
+        A2：解析复用 _scan_top_windows（可见性/bbox 过滤与 list_windows 同
+        一份实现，B4 内联逻辑收编——行为等价、少一份实现）。
+        """
         needle = (title or "").strip().lower()
-        if not needle or self._auto is None:
+        if not needle:
             return None
-        try:
-            root = self._auto.GetRootControl()
-            children = root.GetChildren() if root is not None else []
-        except Exception:
-            return None
-        for w in children:
-            try:
-                nm = w.Name or ""
-            except Exception:
-                continue
-            if needle in nm.lower():
+        for w, info in self._scan_top_windows():
+            if needle in (info["title"] or "").lower():
                 return w
         return None
 
