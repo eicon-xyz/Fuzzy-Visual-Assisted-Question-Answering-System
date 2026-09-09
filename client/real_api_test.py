@@ -6,8 +6,8 @@ HAJIMI — C↔A 数据连通性集成测试
 用法::
 
     # 先启动 A 端
-    cd new_JIMI/HAJIMI_UI
-    python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
+    cd server_A
+    python -m uvicorn server.main:app --host 127.0.0.1 --port 8011
 
     # 再跑测试
     cd E:\Fuzzy-Visual-Assisted-Question-Answering-System
@@ -26,7 +26,7 @@ except ImportError:
     print("pip install httpx")
     sys.exit(1)
 
-SERVER = "http://127.0.0.1:8010"
+SERVER = "http://127.0.0.1:8011"
 KEY = "hajimi-demo-2026"
 DEMO_H = {"X-Demo-Key": KEY, "Content-Type": "application/json"}
 ADMIN_H = {"X-Admin-Key": KEY, "Content-Type": "application/json"}
@@ -43,10 +43,10 @@ def test_connectivity():
     print("═══ 1. 服务器连通性 ═══")
     try:
         r = httpx.get(f"{SERVER}/api/demo/health", timeout=5)
-        ok(f"A端可达 → status={r.json().get('status')}")
+        ok(f"Sidecar 可达 → status={r.json().get('status')}")
         return True
     except Exception as e:
-        ok("A端可达", False); info(f"启动: cd new_JIMI/HAJIMI_UI && python -m uvicorn server.main:app --host 127.0.0.1 --port 8010")
+        ok("Sidecar 可达", False); info(f"启动: cd server_A && python -m uvicorn server.main:app --host 127.0.0.1 --port 8011")
         return False
 
 # ══ 2. 审计回路 ══
@@ -144,7 +144,7 @@ if __name__ == "__main__":
     print(f"\n  HAJIMI C↔A 数据连通性测试\n  目标: {SERVER}\n")
 
     if not test_connectivity():
-        print(f"\n  结果: A端离线。启动后重跑。\n  cd new_JIMI/HAJIMI_UI && python -m uvicorn server.main:app --host 127.0.0.1 --port 8010")
+        print(f"\n  结果: Sidecar 离线。启动后重跑。\n  cd server_A && python -m uvicorn server.main:app --host 127.0.0.1 --port 8011")
         sys.exit(0)
 
     test_audit_roundtrip()

@@ -17,7 +17,7 @@ if exist "%L5_FLAT%\scripts\start_server.bat" (
 ) else if exist "%L5_NESTED%\scripts\start_server.bat" (
     set "L5_ROOT=%L5_NESTED%"
 ) else if exist "%L5_LEGACY%\scripts\start_server.bat" (
-    echo [HAJIMI] WARN: Using deprecated new_JIMI\HAJIMI_UI â€” prefer server_A
+    echo [HAJIMI] WARN: Using deprecated new_JIMI\HAJIMI_UI ¡ª prefer server_A
     set "L5_ROOT=%L5_LEGACY%"
 ) else (
     set "L5_ROOT=%L5_FLAT%"

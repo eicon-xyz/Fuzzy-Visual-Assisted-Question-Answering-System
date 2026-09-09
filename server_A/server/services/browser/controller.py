@@ -149,6 +149,15 @@ class BrowserController:
             url = f"https://{url}"
         logger.info("Browser navigating to: %s", url)
 
+        # Auto-recover if page was closed by LLM action
+        try:
+            if self._page.is_closed():
+                logger.warning("Page was closed, recreating via start()")
+                self._started = False
+                await self.start(headless=False)
+        except Exception:
+            pass
+
         tiers = [
             ("commit", 8_000),
             ("load", 15_000),

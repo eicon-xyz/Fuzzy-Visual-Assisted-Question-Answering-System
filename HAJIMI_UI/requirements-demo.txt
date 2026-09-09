@@ -1,2 +1,0 @@
-# WebEngine 回退路径（HAJIMI_NATIVE_UI=0 时需要）
-PyQtWebEngine>=5.15

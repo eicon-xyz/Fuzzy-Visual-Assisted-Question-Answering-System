@@ -1,0 +1,508 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "HAJIMI L5 执行引擎 · 感知 → 操作 → 验证全景",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1240,
+      560
+    ],
+    "views": [
+      {
+        "id": "core-loop",
+        "label": "感知→操作→验证主闭环",
+        "focus": [
+          "agent",
+          "dispatch",
+          "observe",
+          "act",
+          "verify",
+          "gate"
+        ],
+        "note": "P0 八项接线后的核心闭环：动作带前置谓词与后置属性 diff，验证不过自动重观察（旧 element_id 作废），done 必须有独立证据，gate 过证后 engine 进入下一步。"
+      },
+      {
+        "id": "intake",
+        "label": "指令进入与规划",
+        "focus": [
+          "input",
+          "redline",
+          "planner",
+          "engine",
+          "timeline"
+        ],
+        "note": "双层红线；规划是一次性静态分解——执行中 UI 偏移无人修正，P1 重规划靶点。"
+      },
+      {
+        "id": "memory",
+        "label": "记忆与双通道",
+        "focus": [
+          "engine",
+          "mem",
+          "browser"
+        ],
+        "note": "经验轨迹 {app,path,summary} 注入 prompt（不可回放 → P2 宏库）；browser_* 走 Playwright DOM 网页直通道。"
+      }
+    ]
+  },
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "UIA 执行桥（桌面）· P0 新接线",
+      "wraps": [
+        "observe",
+        "act",
+        "verify",
+        "gate"
+      ],
+      "pad": 24
+    },
+    {
+      "kind": "security-group",
+      "label": "红线双层：①B端归一化 + ②Sidecar 复检",
+      "wraps": [
+        "input",
+        "redline"
+      ],
+      "pad": 20
+    }
+  ],
+  "components": [
+    {
+      "id": "input",
+      "type": "frontend",
+      "label": "用户指令",
+      "sublabel": "B端 · 知情确认",
+      "pos": [
+        70,
+        26
+      ],
+      "size": [
+        160,
+        66
+      ]
+    },
+    {
+      "id": "timeline",
+      "type": "frontend",
+      "label": "步骤时间线",
+      "sublabel": "SSE · H/P/J",
+      "pos": [
+        990,
+        26
+      ],
+      "size": [
+        160,
+        66
+      ]
+    },
+    {
+      "id": "redline",
+      "type": "security",
+      "label": "红线复检②",
+      "sublabel": "/execute :8011",
+      "pos": [
+        70,
+        140
+      ],
+      "size": [
+        160,
+        66
+      ]
+    },
+    {
+      "id": "planner",
+      "type": "backend",
+      "label": "LLM 规划",
+      "sublabel": "一次性分解 steps[]",
+      "pos": [
+        300,
+        140
+      ],
+      "size": [
+        160,
+        66
+      ],
+      "tag": "P1 重规划"
+    },
+    {
+      "id": "engine",
+      "type": "messagebus",
+      "label": "engine 循环",
+      "sublabel": "逐步驱动 · 重试≤1",
+      "pos": [
+        530,
+        140
+      ],
+      "size": [
+        160,
+        66
+      ]
+    },
+    {
+      "id": "mem",
+      "type": "database",
+      "label": "经验记忆",
+      "sublabel": "extractor/retriever",
+      "pos": [
+        70,
+        266
+      ],
+      "size": [
+        160,
+        66
+      ],
+      "tag": "P2 宏库"
+    },
+    {
+      "id": "agent",
+      "type": "external",
+      "label": "LLM 决策",
+      "sublabel": "deepseek-chat ≤50轮",
+      "pos": [
+        300,
+        262
+      ],
+      "size": [
+        160,
+        74
+      ],
+      "tag": "P1 压缩"
+    },
+    {
+      "id": "dispatch",
+      "type": "backend",
+      "label": "dispatch_tool",
+      "sublabel": "{ok,code,hint}+记账",
+      "pos": [
+        530,
+        262
+      ],
+      "size": [
+        160,
+        74
+      ]
+    },
+    {
+      "id": "browser",
+      "type": "backend",
+      "label": "browser_*",
+      "sublabel": "Playwright DOM",
+      "pos": [
+        990,
+        266
+      ],
+      "size": [
+        160,
+        66
+      ]
+    },
+    {
+      "id": "observe",
+      "type": "backend",
+      "label": "感知",
+      "sublabel": "snapshot→投影top40",
+      "pos": [
+        300,
+        386
+      ],
+      "size": [
+        160,
+        74
+      ],
+      "tag": "P1 top-k"
+    },
+    {
+      "id": "act",
+      "type": "backend",
+      "label": "操作",
+      "sublabel": "前检→模式→坐标",
+      "pos": [
+        530,
+        386
+      ],
+      "size": [
+        160,
+        74
+      ]
+    },
+    {
+      "id": "verify",
+      "type": "backend",
+      "label": "后验证",
+      "sublabel": "diff·expect→重观察",
+      "pos": [
+        760,
+        386
+      ],
+      "size": [
+        160,
+        74
+      ]
+    },
+    {
+      "id": "gate",
+      "type": "security",
+      "label": "done gate",
+      "sublabel": "证据核验·终止",
+      "pos": [
+        990,
+        386
+      ],
+      "size": [
+        160,
+        74
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "c_submit",
+      "from": "input",
+      "to": "redline",
+      "label": "POST",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelAt": [
+        150,
+        106
+      ]
+    },
+    {
+      "id": "c_plan",
+      "from": "redline",
+      "to": "planner",
+      "label": "过红线",
+      "variant": "emphasis",
+      "route": "straight"
+    },
+    {
+      "id": "c_steps",
+      "from": "planner",
+      "to": "engine",
+      "label": "steps[]",
+      "variant": "emphasis",
+      "route": "straight"
+    },
+    {
+      "id": "c_round",
+      "from": "engine",
+      "to": "agent",
+      "label": "每步上下文",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          610,
+          234
+        ],
+        [
+          380,
+          234
+        ]
+      ],
+      "labelAt": [
+        495,
+        224
+      ]
+    },
+    {
+      "id": "c_tool",
+      "from": "agent",
+      "to": "dispatch",
+      "label": "工具调用",
+      "variant": "emphasis",
+      "route": "straight"
+    },
+    {
+      "id": "c_obs",
+      "from": "agent",
+      "to": "observe",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "c_feed",
+      "from": "observe",
+      "to": "agent",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "c_act",
+      "from": "dispatch",
+      "to": "act",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "c_ver",
+      "from": "act",
+      "to": "verify",
+      "variant": "emphasis",
+      "route": "straight",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "c_ev",
+      "from": "verify",
+      "to": "gate",
+      "label": "action_ok·diff",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelAt": [
+        955,
+        474
+      ]
+    },
+    {
+      "id": "c_claim",
+      "from": "dispatch",
+      "to": "gate",
+      "label": "done(evidence)",
+      "fromSide": "left",
+      "toSide": "top",
+      "via": [
+        [
+          510,
+          299
+        ],
+        [
+          510,
+          352
+        ],
+        [
+          1070,
+          352
+        ]
+      ],
+      "labelAt": [
+        820,
+        338
+      ]
+    },
+    {
+      "id": "c_next",
+      "from": "gate",
+      "to": "engine",
+      "label": "过证→下一步",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "right",
+      "via": [
+        [
+          1200,
+          423
+        ],
+        [
+          1200,
+          173
+        ]
+      ],
+      "labelAt": [
+        1000,
+        158
+      ]
+    },
+    {
+      "id": "c_sse",
+      "from": "engine",
+      "to": "timeline",
+      "label": "SSE+evidence",
+      "fromSide": "top",
+      "toSide": "left",
+      "via": [
+        [
+          610,
+          59
+        ],
+        [
+          990,
+          59
+        ]
+      ],
+      "labelAt": [
+        800,
+        46
+      ]
+    },
+    {
+      "id": "c_dom",
+      "from": "dispatch",
+      "to": "browser",
+      "label": "网页",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [
+        840,
+        290
+      ]
+    },
+    {
+      "id": "c_memw",
+      "from": "engine",
+      "to": "mem",
+      "label": "轨迹抽取",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          610,
+          246
+        ],
+        [
+          150,
+          246
+        ]
+      ],
+      "labelAt": [
+        330,
+        238
+      ]
+    },
+    {
+      "id": "c_memr",
+      "from": "mem",
+      "to": "agent",
+      "label": "经验注入",
+      "variant": "dashed",
+      "route": "straight"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "P0 已接线的闭环",
+      "items": [
+        "操作前：谓词轮询（可见/启用/稳定/不遮挡），不过则拒发",
+        "操作后：属性 diff + expect 轮询（WaitFor），失败自动重观察",
+        "done 必带证据；失败首调拦一次；infeasible/ask_user 显式终止",
+        "id×name 拦幻觉点击；卡死检测 5/8/12 三级 nudge"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "图上可见的优化缺口",
+      "items": [
+        "规划一次性静态分解，UI 偏移无人修正 → P1 proactive replan",
+        "对话线性增胖、max_tokens 512 → P1 上下文压缩/双账本",
+        "感知缺语义 top-k 过滤 → P1；记忆不可回放 → P2 宏库",
+        "UIA 盲区（UWP/自绘）→ P2 视觉专家，仅该分支投入模型"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "安全与可观测",
+      "items": [
+        "红线双层：B端归一化① + Sidecar 复检②，规则同源 server_A",
+        "错误契约 {ok,error_code,hint}，hint 面向 LLM 下一轮自纠",
+        "SSE 带 evidence/error_code；评测口径 ≥3 seeds + All-Pass@4"
+      ]
+    }
+  ]
+}

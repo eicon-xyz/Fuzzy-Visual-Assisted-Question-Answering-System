@@ -1,9 +1,9 @@
 # HAJIMI 后端 API 接口文档
 
-> 基地址: `http://<你的IP>:8010`
+> 基地址: `http://<你的IP>:8011`（L5 Sidecar，`server_A/server`，唯一后端；旧 A 端 :8010 已随 L4 指引模式移除）
 > 所有 `/api/demo/*` 接口需在 Header 带 `X-Demo-Key`
 > Demo Key: `hajimi-demo-2026`
-> 在线 Swagger 文档: `http://<你的IP>:8010/docs`
+> 在线 Swagger 文档: `http://<你的IP>:8011/docs`
 
 ---
 
@@ -27,29 +27,22 @@ GET /api/demo/health
 
 **无需认证**
 
+L5 模式（`OMNIPARSER_ENABLED=false`，默认）下不再探测 OmniParser，恒返回：
+
 **响应 200:**
 ```json
 {
   "status": "ok",
   "version": "2.0.0",
-  "detector_backend": "local_omniparser",
-  "detector_active": "local_omniparser",
-  "detector_device": "cuda",
-  "omniparser_url": "http://127.0.0.1:9800",
-  "omniparser_ready": true
+  "detector_backend": "vision_llm",
+  "detector_active": "vision_llm",
+  "detector_device": null,
+  "omniparser_url": null,
+  "omniparser_ready": "not_required"
 }
 ```
 
-**响应 503（OmniParser 不可达）:**
-```json
-{
-  "status": "degraded",
-  "version": "2.0.0",
-  "omniparser_ready": false,
-  "omniparser_url": "http://127.0.0.1:9800",
-  "message": "OmniParser 远程服务不可达"
-}
-```
+Sidecar 另提供轻量存活探测 `GET /api/demo/health/live`（B 端优先使用，回退 `/health`）。
 
 ---
 
@@ -99,7 +92,7 @@ Content-Type: application/json
   "detection_meta": {
     "latency_ms": 1234,
     "element_count": 45,
-    "backend": "local_omniparser"
+    "backend": "uia_execution"
   }
 }
 ```
@@ -114,6 +107,8 @@ Content-Type: application/json
   }
 }
 ```
+
+> 红线为双层：B 端提交前先经 `l5_query_normalize` 归一化拦截，Sidecar 端 `redline_service` 复检兜底。
 
 **响应 200（规划失败）:**
 ```json
@@ -144,12 +139,15 @@ GET /api/demo/stream/{task_id}
 |-------|-----------|------|
 | `heartbeat` | `{"timestamp":"...", "task_id":"..."}` | 连接保活，30s一次 |
 | `step_start` | `{"step_index":1,"instruction":"点击文件菜单","step_index":1}` | 步骤开始执行 |
-| `screenshot_update` | `{"step_index":1,"annotated_image":"base64..."}` | 执行过程中的截图更新 |
+| `screenshot_updated` | `{"step_index":1,"annotated_image":"base64..."}` | 执行过程中的截图更新 |
 | `step_done` | `{"step_index":1,"instruction":"点击文件菜单","step_index":1,"action_summary":"已点击文件菜单"}` | 步骤执行成功 |
+| `step_blocked` | `{"step_index":1,"error":"..."}` | 步骤被安全红线拦截 |
 | `step_failed` | `{"step_index":1,"error":"元素未找到"}` | 步骤执行失败 |
 | `task_done` | `{"task_id":"abc123","goal":"...","total_steps":3}` | 全部步骤执行完毕 |
 | `task_failed` | `{"task_id":"abc123","error":"..."}` | 任务级别失败 |
 | `task_cancelled` | `{}` | 任务被取消 |
+
+> 设置环境变量 `HAJIMI_L5_TOOL_SSE=1` 并重启 Sidecar 后，会额外推送 `tool_call` / `tool_result` 事件（工具级监控）。
 
 ---
 
@@ -179,19 +177,22 @@ Content-Type: application/json
 
 ---
 
-### 5. 仅规划（兼容旧版，不自动执行）
+### 5. 调试：固定坐标点击
 
 ```
-POST /api/demo/process
+POST /api/demo/debug/click
 X-Demo-Key: hajimi-demo-2026
-Content-Type: application/json
 ```
 
-请求体与 `/execute` 相同，但只返回规划结果不执行。
+开发调试用：按给定屏幕坐标直接执行一次点击（不经过规划）。
+
+> 旧 `/api/demo/process` 等「只规划不执行」的 L4 兼容端点已随 L4 指引模式删除；`/execute` 即提交并自动执行。
 
 ---
 
 ## 二、管理接口 `/api/admin`
+
+> 由 L5 Sidecar（:8011）挂载，web-admin 管理面板经 vite proxy 使用这些接口；另有 `/api/auth/login`、`/api/audit/*`、`/api/config/pull`（C端）、`/api/admin/flow/*`、`/api/admin/monitor/*`。
 
 所有接口需携带 Header: `X-Admin-Key: hajimi-demo-2026`
 
@@ -244,6 +245,14 @@ GET /api/admin/metrics
 ### 会话状态
 ```
 GET /api/admin/session/status
+```
+
+### 用户管理
+```
+GET  /api/admin/users/list            # 用户列表
+GET  /api/admin/users/stats/{user_id} # 单用户统计
+POST /api/admin/users/reset-password  # 重置密码
+DELETE /api/admin/users/{user_id}     # 删除用户
 ```
 
 ---

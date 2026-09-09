@@ -1,10 +1,7 @@
-# HAJIMI B-end UI dependencies (PyQt5 native client)
-# A-end (FastAPI) is separate: pip install -r server/requirements.txt
-# GPU deploy scripts: pip install -r requirements-dev.txt
+# HAJIMI B-end UI dependencies (PyQt5 native client, L5 auto-execute mode)
+# Backend = server_A L5 Sidecar (own venv; see server_A/server/requirements.txt)
+# C-end voice (client/) has its own requirements (client/requirements.txt)
 
-Pillow>=9.0
-mss>=6.0
-opencv-python>=4.5
 PyQt5>=5.15
 
 # PyQt5 wheel includes QtSvg (used by ui/native/luxury/icons.py).

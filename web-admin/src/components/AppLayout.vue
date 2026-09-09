@@ -59,8 +59,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { authLogout } from '../api/admin'
-import { clearAuth, getRefreshToken } from '../api/index'
+import { clearAuth } from '../api/index'
 
 const route = useRoute()
 const router = useRouter()
@@ -74,15 +73,8 @@ const username = computed(() => {
   }
 })
 
-async function logout() {
-  try {
-    const rt = getRefreshToken()
-    if (rt) {
-      await authLogout(rt)
-    }
-  } catch {
-    // 忽略 logout API 错误
-  }
+function logout() {
+  // L5 Sidecar 未提供 POST /api/auth/logout → 登出仅清理本地会话
   clearAuth()
   router.replace('/login')
 }

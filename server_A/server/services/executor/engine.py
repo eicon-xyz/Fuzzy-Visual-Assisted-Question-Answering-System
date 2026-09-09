@@ -13,6 +13,7 @@ import threading
 import time
 
 from server.services.memory.extractor import MemoryExtractor
+from server.services import eval_telemetry as et
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,54 @@ def run_plan_agent_loop(
     steps: list[dict],
     cancel_event: threading.Event,
 ) -> None:
+    """公开入口：崩溃保护壳。
+
+    引擎线程此前任何未捕获异常（含依赖缺失如 pyautogui import 失败）都会让
+    线程无声死亡：SSE 只见心跳、遥测零记录、B 端卡到超时。统一在壳内转成
+    task_failed 事件 + fail 记录落盘，让失败可见、可统计。
+    """
+    t0 = time.perf_counter()
+    register_task(task_id)
+    try:
+        _run_plan_agent_loop(task_id, goal, steps, cancel_event)
+    except Exception as e:
+        logger.exception("[engine] run_plan_agent_loop crashed for %s", task_id)
+        try:
+            _push_event(
+                task_id,
+                "task_failed",
+                {
+                    "reason": f"engine crashed: {type(e).__name__}: {e}",
+                    "failed_step": 1,
+                },
+            )
+        except Exception:
+            pass
+        try:
+            et.record_task(
+                task_id=task_id,
+                goal=goal,
+                steps=[],
+                final_status="fail",
+                wall_ms=int((time.perf_counter() - t0) * 1000),
+                instruction=goal,
+            )
+        except Exception:
+            logger.debug("engine crash telemetry failed", exc_info=True)
+        # 崩溃路径也要延迟清理（正常路径由内核的 _cleanup 负责）
+        def _crash_cleanup():
+            time.sleep(3)
+            unregister_task(task_id)
+
+        threading.Thread(target=_crash_cleanup, daemon=True).start()
+
+
+def _run_plan_agent_loop(
+    task_id: str,
+    goal: str,
+    steps: list[dict],
+    cancel_event: threading.Event,
+) -> None:
     """
     Execute a plan using the Execution Agent loop.
     Pushes SSE events for real-time observability.
@@ -164,6 +213,39 @@ def run_plan_agent_loop(
     previous_steps: list[dict] = []
     all_done = True
 
+    # ── T1 评测遥测：任务级聚合，终态落盘（失败静默，绝不影响执行链）──
+    task_t0 = time.perf_counter()
+    step_records: list[dict] = []
+
+    def _record_step(res) -> None:
+        try:
+            step_records.append(
+                {
+                    "idx": res.step_index,
+                    "status": res.status,
+                    "terminal_kind": getattr(res, "terminal_kind", None),
+                    "evidence": getattr(res, "evidence", None),
+                    "tel": getattr(agent, "_step_tel", None),
+                }
+            )
+        except Exception:
+            logger.debug("eval telemetry record_step failed", exc_info=True)
+
+    def _finish(final_status: str) -> None:
+        try:
+            et.record_task(
+                task_id=task_id,
+                goal=goal,
+                steps=step_records,
+                final_status=final_status,
+                wall_ms=int((time.perf_counter() - task_t0) * 1000),
+                instruction=goal,
+            )
+        except Exception:
+            logger.debug("eval telemetry record_task failed", exc_info=True)
+
+    cancelled = False
+
     from server.config import settings
 
     retry_limit = getattr(settings, "STEP_RETRY_LIMIT", 1)
@@ -172,6 +254,7 @@ def run_plan_agent_loop(
         if cancel_event.is_set():
             _push_event(task_id, "task_cancelled", {})
             all_done = False
+            cancelled = True
             break
 
         step_idx = step_dict["step_index"]
@@ -222,6 +305,7 @@ def run_plan_agent_loop(
                 status="failed",
                 action_summary=f"crash: {e}",
             )
+        step_final = result  # 该步最终结果（重试后会更新），遥测按此记录
 
         if result.status == "done":
             _push_event(
@@ -230,6 +314,8 @@ def run_plan_agent_loop(
                 {
                     "step_index": step_idx,
                     "action_summary": result.action_summary or "",
+                    # 0.7 done 证据随事件下发（B 端可展示/审计）
+                    "evidence": getattr(result, "evidence", None) or "",
                 },
             )
             previous_steps.append(
@@ -240,13 +326,42 @@ def run_plan_agent_loop(
                     "action_summary": result.action_summary or "completed",
                 }
             )
+            _record_step(step_final)
         else:
+            # 0.7 显式终止动作不做同指令盲重试：infeasible/ask_user 需要人类可见的语义
+            if getattr(result, "terminal_kind", None) == "ask_user":
+                _push_event(
+                    task_id,
+                    "step_blocked",
+                    {
+                        "step_index": step_idx,
+                        "question": result.user_question or "",
+                        "reason": result.action_summary or "需要用户决策",
+                    },
+                )
+                _record_step(step_final)
+                all_done = False
+                break
+            if getattr(result, "terminal_kind", None) == "infeasible":
+                _push_event(
+                    task_id,
+                    "step_failed",
+                    {
+                        "step_index": step_idx,
+                        "reason": result.action_summary or "infeasible",
+                        "infeasible": True,
+                    },
+                )
+                _record_step(step_final)
+                all_done = False
+                break
             # Retry loop (STEP_RETRY_LIMIT times)
             retry_success = False
             for retry_attempt in range(retry_limit):
                 if cancel_event and cancel_event.is_set():
                     _push_event(task_id, "task_cancelled", {})
                     all_done = False  # signal task was cancelled
+                    _finish("cancelled")
                     return  # exit the thread, task cancelled
                 logger.warning(
                     f"Step {step_idx} failed, retry {retry_attempt+1}/{retry_limit}..."
@@ -280,6 +395,7 @@ def run_plan_agent_loop(
                             {
                                 "step_index": step_idx,
                                 "action_summary": retry_result.action_summary or "",
+                                "evidence": getattr(retry_result, "evidence", None) or "",
                             },
                         )
                         previous_steps.append(
@@ -291,6 +407,8 @@ def run_plan_agent_loop(
                                 or "completed (retry)",
                             }
                         )
+                        step_final = retry_result
+                        _record_step(step_final)
                         retry_success = True
                         break
                 except Exception:
@@ -305,6 +423,7 @@ def run_plan_agent_loop(
                         "reason": result.action_summary or "step failed after retries",
                     },
                 )
+                _record_step(step_final)
                 all_done = False
                 break
 
@@ -321,6 +440,7 @@ def run_plan_agent_loop(
         )
         # Trigger async memory extraction (fire-and-forget)
         _trigger_memory_extraction_success(goal, steps, previous_steps)
+        _finish("success")
     else:
         _push_event(
             task_id,
@@ -333,6 +453,7 @@ def run_plan_agent_loop(
         # Trigger failure memory extraction (fire-and-forget)
         failed_step_idx = len(previous_steps) + 1
         _trigger_memory_extraction_failure(goal, steps, failed_step_idx)
+        _finish("cancelled" if cancelled else "fail")
 
     # Delayed cleanup
     def _cleanup():

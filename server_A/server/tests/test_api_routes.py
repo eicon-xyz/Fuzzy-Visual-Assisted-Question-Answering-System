@@ -178,20 +178,6 @@ class TestCancel:
         assert r.json()["success"] is True
 
 
-# ========================================================================
-# POST /process (legacy)
-# ========================================================================
-
-
-class TestLegacy:
-    def test_process(self, client):
-        with patch("server.services.planning.router.process_query", return_value=_fake_response()), \
-             patch("server.storage.memory.task_store.create"), \
-             patch("server.database.repository.TaskRepository.create_from_response"):
-            r = client.post("/api/demo/process", json={"query": "X"}, headers=_headers())
-            assert r.json()["success"] is True
-
-
 class TestRoot:
     def test_ok(self, client):
         assert client.get("/").status_code == 200

@@ -1,0 +1,4 @@
+# Windows CMD 批处理必须 CRLF：LF-only 会导致 goto 标签/多行块解析失败，
+# 双击 .bat 会一闪而过。此规则保证任何平台 checkout 均为 CRLF。
+*.bat text eol=crlf
+*.cmd text eol=crlf

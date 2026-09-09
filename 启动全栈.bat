@@ -3,7 +3,7 @@ setlocal EnableExtensions
 cd /d %~dp0
 
 if not exist "HAJIMI_UI\scripts\start_release_fullstack.bat" (
-    echo [ERROR] Áº∫Â∞ë HAJIMI_UI\scripts\start_release_fullstack.bat
+    echo [ERROR] »±…Ÿ HAJIMI_UI\scripts\start_release_fullstack.bat
     pause
     exit /b 1
 )
