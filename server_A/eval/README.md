@@ -8,6 +8,8 @@ server_A/eval/
   __init__.py       # schema + loader + 校验 + 覆盖率（纯 stdlib，Linux 可校验）
   schema.md         # 任务字段规范
   tasks/seed.json   # 首批 20 任务（16 正向 + 4 负向）
+  tasks/waa_pilot.json # WAA 移植 pilot 批 10 条（由 waa2seed.py 生成；校准指引 HOWTO §8）
+  waa2seed.py       # WAA→评测集移植器（白名单+人工配方+上游漂移断言，可 --offline 复现）
   README.md         # 本文件（校准协议 + 使用）
 server_A/data/eval/runs.jsonl   # 运行遥测（T1 产出，gitignore）
 ```
