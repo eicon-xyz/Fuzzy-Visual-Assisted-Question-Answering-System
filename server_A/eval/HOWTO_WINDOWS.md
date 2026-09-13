@@ -86,6 +86,37 @@ python eval\waa2seed.py --out eval\tasks\waa_pilot.json
    `python eval\waa2seed.py` 重生成，禁止放宽。
 2. **故意做错**：删沙箱目录重跑（setup 会重建），人工不做或写错一个字符再跑一次 → 必须 FAIL。
 3. 两向都过 → 把 `tasks\waa_pilot.json` 该条改 `"calibrated": true`。
+
+#### 8.1.1 用 calib 加速（`eval/calib.py`，推荐路径）
+
+上面每步都要手敲 run_eval + 翻 `results/*.jsonl`；校准 pilot 批用 calib 助手，
+每任务压缩成三条短命令（工作目录 `server_A`，Sidecar **不需要**启动——calib 只跑
+setup/判分，不碰引擎）：
+
+```bat
+:: 第 0 步（可选）：看全部任务的校准进度 / 当前该做哪条
+python -m eval.calib --list
+:: ① 造初始态（复用 runner 的 PS 执行器跑该任务 setup_ps1，幂等可重跑）
+python -m eval.calib waa_notepad_draft_save --setup
+:: ② 照 --show 人工"真做"：INSTRUCTION 段是宏展开后的真实路径，ORACLE 段逐谓词告诉你判什么
+python -m eval.calib waa_notepad_draft_save --show
+:: ③ 现场判分（oracle 逐谓词 trace + ORACLE: PASS/FAIL，退出码 0/1）——真做后必须 PASS
+python -m eval.calib waa_notepad_draft_save --check
+:: FAIL 方向：--cleanup 复位 → 再 --setup → 故意不做/做坏 → 再 --check，此时必须 FAIL
+:: 两向皆过 → 置位（只改该任务 JSON 里 calibrated 一行；--check PASS 只算单向，别偷懒）
+python -m eval.calib waa_notepad_draft_save --calib-done
+```
+
+- 任务 id 支持唯一前缀（`waa_calc` 即命中 `waa_calc_days_to_file`）；歧义会列出候选。
+- 多 seed 任务默认用首个 seed 校准；`--seed b` 换值，`--seed all` 逐个全验。
+- `--check` 判不了/判太松 → 仍按 §8.1 改 `waa2seed.py` 配方后重生成，禁止放宽。
+- **坑（必须知道）**：`tasks\waa_pilot.json` 由 `waa2seed.py` 生成，`--calib-done`
+  写进去的校准位**在下次重生成时会被整体打回 false**。重生成后先跑
+  `python -m eval.calib --list` 核对，再对已验证过的条目逐条重新 `--calib-done`；
+  未核对前不得拿 `calibrated` 列出数。生成器本体不改（校准与移植解耦，代价就是这条纪律）。
+- `--setup/--check/--cleanup` 是评测机上的现场动作，非 Windows 会直接拒跑；
+  `--list/--show/--calib-done` 在任何机器可用（写文档、看任务时用）。
+
 建议顺序（先稳后花）：
 1. `waa_settings_notifications_off`、`waa_settings_storagesense_weekly`（注册表直读，最稳）
 2. `waa_fe_move_myfolder`、`waa_fe_archive_docx`、`waa_notepad_draft_save`、
