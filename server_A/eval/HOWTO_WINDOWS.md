@@ -67,3 +67,51 @@ server_A\server\.venv\Scripts\python -c "import json,collections;rows=[json.load
 ## 7. 扩充任务集
 - 用户真实失败指令 → `tasks/*.json` 新文件（source: user-failure:<日期>），走完 §2 校准才计分；
 - 从 WindowsAgentArena 移植 2-3 条作严格度锚点（其 setup/checker 语义翻译成我们的谓词表）。
+
+## 8. Pilot 批（WAA 移植 10 条，tasks/waa_pilot.json）
+`eval/waa2seed.py` 从 microsoft/WindowsAgentArena 移植的 pilot 批：7 正向 + 3 负向，
+全部 `calibrated:false`、`source:"waa:<原id>"`、带 `waa_orig` 溯源快照。产物落
+`%LOCALAPPDATA%\HAJIMI\eval\waa_pilot\` 沙箱（setup 建、cleanup 删，不碰真实桌面/用户目录）。
+重生成（需外网；离线复现加 `--offline <WAA缓存目录>`）：
+```bat
+python eval\waa2seed.py --out eval\tasks\waa_pilot.json
+```
+
+### 8.1 逐条校准（铁律同 §2：真做→PASS，故意做错→FAIL，两向才 calibrated:true）
+以 `waa_notepad_draft_save` 为例（其余换 id 同理）：
+1. **真做**：照 instruction 人工把 `This is a draft.` 存进提示的沙箱路径，然后
+   `python eval\run_eval.py --only waa_notepad_draft_save --repeats 1 --label calib-draft`
+   （agent 会跑同一条指令——没关系，人工已把产物摆对，oracle 判 PASS 即证明判据正确；
+   看 `oracle_trace` 逐谓词输出）。判不了→修 oracle/recipes 后
+   `python eval\waa2seed.py` 重生成，禁止放宽。
+2. **故意做错**：删沙箱目录重跑（setup 会重建），人工不做或写错一个字符再跑一次 → 必须 FAIL。
+3. 两向都过 → 把 `tasks\waa_pilot.json` 该条改 `"calibrated": true`。
+建议顺序（先稳后花）：
+1. `waa_settings_notifications_off`、`waa_settings_storagesense_weekly`（注册表直读，最稳）
+2. `waa_fe_move_myfolder`、`waa_fe_archive_docx`、`waa_notepad_draft_save`、
+   `waa_notepad_count_example`、`waa_calc_days_to_file`（文件副作用；archive 条需评测机能拉
+   winarenafiles 的 docx，URL 已实测 200）
+3. 负向 `waa_inf_vscode_arabic`、`waa_inf_vlc_autoclose`、`waa_inf_vlc_ab_replay`：
+   先确认评测机装了 VS Code / VLC——没装则该条归因 `app_absent_env_infeasible`
+   （仍测「不假成功」：正确出路=report_infeasible→task_failed→oracle 现场保护=true→pass；
+   agent 乱点扩市集/假 done→fail）。校准 ①=什么都不做直接跑（引擎应自证不可行拿 pass）；
+   ②=诱导验证：人工先把现场破坏（如把 VS Code 窗口关掉同时开一个标题含 Marketplace 的窗口）
+   确认 oracle 会 FAIL——做不到时至少人工打开目标 app 停留后取消，确认 oracle_ok=true。
+   各条 notes 里已标 attribution_class 与已知收紧点。
+
+### 8.2 首轮 pilot 跑分（校准完成后）
+> 口径提醒：runner 无 `--seeds` 参数——seed 维度由任务 `seeds` 字段自动展开
+> （pilot 批 3 条 ×3 seeds + 7 条 ×default = 16 实例/轮），轮次用 `--repeats`。
+```bat
+:: Sidecar 起着（§1）。只跑 pilot 批（--only 列 10 个 id）：
+server_A\server\.venv\Scripts\python eval\run_eval.py --repeats 4 --label pilot-t1 ^
+  --only waa_notepad_draft_save,waa_notepad_count_example,waa_calc_days_to_file,waa_settings_notifications_off,waa_settings_storagesense_weekly,waa_fe_move_myfolder,waa_fe_archive_docx,waa_inf_vscode_arabic,waa_inf_vlc_autoclose,waa_inf_vlc_ab_replay
+:: 或单目录整体跑（不混自研 20 条）：
+::   mkdir eval\tasks_pilot & copy eval\tasks\waa_pilot.json eval\tasks_pilot\
+::   python eval\run_eval.py --tasks eval\tasks_pilot --repeats 4 --label pilot-t1
+:: 与自研集合跑（--tasks 默认指 eval\tasks，30 条一起）：
+::   python eval\run_eval.py --repeats 4 --label full-t1
+server_A\server\.venv\Scripts\python eval\report.py eval\results\pilot-t1.jsonl --out eval\results\pilot-t1.md
+```
+report 出数即含逐任务 All-Pass@4、pass@1、成本与四类失败打标；未校准条目分数照旧
+只用于修 oracle，不进汇报口径。
