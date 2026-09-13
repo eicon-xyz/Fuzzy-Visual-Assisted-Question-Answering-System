@@ -121,6 +121,35 @@ def _kill(proc: str) -> str:
     return "Get-Process %s -ErrorAction SilentlyContinue | Stop-Process -Force" % proc
 
 
+def _reg_add(key: str, name: str, val: int) -> str:
+    """HKCU 值写入（幂等 /f）。只允许任务自己声明的键——沙箱纪律的注册表侧。"""
+    return 'reg add "HKCU\\%s" /v %s /t REG_DWORD /d %d /f' % (key, name, val)
+
+
+def _reg_del(key: str, name: str) -> str:
+    return 'reg delete "HKCU\\%s" /v %s /f' % (key, name)
+
+
+# ── gold 单源常量：oracle 期望值 / setup 反向预置 / calib_gold 脚本一律引用这里，
+#    禁止两处手抄（回归钉见 server/tests/test_waa_pilot.py 的单源断言）。──────────
+GOLD_DRAFT_TEXT = "This is a draft."   # notepad 366de66e cloud gold（实测 16B，无末换行）
+GOLD_COUNT_TEXT = "22"                 # notepad a7d4b6c5 cloud gold（本机 grep -o example 复核=22）
+GOLD_NUMDAYS_TEXT = "230 days"         # calc 28b91a24-WOS-2 WAA result.textcontent 原值
+NOTIF_KEY = r"Software\Microsoft\Windows\CurrentVersion\PushNotifications"
+NOTIF_VALUE = "ToastEnabled"
+NOTIF_OFF = 0                          # oracle expect：通知已关
+NOTIF_REVERSE = 1                      # setup 反向预置：通知开着（保证初始态 oracle FAIL）
+SS_KEY = r"Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy"
+SS_EXPECT = {"01": 1, "2048": 7}       # oracle：存储感知开启 ∧ 每周
+SS_REVERSE = {"01": 0, "2048": 30}     # setup 反向预置：关闭 ∧ 每月
+
+
+def _gs(gold_wrote: str, instruction_says: str) -> str:
+    """notes 的 gold_semantics 段——把人审聚焦到「gold 终态 vs instruction 字面」的语义差。"""
+    return (' gold_semantics: "gold 写了 %s；人审点：instruction 说 %s，两者是否等价"'
+            % (gold_wrote, instruction_says))
+
+
 def _orig_snapshot(orig: dict) -> dict:
     return {k: orig.get(k) for k in
             ("id", "instruction", "config", "evaluator", "postconfig",
@@ -128,9 +157,9 @@ def _orig_snapshot(orig: dict) -> dict:
 
 
 def _base(orig, tid, name, category, instruction, seeds, oracle, *,
-          setup=None, cleanup=None, p0, requires, wall=300, notes,
+          setup=None, cleanup=None, gold=None, p0, requires, wall=300, notes,
           expect_status="success"):
-    return {
+    t = {
         "id": tid, "name": name, "category": category,
         "instruction": instruction, "seeds": seeds, "p0_coverage": p0,
         "setup_ps1": setup or [], "cleanup_ps1": cleanup or [],
@@ -139,6 +168,13 @@ def _base(orig, tid, name, category, instruction, seeds, oracle, *,
         "source": "waa:" + orig["id"], "notes": notes,
         "waa_orig": _orig_snapshot(orig),
     }
+    if gold:
+        # calib_gold 紧跟脚本字段；负向/无 gold 的条目不带该键（loader 默认 []，
+        # 自研 20 条与 seed.json 零改动兼容）。
+        items = list(t.items())
+        i = next(n for n, (k, _) in enumerate(items) if k == "cleanup_ps1") + 1
+        t = dict(items[:i] + [("calib_gold", list(gold))] + items[i:])
+    return t
 
 
 def recipe_draft_save(orig):  # notepad 366de66e
@@ -149,24 +185,27 @@ def recipe_draft_save(orig):  # notepad 366de66e
           and ev["result"][1]["type"] == "vm_file", "evaluator result 漂移")
     _must("366de66e" in ev["expected"][1]["path"], "gold 文件 URL 漂移")
     sb = _sandbox("notepad_draft")
-    gold = "This is a draft."  # cloud gold 实测（winarenafiles eval/draft.txt，16B 无换行）
     return _base(
         orig, "waa_notepad_draft_save", "WAA移植-记事本新建草稿保存", "editor",
-        "打开记事本，输入文字 " + gold + "（一字不差），另存为 " + sb +
+        "打开记事本，输入文字 " + GOLD_DRAFT_TEXT + "（一字不差），另存为 " + sb +
         "_{seed}/draft.txt", ["a", "b", "c"],
         {"all": [
             {"type": "file_exists", "path": sb + "_{seed}/draft.txt"},
             {"type": "file_content_equals", "path": sb + "_{seed}/draft.txt",
-             "text": gold},
+             "text": GOLD_DRAFT_TEXT},
         ]},
         setup=[_mkdir(_ps(sb) + "_{seed}"), _rm(_ps(sb) + "_{seed}/draft.txt"),
                _kill("notepad")],
         cleanup=[_kill("notepad"), _rm(_ps(sb) + "_{seed}")],
+        gold=[_mkdir(_ps(sb) + "_{seed}"),
+              _setc(_ps(sb) + "_{seed}/draft.txt", GOLD_DRAFT_TEXT)],
         p0=["0.1", "0.2", "0.3", "0.7"], requires=["notepad"],
         notes="WAA 原 evaluator: [exact_match(vm_file_exists_in_vm_folder Documents/draft.txt) + "
               "compare_text_file(gold=cloud draft.txt 相似度1.0)]。gold 内容实测 'This is a draft.'，"
               "已内联为 file_content_equals（strip 比较，容忍末换行）。产物路径改沙箱目录不碰真实"
-              " Documents；{seed} 仅作隔离参数（WAA 原文文件名 draft.txt 保留）。",
+              " Documents；{seed} 仅作隔离参数（WAA 原文文件名 draft.txt 保留）。"
+              + _gs("沙箱 draft.txt = oracle 期望文本（同一常量单源）",
+                    "打开记事本输入该文字并另存（gold 不经 GUI 直接落盘）"),
     )
 
 
@@ -184,15 +223,22 @@ def recipe_count_example(orig):  # notepad a7d4b6c5
         {"all": [
             {"type": "file_exists", "path": sb + "/example_count.txt"},
             {"type": "file_content_equals", "path": sb + "/example_count.txt",
-             "text": "22"},
+             "text": GOLD_COUNT_TEXT},
         ]},
         setup=[_mkdir(_ps(sb)), _rm(_ps(sb) + "/example_count.txt"),
                _dl(url_cfg, _ps(sb) + "/largefile.txt"), _kill("notepad")],
         cleanup=[_kill("notepad"), _rm(_ps(sb))],
+        gold=[_mkdir(_ps(sb)),
+              _setc(_ps(sb) + "/example_count.txt", GOLD_COUNT_TEXT)],
         p0=["0.1", "0.2", "0.8"], requires=["notepad", "internet"],
         notes="WAA 原 evaluator: compare_text_file(vm example_count.txt vs cloud gold)。gold 实测"
               "内容 '22'（本机 grep -o example largefile.txt 复核=22），内联为 file_content_equals。"
-              "seeds=[default]：语料与答案固定，{seed} 无参数化自由度。需查找功能计数（不逐屏数）。",
+              "seeds=[default]：语料与答案固定，{seed} 无参数化自由度。需查找功能计数（不逐屏数）。"
+              "gold 段自身离线（只写沙箱文件、不下载）；但 --selftest 的 setup 段仍要联网抓语料"
+              " largefile.txt——评测机离线时该条 selftest 需先联网跑一次 setup 或临时放行网络。"
+              + _gs("沙箱 example_count.txt = 计数结果（同一常量单源，与语料无关联）",
+                    "打开记事本统计 largefile.txt 中 example 出现次数后写回（gold 不做真实统计，"
+                    "正确性押在移植时 grep 复核的 22 上）"),
     )
 
 
@@ -201,7 +247,7 @@ def recipe_calc_days(orig):  # windows_calc 28b91a24-WOS-2
     _must(orig["id"] == "28b91a24-5d97-4c2a-891c-dccbd3820c62-WOS-2", "id 漂移")
     _must(_func_key(ev) == ("exact_match", "is_file_saved_desktop"), "evaluator 漂移")
     _must(ev["result"]["filename"] == "numdays.txt"
-          and ev["result"]["textcontent"] == "230 days", "参数漂移")
+          and ev["result"]["textcontent"] == GOLD_NUMDAYS_TEXT, "参数漂移")
     sb = _sandbox("calc_days")
     return _base(
         orig, "waa_calc_days_to_file", "WAA移植-计算器日期差写文件", "form",
@@ -210,17 +256,22 @@ def recipe_calc_days(orig):  # windows_calc 28b91a24-WOS-2
         {"all": [
             {"type": "file_exists", "path": sb + "/numdays.txt"},
             {"type": "file_content_contains", "path": sb + "/numdays.txt",
-             "needle": "230 days"},
+             "needle": GOLD_NUMDAYS_TEXT},
         ]},
         setup=[_mkdir(_ps(sb)), _rm(_ps(sb) + "/numdays.txt"),
                _kill("CalculatorApp"), _kill("Calculator")],
         cleanup=[_kill("CalculatorApp"), _kill("Calculator"), _rm(_ps(sb))],
+        gold=[_mkdir(_ps(sb)),
+              _setc(_ps(sb) + "/numdays.txt", GOLD_NUMDAYS_TEXT)],
         p0=["0.1", "0.2", "0.3", "0.7"], requires=["calculator"],
         notes="WAA 原 evaluator: exact_match(is_file_saved_desktop numdays.txt contains '230 days')"
               "（getter 源码=文件存在且 textcontent in file，故用 file_content_contains 同语义）。"
               "seeds=[default]：同 base id 28b91a24 有 WOS/WOS-2/WOS-3 三个变体（不同日期对+不同"
               "答案串），WAA 自己拆成三个 JSON——答案随日期变，单 {seed} 宏无法联动，故只移 WOS-2"
-              "一条，另两条算独立候选任务不混入。",
+              "一条，另两条算独立候选任务不混入。"
+              + _gs("沙箱 numdays.txt = 结果串（同一常量单源）",
+                    "计算器日期模式算出天数差再保存（gold 不验算——正确性押移植时对该日期差的"
+                    "人工核算与 WAA 原 expected 一致）"),
     )
 
 
@@ -228,21 +279,24 @@ def recipe_notifications(orig):  # settings 37e10fc4
     ev = orig["evaluator"]
     _must(orig["id"] == "37e10fc4-b4c5-4b02-a65c-bfae8bc51d3f-wos", "id 漂移")
     _must(_func_key(ev) == ("exact_match", "system_notifications"), "evaluator 漂移")
-    key = r"Software\Microsoft\Windows\CurrentVersion\PushNotifications"
     return _base(
         orig, "waa_settings_notifications_off", "WAA移植-关闭系统通知", "settings",
         "打开 Windows 设置的「通知」页，把系统通知总开关关闭", ["default"],
         {"all": [{"type": "registry_value", "hive": "HKEY_CURRENT_USER",
-                  "key": key, "name": "ToastEnabled", "expect": 0}]},
-        setup=['reg add "HKCU\\%s" /v ToastEnabled /t REG_DWORD /d 1 /f' % key,
+                  "key": NOTIF_KEY, "name": NOTIF_VALUE, "expect": NOTIF_OFF}]},
+        setup=[_reg_add(NOTIF_KEY, NOTIF_VALUE, NOTIF_REVERSE),
                _kill("SystemSettings")],
-        cleanup=['reg delete "HKCU\\%s" /v ToastEnabled /f' % key],
+        cleanup=[_reg_del(NOTIF_KEY, NOTIF_VALUE)],
+        gold=[_reg_add(NOTIF_KEY, NOTIF_VALUE, NOTIF_OFF)],
         p0=["0.1", "0.3", "0.5"], requires=["settings"],
         notes="WAA 原 evaluator: exact_match(result=getter system_notifications, expected='True')。"
               "getter 源码（settings.py get_system_notifications）= HKCU\\...\\PushNotifications"
               "\\ToastEnabled 为 0 时返回 'True'（即已关闭）→ 直接映射 registry_value ToastEnabled"
               "=0。setup 先置 1（开启）造基线，cleanup 删除该值恢复系统默认。seeds=[default]："
-              "机器级单值状态，无可参数化自由度。",
+              "机器级单值状态，无可参数化自由度。"
+              + _gs("HKCU 的 " + NOTIF_VALUE + "=" + str(NOTIF_OFF) +
+                    "（oracle 读的同一个键，键路径/期望值单源）",
+                    "在设置 GUI 里拨通知总开关（gold 直写注册表，与设置页拨动是否等效）"),
     )
 
 
@@ -250,28 +304,27 @@ def recipe_storage_sense(orig):  # settings e8f68f22
     ev = orig["evaluator"]
     _must(orig["id"] == "e8f68f22-1f6a-4cba-a97a-ac611bb4c67b-wos", "id 漂移")
     _must(_func_key(ev) == ("exact_match", "storage_sense_run_frequency"), "evaluator 漂移")
-    _must(ev["expected"]["rules"]["expected"] == "7", "expected 漂移")
-    key = r"Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy"
+    _must(ev["expected"]["rules"]["expected"] == str(SS_EXPECT["2048"]), "expected 漂移")
     return _base(
         orig, "waa_settings_storagesense_weekly", "WAA移植-存储感知每周运行", "settings",
         "打开设置里的「存储感知」（ms-settings:storagesense），开启存储感知，"
         "并把「检测磁盘空间的时间间隔」设置为每周", ["default"],
-        {"all": [
-            {"type": "registry_value", "hive": "HKEY_CURRENT_USER",
-             "key": key, "name": "01", "expect": 1},
-            {"type": "registry_value", "hive": "HKEY_CURRENT_USER",
-             "key": key, "name": "2048", "expect": 7},
-        ]},
-        setup=['reg add "HKCU\\%s" /v 01 /t REG_DWORD /d 0 /f' % key,
-               'reg add "HKCU\\%s" /v 2048 /t REG_DWORD /d 30 /f' % key,
-               _kill("SystemSettings")],
-        cleanup=['reg add "HKCU\\%s" /v 01 /t REG_DWORD /d 0 /f' % key],
+        {"all": [{"type": "registry_value", "hive": "HKEY_CURRENT_USER",
+                  "key": SS_KEY, "name": n, "expect": SS_EXPECT[n]}
+                 for n in sorted(SS_EXPECT)]},
+        setup=[_reg_add(SS_KEY, n, SS_REVERSE[n]) for n in sorted(SS_REVERSE)] +
+              [_kill("SystemSettings")],
+        cleanup=[_reg_add(SS_KEY, "01", SS_REVERSE["01"])],
+        gold=[_reg_add(SS_KEY, n, SS_EXPECT[n]) for n in sorted(SS_EXPECT)],
         p0=["0.1", "0.2", "0.5"], requires=["settings"], wall=360,
         notes="WAA 原 evaluator: exact_match(result=getter storage_sense_run_frequency, "
               "expected='7')。getter 源码（settings.py）='01'==1（开启）且 '2048'==7 → 两个 "
               "registry_value 谓词组合。setup 造「关闭+每月」基线，cleanup 复位为关。seeds="
               "[default]：机器级单状态。存储感知在精简 Win11 可能被组策略禁用——requires 声明，"
-              "校准不过则记环境不适用。",
+              "校准不过则记环境不适用。"
+              + _gs("SS_EXPECT 两条 reg 值（01/2048 与 oracle 同一字典单源）",
+                    "设置页开存储感知+间隔选每周（gold 直写两个 DWORD，是否等效 GUI 拨动，"
+                    "尤其 2048 的其他合法值不触发副作用）"),
     )
 
 
@@ -290,13 +343,23 @@ def recipe_move_folder(orig):  # file_explorer 1876fe7f
             {"type": "file_not_exists", "path": sb + "_{seed}/Desktop/MyFolder"},
         ]},
         setup=[_mkdir(_ps(sb) + "_{seed}/Desktop/MyFolder"),
-               _mkdir(_ps(sb) + "_{seed}/Documents"), _kill("explorer")],
+               _mkdir(_ps(sb) + "_{seed}/Documents"),
+               _rm(_ps(sb) + "_{seed}/Documents/MyFolder"),  # 反向预置：目标位必须空
+               _kill("explorer")],
         cleanup=[_rm(_ps(sb) + "_{seed}")],
+        gold=[_mkdir(_ps(sb) + "_{seed}/Documents/MyFolder"),
+              _setc(_ps(sb) + "_{seed}/Documents/MyFolder/note.txt",
+                    "HAJIMI_WAA_fe_move_{seed}_MYFOLDER"),
+              _rm(_ps(sb) + "_{seed}/Desktop/MyFolder")],
         p0=["0.1", "0.2", "0.7"], requires=["explorer"],
         notes="WAA 原 evaluator: exact_match(vm_folder_exists_in_documents MyFolder, expected "
               "true)（config 于真实 Desktop 建 MyFolder）。裸机移植：桌面/文档改为沙箱目录两个"
               "子文件夹；补 file_not_exists(原位) 收紧为「移动而非复制」——WAA 的 folder_name "
-              "语义就是 move，此收紧符合原意（其指令原文即 Move）。",
+              "语义就是 move，此收紧符合原意（其指令原文即 Move）。"
+              + _gs("Documents/MyFolder（含 seed 标记内容文件）+ 删除 Desktop 源文件夹——"
+                    "即「已移走」终态；Desktop 源由 setup 造、gold 只删不建",
+                    "用资源管理器把 Desktop/MyFolder 移动到 Documents（gold 用 建+删 两条模拟 "
+                    "move，不启动 explorer）"),
     )
 
 
@@ -310,6 +373,8 @@ def recipe_archive_docx(orig):  # file_explorer 0c9dda13
     urls = [f["url"] for f in orig["config"][0]["parameters"]["files"]]
     _must(len(urls) == 2 and all("0c9dda13" in u for u in urls), "config 漂移")
     sb = _sandbox("fe_archive")
+    # 占位内容单源：setup 造源文件与 gold 造「已归档」文件用同一标记
+    mark = lambda i: "HAJIMI_WAA_fe_archive_{seed}_DOC%02d" % i
     return _base(
         orig, "waa_fe_archive_docx", "WAA移植-建归档夹并移入全部docx", "file",
         "打开资源管理器进入 " + sb + "_{seed}/Documents（内有若干 .docx 文件），"
@@ -322,12 +387,16 @@ def recipe_archive_docx(orig):  # file_explorer 0c9dda13
             {"type": "file_not_exists", "path": sb + "_{seed}/Documents/Doc02.docx"},
         ]},
         setup=[_mkdir(_ps(sb) + "_{seed}/Documents"),
-               _setc(_ps(sb) + "_{seed}/Documents/Doc01.docx",
-                     "HAJIMI_WAA_fe_archive_{seed}_DOC01"),
-               _setc(_ps(sb) + "_{seed}/Documents/Doc02.docx",
-                     "HAJIMI_WAA_fe_archive_{seed}_DOC02"),
+               _rm(_ps(sb) + "_{seed}/Documents/Archive"),  # 反向预置：Archive 不得先存在
+               _setc(_ps(sb) + "_{seed}/Documents/Doc01.docx", mark(1)),
+               _setc(_ps(sb) + "_{seed}/Documents/Doc02.docx", mark(2)),
                _kill("explorer")],
         cleanup=[_rm(_ps(sb) + "_{seed}")],
+        gold=[_mkdir(_ps(sb) + "_{seed}/Documents/Archive"),
+              _setc(_ps(sb) + "_{seed}/Documents/Archive/Doc01.docx", mark(1)),
+              _setc(_ps(sb) + "_{seed}/Documents/Archive/Doc02.docx", mark(2)),
+              _rm(_ps(sb) + "_{seed}/Documents/Doc01.docx"),
+              _rm(_ps(sb) + "_{seed}/Documents/Doc02.docx")],
         p0=["0.1", "0.2", "0.3", "0.7"], requires=["explorer"], wall=360,
         notes="WAA 原 evaluator: exact_match(is_all_docx_in_archive, expected true)（getter 源码"
               "=Documents 下所有 docx 均在 Archive 内）。机械翻译=建夹+两文件移入+原位清空四个"
@@ -335,7 +404,13 @@ def recipe_archive_docx(orig):  # file_explorer 0c9dda13
               "generation\"——上游 winarenafiles 的 Doc01/Doc02.docx 实测均 0 字节空占位（GitHub "
               "API size:0 + curl 200/0B 双核），WAA 原任务移的也是空文件；oracle 只认文件名/存在性，"
               "故 setup 改 Set-Content 本地生成带 {seed} 标记的占位字节，文件名不变、oracle 四谓词不动。"
-              "因不再下载，requires 去掉 internet。",
+              "因不再下载，requires 去掉 internet。gold 同为本地 Set-Content（与 setup 共用同一标记"
+              "常量），本任务校准链整体无 internet 依赖——即是该任务的离线校准路径。"
+              + _gs("Documents/Archive 下建 Doc01/Doc02（与 setup 同一标记单源）+ 删除原位两文件"
+                    "——「已归档」终态",
+                    "资源管理器新建 Archive 并移入全部 .docx（gold 直接摆终态；若 Documents 曾"
+                    "有第三种 .docx，gold 的「两文件」与「全部」语义不等价——当前 setup 只造两"
+                    "文件，故成立）"),
     )
 
 
