@@ -10,7 +10,7 @@ server_A/eval/
   tasks/seed.json   # 首批 20 任务（16 正向 + 4 负向）
   tasks/waa_pilot.json # WAA 移植 pilot 批 10 条（由 waa2seed.py 生成；校准指引 HOWTO §8）
   waa2seed.py       # WAA→评测集移植器（白名单+人工配方+上游漂移断言，可 --offline 复现）
-  calib.py          # 单任务校准助手（--list/--show/--setup/--check/--calib-done；纯消费者，复用 runner 的 PS/probe/宏展开，不另造实现）
+  calib.py          # 单任务校准助手（--list/--show/--setup/--check/--selftest/--calib-done [--via-gold]；正向 7 条 gold 自动校准 selftest+人审→calibration_method:gold-v1，负向/自研人工两向→human；纯消费者，复用 runner 的 PS/probe/宏展开，不另造实现）
   README.md         # 本文件（校准协议 + 使用）
 server_A/data/eval/runs.jsonl   # 运行遥测（T1 产出，gitignore）
 ```

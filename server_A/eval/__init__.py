@@ -32,6 +32,9 @@ PATH_MACROS = ("{EVAL_DIR}",)
 # 已知 P0 项（用于覆盖率完整性检查）
 P0_ITEMS = ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8"]
 
+# 校准方式白名单：""=未置位 | gold-v1=calib --selftest 机器五段 + 人审 gold | human=人工两向
+CALIBRATION_METHODS = {"", "gold-v1", "human"}
+
 EXPECT_STATUSES = {"success", "fail"}
 
 CATEGORIES = {
@@ -65,6 +68,11 @@ class Task:
     # oracle 是否已在 Windows 上人工两向校准（真做→PASS、故意失败→FAIL）。
     # 未校准任务不得计入正式 KPI，只能试跑。
     calibrated: bool = False
+    # gold 脚本：一组 PowerShell 行，直接落任务终态（calib --selftest 消费）。
+    # 缺省 []=无 gold 路径（负向/自研任务走人工校准）。
+    calib_gold: list = field(default_factory=list)
+    # 校准方式（calibrated:true 时的语义来源）：""|gold-v1|human，见 CALIBRATION_METHODS。
+    calibration_method: str = ""
 
     def render(self, seed: str) -> "Task":
         """把一个 seed 代入 {seed} 占位，返回具体化的新实例。"""
@@ -85,6 +93,8 @@ class Task:
             oracle=_sub(self.oracle), max_wall_s=self.max_wall_s,
             requires=list(self.requires), notes=self.notes, source=self.source,
             expect_status=self.expect_status, calibrated=self.calibrated,
+            calib_gold=_sub(self.calib_gold),
+            calibration_method=self.calibration_method,
         )
 
 
@@ -138,6 +148,18 @@ def validate_task(raw: dict, src: str = "?") -> Task:
         expect_status in EXPECT_STATUSES,
         f"{tid}: expect_status '{expect_status}' 非法（应为 success/fail）",
     )
+    # 新字段不强制存在（20 条自研任务零改动兼容）；存在则校白名单
+    calib_gold = list(raw.get("calib_gold") or [])
+    _require(
+        all(isinstance(l, str) for l in calib_gold),
+        f"{tid}: calib_gold 须为 PowerShell 行列表",
+    )
+    calibration_method = raw.get("calibration_method", "")
+    _require(
+        calibration_method in CALIBRATION_METHODS,
+        f"{tid}: calibration_method '{calibration_method}' 非法"
+        f"（应为 {sorted(CALIBRATION_METHODS)} 之一）",
+    )
     return Task(
         id=raw["id"], name=raw["name"], category=raw["category"],
         instruction=raw["instruction"], seeds=list(seeds),
@@ -149,6 +171,8 @@ def validate_task(raw: dict, src: str = "?") -> Task:
         notes=raw.get("notes", ""), source=raw.get("source", "handcrafted"),
         expect_status=expect_status,
         calibrated=bool(raw.get("calibrated", False)),
+        calib_gold=calib_gold,
+        calibration_method=calibration_method,
     )
 
 

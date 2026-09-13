@@ -187,3 +187,161 @@ def test_archive_docx_setup_local_generation_not_download():
     src = (ROOT / "eval" / "waa2seed.py").read_text(encoding="utf-8")
     seg = src[src.index("def recipe_archive_docx"):src.index("def recipe_inf_vscode_arabic")]
     assert "_dl(" not in seg and "_setc(" in seg
+
+
+# ── gold 脚本自动校准：正向七条的离线可校准声明 + 单源一致性 + 初始态 FAIL ──
+
+POS_IDS = {
+    "waa_notepad_draft_save", "waa_notepad_count_example", "waa_calc_days_to_file",
+    "waa_settings_notifications_off", "waa_settings_storagesense_weekly",
+    "waa_fe_move_myfolder", "waa_fe_archive_docx",
+}
+GOLD_TEXT_IDS = {"waa_notepad_draft_save", "waa_notepad_count_example",
+                 "waa_calc_days_to_file"}
+GOLD_REG_IDS = {"waa_settings_notifications_off", "waa_settings_storagesense_weekly"}
+
+
+def _raw_by_id():
+    return {r["id"]: r for r in json.loads(PILOT_FILE.read_text(encoding="utf-8"))}
+
+
+def test_positive_seven_have_offline_gold():
+    """7 条正向各配 calib_gold；gold 无 Invoke-WebRequest/不启动 GUI（离线可校准声明）。"""
+    raw = _raw_by_id()
+    pos = [t for t in _pilot_tasks() if t.expect_status == "success"]
+    assert len(pos) == 7 and {t.id for t in pos} == POS_IDS
+    for t in pos:
+        assert t.calib_gold, f"{t.id}: 正向任务缺 calib_gold"
+        assert t.calibration_method == "", f"{t.id}: 未校准前 method 必须空"
+        joined = "\n".join(t.calib_gold)
+        assert "Invoke-WebRequest" not in joined, \
+            f"{t.id}: gold 不得依赖网络（离线校准是硬要求）"
+        assert "Start-Process" not in joined and ".exe" not in joined.lower(), \
+            f"{t.id}: gold 不得启动 GUI"
+        for l in t.calib_gold:
+            if l.startswith("reg add"):
+                assert l.startswith('reg add "HKCU\\'), f"{t.id}: 只许写 HKCU: {l}"
+            else:
+                assert "$env:EVAL_DIR/waa_pilot/" in l, \
+                    f"{t.id}: gold 文件副作用必须锁在 EVAL_DIR 沙箱: {l}"
+        # 幂等原语白名单：只允许建/写/删这三类命令（-Force / -ErrorAction 兜底）
+        verbs = {l.split()[0] for l in t.calib_gold}
+        assert verbs <= {"New-Item", "Set-Content", "Remove-Item", "reg"}, \
+            f"{t.id}: gold 出现非幂等/越界原语 {verbs}"
+
+
+def test_negative_three_have_no_gold():
+    """3 条负向保留人工校准路径：不带 calib_gold 键，loader 默认 []。"""
+    raw = _raw_by_id()
+    neg = [t for t in _pilot_tasks() if t.expect_status == "fail"]
+    assert len(neg) == 3
+    for t in neg:
+        assert "calib_gold" not in raw[t.id], f"{t.id}: 负向不该带 gold 键"
+        assert t.calib_gold == [] and t.calibration_method == ""
+
+
+def test_gold_oracle_single_source():
+    """单源一致：oracle 的字面期望必须原样出现在 gold 里；waa2seed 源码里每个
+    gold 常量只许定义一次（禁止两处手抄——漂移断言与谓词全部引用常量）。"""
+    raw = _raw_by_id()
+    # 文件类：oracle text/needle 字面值 = gold Set-Content 的 -Value
+    for tid in GOLD_TEXT_IDS:
+        t = raw[tid]
+        gold = "\n".join(t["calib_gold"])
+        lits = [p.get("text") or p.get("needle") for p in t["oracle"]["all"]
+                if p["type"] in ("file_content_equals", "file_content_contains")]
+        assert lits, tid
+        for lit in lits:
+            assert f'-Value "{lit}"' in gold, \
+                f"{tid}: oracle 字面量 {lit!r} 未单源进 gold"
+    # 注册表类：gold 写的 (键, 值) 必须逐条等于 oracle registry_value 谓词
+    for tid in GOLD_REG_IDS:
+        t = raw[tid]
+        gold = "\n".join(t["calib_gold"])
+        import re as _re
+        wrote = {(m.group(1), int(m.group(2)))
+                 for m in _re.finditer(r'/v (\S+) /t REG_DWORD /d (\d+) /f', gold)}
+        for p in t["oracle"]["all"]:
+            assert p["type"] == "registry_value"
+            assert p["key"] in gold, f"{tid}: oracle 键路径未进 gold"
+            assert (p["name"], p["expect"]) in wrote, \
+                f"{tid}: gold 缺 {p['name']}={p['expect']}（与 oracle 不同源）"
+    # 源码级：gold 字面量/键路径只许出现在常量定义处一次
+    src = (ROOT / "eval" / "waa2seed.py").read_text(encoding="utf-8")
+    for lit in ('"This is a draft."', '"230 days"', '"22"',
+                r"Software\Microsoft\Windows\CurrentVersion\PushNotifications",
+                r"Software\Microsoft\Windows\CurrentVersion\StorageSense"
+                r"\Parameters\StoragePolicy"):
+        assert src.count(lit) == 1, f"gold 字面量 {lit!r} 出现 {src.count(lit)} 次（>1=手抄）"
+
+
+def test_setup_guarantees_initial_state_fail():
+    """负向半边自动化的前提：逐条钉「setup 后 oracle 必为 FAIL」的机制——
+    文件类=setup 显式删掉 oracle 终态路径；注册表类=setup 预置反向值；
+    move/archive=目标位不得被 setup 建出、原位必须由 setup 造出。"""
+    raw = _raw_by_id()
+
+    def setup_joined(tid):
+        return "\n".join(raw[tid]["setup_ps1"])
+
+    # 终态文件：setup 必须 Remove-Item 掉它
+    for tid, target in (("waa_notepad_draft_save", "draft.txt"),
+                        ("waa_notepad_count_example", "example_count.txt"),
+                        ("waa_calc_days_to_file", "numdays.txt")):
+        rm = [l for l in raw[tid]["setup_ps1"]
+              if l.startswith("Remove-Item") and target in l]
+        assert rm, f"{tid}: setup 缺对 {target} 的复位删除（初始态可能残留 PASS）"
+    # 注册表反向预置：setup 写的值 ≠ oracle expect
+    for tid in GOLD_REG_IDS:
+        import re as _re
+        s = setup_joined(tid)
+        wrote = {(m.group(1), int(m.group(2)))
+                 for m in _re.finditer(r'/v (\S+) /t REG_DWORD /d (\d+) /f', s)}
+        for p in raw[tid]["oracle"]["all"]:
+            got = [v for (n, v) in wrote if n == p["name"]]
+            assert got and all(v != p["expect"] for v in got), \
+                f"{tid}: setup 未把 {p['name']} 预置成反向值 → {got}"
+    # move：Desktop 源造出、Documents 目标位显式清空
+    mv = raw["waa_fe_move_myfolder"]
+    assert any("MyFolder" in l and "Desktop" in l and l.startswith("New-Item")
+               for l in mv["setup_ps1"]), "Desktop/MyFolder 源应由 setup 造"
+    assert any(l.startswith("Remove-Item") and "Documents/MyFolder" in l
+               for l in mv["setup_ps1"]), "目标位 Documents/MyFolder 应显式清除"
+    assert not any("Documents/MyFolder" in l and "Remove" not in l
+                   for l in mv["setup_ps1"]), "setup 不得建 Documents/MyFolder"
+    # archive：Archive 目录显式清除、两源文件造在原位
+    ar = raw["waa_fe_archive_docx"]
+    assert any(l.startswith("Remove-Item") and "Documents/Archive" in l
+               for l in ar["setup_ps1"]), "Archive 不得先存在"
+    assert len([l for l in ar["setup_ps1"] if l.startswith("Set-Content")
+                and "Documents/Doc" in l]) == 2, "原位两 docx 应由 setup 造出"
+
+
+def test_positive_gold_semantics_note_for_human_review():
+    """人审聚焦条款：每条正向 notes 带 gold_semantics（gold 写了什么 × instruction 说什么）。"""
+    for t in _pilot_tasks():
+        if t.id in POS_IDS:
+            assert "gold_semantics:" in t.notes, f"{t.id}: notes 缺人审锚点"
+            assert "gold 写了" in t.notes and "人审点" in t.notes
+        else:
+            assert "gold_semantics" not in t.notes
+
+
+def test_loader_defaults_keep_20_handcrafted_compatible():
+    """30 条 load 兼容：seed.json 20 条无新字段，loader 默认值不破（calib_gold=[]/
+    calibration_method=''），且渲染不丢新字段。"""
+    tasks = load_tasks(TASKS_DIR)
+    hand = [t for t in tasks if not t.source.startswith("waa:")]
+    assert len(hand) == 20
+    seed_raw = json.loads((TASKS_DIR / "seed.json").read_text(encoding="utf-8"))
+    assert len(seed_raw) == 20 and all(
+        "calib_gold" not in r and "calibration_method" not in r for r in seed_raw), \
+        "seed.json 不重排不补键（铁律文件零触碰，靠 loader 默认值兼容）"
+    assert all(t.calib_gold == [] and t.calibration_method == "" for t in hand)
+    waa_pos = [t for t in tasks if t.id in POS_IDS]
+    assert all(len(t.calib_gold) >= 1 for t in waa_pos)
+    # render 传递新字段（gold 里 {seed} 代入）
+    t = next(t for t in waa_pos if t.id == "waa_notepad_draft_save")
+    r = t.render("b")
+    assert r.calib_gold and any("notepad_draft_b/draft.txt" in l for l in r.calib_gold)
+    assert r.calibration_method == t.calibration_method

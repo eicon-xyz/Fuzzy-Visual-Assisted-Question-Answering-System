@@ -17,12 +17,20 @@
     ],
     "setup_ps1": [
       "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents\" | Out-Null",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Archive\"",
       "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Doc01.docx\" -Value \"HAJIMI_WAA_fe_archive_{seed}_DOC01\" -Force",
       "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Doc02.docx\" -Value \"HAJIMI_WAA_fe_archive_{seed}_DOC02\" -Force",
       "Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force"
     ],
     "cleanup_ps1": [
       "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}\""
+    ],
+    "calib_gold": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Archive\" | Out-Null",
+      "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Archive/Doc01.docx\" -Value \"HAJIMI_WAA_fe_archive_{seed}_DOC01\" -Force",
+      "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Archive/Doc02.docx\" -Value \"HAJIMI_WAA_fe_archive_{seed}_DOC02\" -Force",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Doc01.docx\"",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Doc02.docx\""
     ],
     "oracle": {
       "all": [
@@ -51,7 +59,7 @@
     "expect_status": "success",
     "calibrated": false,
     "source": "waa:0c9dda13-428c-492b-900b-f48562111f93-WOS",
-    "notes": "WAA 原 evaluator: exact_match(is_all_docx_in_archive, expected true)（getter 源码=Documents 下所有 docx 均在 Archive 内）。机械翻译=建夹+两文件移入+原位清空四个谓词。waa_upstream_asset_defect: \"0-byte at source; setup switched to local generation\"——上游 winarenafiles 的 Doc01/Doc02.docx 实测均 0 字节空占位（GitHub API size:0 + curl 200/0B 双核），WAA 原任务移的也是空文件；oracle 只认文件名/存在性，故 setup 改 Set-Content 本地生成带 {seed} 标记的占位字节，文件名不变、oracle 四谓词不动。因不再下载，requires 去掉 internet。",
+    "notes": "WAA 原 evaluator: exact_match(is_all_docx_in_archive, expected true)（getter 源码=Documents 下所有 docx 均在 Archive 内）。机械翻译=建夹+两文件移入+原位清空四个谓词。waa_upstream_asset_defect: \"0-byte at source; setup switched to local generation\"——上游 winarenafiles 的 Doc01/Doc02.docx 实测均 0 字节空占位（GitHub API size:0 + curl 200/0B 双核），WAA 原任务移的也是空文件；oracle 只认文件名/存在性，故 setup 改 Set-Content 本地生成带 {seed} 标记的占位字节，文件名不变、oracle 四谓词不动。因不再下载，requires 去掉 internet。gold 同为本地 Set-Content（与 setup 共用同一标记常量），本任务校准链整体无 internet 依赖——即是该任务的离线校准路径。 gold_semantics: \"gold 写了 Documents/Archive 下建 Doc01/Doc02（与 setup 同一标记单源）+ 删除原位两文件——「已归档」终态；人审点：instruction 说 资源管理器新建 Archive 并移入全部 .docx（gold 直接摆终态；若 Documents 曾有第三种 .docx，gold 的「两文件」与「全部」语义不等价——当前 setup 只造两文件，故成立），两者是否等价\"",
     "waa_orig": {
       "id": "0c9dda13-428c-492b-900b-f48562111f93-WOS",
       "instruction": "Create a new folder named \"Archive\" in the Documents folder and move all .docx files into it.",
@@ -141,10 +149,16 @@
     "setup_ps1": [
       "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/fe_move_{seed}/Desktop/MyFolder\" | Out-Null",
       "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/fe_move_{seed}/Documents\" | Out-Null",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/fe_move_{seed}/Documents/MyFolder\"",
       "Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force"
     ],
     "cleanup_ps1": [
       "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/fe_move_{seed}\""
+    ],
+    "calib_gold": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/fe_move_{seed}/Documents/MyFolder\" | Out-Null",
+      "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/fe_move_{seed}/Documents/MyFolder/note.txt\" -Value \"HAJIMI_WAA_fe_move_{seed}_MYFOLDER\" -Force",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/fe_move_{seed}/Desktop/MyFolder\""
     ],
     "oracle": {
       "all": [
@@ -165,7 +179,7 @@
     "expect_status": "success",
     "calibrated": false,
     "source": "waa:1876fe7f-6fdc-5dd6-c9e0-237d4c8411f0-WOS",
-    "notes": "WAA 原 evaluator: exact_match(vm_folder_exists_in_documents MyFolder, expected true)（config 于真实 Desktop 建 MyFolder）。裸机移植：桌面/文档改为沙箱目录两个子文件夹；补 file_not_exists(原位) 收紧为「移动而非复制」——WAA 的 folder_name 语义就是 move，此收紧符合原意（其指令原文即 Move）。",
+    "notes": "WAA 原 evaluator: exact_match(vm_folder_exists_in_documents MyFolder, expected true)（config 于真实 Desktop 建 MyFolder）。裸机移植：桌面/文档改为沙箱目录两个子文件夹；补 file_not_exists(原位) 收紧为「移动而非复制」——WAA 的 folder_name 语义就是 move，此收紧符合原意（其指令原文即 Move）。 gold_semantics: \"gold 写了 Documents/MyFolder（含 seed 标记内容文件）+ 删除 Desktop 源文件夹——即「已移走」终态；Desktop 源由 setup 造、gold 只删不建；人审点：instruction 说 用资源管理器把 Desktop/MyFolder 移动到 Documents（gold 用 建+删 两条模拟 move，不启动 explorer），两者是否等价\"",
     "waa_orig": {
       "id": "1876fe7f-6fdc-5dd6-c9e0-237d4c8411f0-WOS",
       "instruction": "Move the folder named \"MyFolder\" from the Desktop to the Documents folder.",
@@ -229,6 +243,10 @@
       "Get-Process Calculator -ErrorAction SilentlyContinue | Stop-Process -Force",
       "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/calc_days\""
     ],
+    "calib_gold": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/calc_days\" | Out-Null",
+      "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/calc_days/numdays.txt\" -Value \"230 days\" -Force"
+    ],
     "oracle": {
       "all": [
         {
@@ -249,7 +267,7 @@
     "expect_status": "success",
     "calibrated": false,
     "source": "waa:28b91a24-5d97-4c2a-891c-dccbd3820c62-WOS-2",
-    "notes": "WAA 原 evaluator: exact_match(is_file_saved_desktop numdays.txt contains '230 days')（getter 源码=文件存在且 textcontent in file，故用 file_content_contains 同语义）。seeds=[default]：同 base id 28b91a24 有 WOS/WOS-2/WOS-3 三个变体（不同日期对+不同答案串），WAA 自己拆成三个 JSON——答案随日期变，单 {seed} 宏无法联动，故只移 WOS-2一条，另两条算独立候选任务不混入。",
+    "notes": "WAA 原 evaluator: exact_match(is_file_saved_desktop numdays.txt contains '230 days')（getter 源码=文件存在且 textcontent in file，故用 file_content_contains 同语义）。seeds=[default]：同 base id 28b91a24 有 WOS/WOS-2/WOS-3 三个变体（不同日期对+不同答案串），WAA 自己拆成三个 JSON——答案随日期变，单 {seed} 宏无法联动，故只移 WOS-2一条，另两条算独立候选任务不混入。 gold_semantics: \"gold 写了 沙箱 numdays.txt = 结果串（同一常量单源）；人审点：instruction 说 计算器日期模式算出天数差再保存（gold 不验算——正确性押移植时对该日期差的人工核算与 WAA 原 expected 一致），两者是否等价\"",
     "waa_orig": {
       "id": "28b91a24-5d97-4c2a-891c-dccbd3820c62-WOS-2",
       "instruction": "Can you use the calculator app to find how many days are between Jan 3, 2024 and Aug 20 2024? Save the result in a file called 'numdays.txt' on the Desktop (e.g. X days)",
@@ -314,6 +332,10 @@
       "Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force",
       "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/notepad_draft_{seed}\""
     ],
+    "calib_gold": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/notepad_draft_{seed}\" | Out-Null",
+      "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/notepad_draft_{seed}/draft.txt\" -Value \"This is a draft.\" -Force"
+    ],
     "oracle": {
       "all": [
         {
@@ -334,7 +356,7 @@
     "expect_status": "success",
     "calibrated": false,
     "source": "waa:366de66e-cbae-4d72-b042-26390db2b145-WOS",
-    "notes": "WAA 原 evaluator: [exact_match(vm_file_exists_in_vm_folder Documents/draft.txt) + compare_text_file(gold=cloud draft.txt 相似度1.0)]。gold 内容实测 'This is a draft.'，已内联为 file_content_equals（strip 比较，容忍末换行）。产物路径改沙箱目录不碰真实 Documents；{seed} 仅作隔离参数（WAA 原文文件名 draft.txt 保留）。",
+    "notes": "WAA 原 evaluator: [exact_match(vm_file_exists_in_vm_folder Documents/draft.txt) + compare_text_file(gold=cloud draft.txt 相似度1.0)]。gold 内容实测 'This is a draft.'，已内联为 file_content_equals（strip 比较，容忍末换行）。产物路径改沙箱目录不碰真实 Documents；{seed} 仅作隔离参数（WAA 原文文件名 draft.txt 保留）。 gold_semantics: \"gold 写了 沙箱 draft.txt = oracle 期望文本（同一常量单源）；人审点：instruction 说 打开记事本输入该文字并另存（gold 不经 GUI 直接落盘），两者是否等价\"",
     "waa_orig": {
       "id": "366de66e-cbae-4d72-b042-26390db2b145-WOS",
       "instruction": "Please open Notepad, create a new file named \"draft.txt\", type \"This is a draft.\", and save it to the Documents folder.",
@@ -418,6 +440,9 @@
     "cleanup_ps1": [
       "reg delete \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\PushNotifications\" /v ToastEnabled /f"
     ],
+    "calib_gold": [
+      "reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\PushNotifications\" /v ToastEnabled /t REG_DWORD /d 0 /f"
+    ],
     "oracle": {
       "all": [
         {
@@ -436,7 +461,7 @@
     "expect_status": "success",
     "calibrated": false,
     "source": "waa:37e10fc4-b4c5-4b02-a65c-bfae8bc51d3f-wos",
-    "notes": "WAA 原 evaluator: exact_match(result=getter system_notifications, expected='True')。getter 源码（settings.py get_system_notifications）= HKCU\\...\\PushNotifications\\ToastEnabled 为 0 时返回 'True'（即已关闭）→ 直接映射 registry_value ToastEnabled=0。setup 先置 1（开启）造基线，cleanup 删除该值恢复系统默认。seeds=[default]：机器级单值状态，无可参数化自由度。",
+    "notes": "WAA 原 evaluator: exact_match(result=getter system_notifications, expected='True')。getter 源码（settings.py get_system_notifications）= HKCU\\...\\PushNotifications\\ToastEnabled 为 0 时返回 'True'（即已关闭）→ 直接映射 registry_value ToastEnabled=0。setup 先置 1（开启）造基线，cleanup 删除该值恢复系统默认。seeds=[default]：机器级单值状态，无可参数化自由度。 gold_semantics: \"gold 写了 HKCU 的 ToastEnabled=0（oracle 读的同一个键，键路径/期望值单源）；人审点：instruction 说 在设置 GUI 里拨通知总开关（gold 直写注册表，与设置页拨动是否等效），两者是否等价\"",
     "waa_orig": {
       "id": "37e10fc4-b4c5-4b02-a65c-bfae8bc51d3f-wos",
       "instruction": "I need to \"turn off\" notifications for my system in the settings.",
@@ -484,6 +509,10 @@
       "Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force",
       "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/notepad_count\""
     ],
+    "calib_gold": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/notepad_count\" | Out-Null",
+      "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/notepad_count/example_count.txt\" -Value \"22\" -Force"
+    ],
     "oracle": {
       "all": [
         {
@@ -505,7 +534,7 @@
     "expect_status": "success",
     "calibrated": false,
     "source": "waa:a7d4b6c5-569b-452e-9e1d-ffdb3d431d15-WOS",
-    "notes": "WAA 原 evaluator: compare_text_file(vm example_count.txt vs cloud gold)。gold 实测内容 '22'（本机 grep -o example largefile.txt 复核=22），内联为 file_content_equals。seeds=[default]：语料与答案固定，{seed} 无参数化自由度。需查找功能计数（不逐屏数）。",
+    "notes": "WAA 原 evaluator: compare_text_file(vm example_count.txt vs cloud gold)。gold 实测内容 '22'（本机 grep -o example largefile.txt 复核=22），内联为 file_content_equals。seeds=[default]：语料与答案固定，{seed} 无参数化自由度。需查找功能计数（不逐屏数）。gold 段自身离线（只写沙箱文件、不下载）；但 --selftest 的 setup 段仍要联网抓语料 largefile.txt——评测机离线时该条 selftest 需先联网跑一次 setup 或临时放行网络。 gold_semantics: \"gold 写了 沙箱 example_count.txt = 计数结果（同一常量单源，与语料无关联）；人审点：instruction 说 打开记事本统计 largefile.txt 中 example 出现次数后写回（gold 不做真实统计，正确性押在移植时 grep 复核的 22 上），两者是否等价\"",
     "waa_orig": {
       "id": "a7d4b6c5-569b-452e-9e1d-ffdb3d431d15-WOS",
       "instruction": "Please open Notepad, load the file \"largefile.txt\" from the Documents folder, and search for the word \"example\", count all instances. Store the number of \"example\" counts (and nothing else) in a file named \"example_count.txt\" under Documents folder",
@@ -594,6 +623,10 @@
     "cleanup_ps1": [
       "reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy\" /v 01 /t REG_DWORD /d 0 /f"
     ],
+    "calib_gold": [
+      "reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy\" /v 01 /t REG_DWORD /d 1 /f",
+      "reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy\" /v 2048 /t REG_DWORD /d 7 /f"
+    ],
     "oracle": {
       "all": [
         {
@@ -619,7 +652,7 @@
     "expect_status": "success",
     "calibrated": false,
     "source": "waa:e8f68f22-1f6a-4cba-a97a-ac611bb4c67b-wos",
-    "notes": "WAA 原 evaluator: exact_match(result=getter storage_sense_run_frequency, expected='7')。getter 源码（settings.py）='01'==1（开启）且 '2048'==7 → 两个 registry_value 谓词组合。setup 造「关闭+每月」基线，cleanup 复位为关。seeds=[default]：机器级单状态。存储感知在精简 Win11 可能被组策略禁用——requires 声明，校准不过则记环境不适用。",
+    "notes": "WAA 原 evaluator: exact_match(result=getter storage_sense_run_frequency, expected='7')。getter 源码（settings.py）='01'==1（开启）且 '2048'==7 → 两个 registry_value 谓词组合。setup 造「关闭+每月」基线，cleanup 复位为关。seeds=[default]：机器级单状态。存储感知在精简 Win11 可能被组策略禁用——requires 声明，校准不过则记环境不适用。 gold_semantics: \"gold 写了 SS_EXPECT 两条 reg 值（01/2048 与 oracle 同一字典单源）；人审点：instruction 说 设置页开存储感知+间隔选每周（gold 直写两个 DWORD，是否等效 GUI 拨动，尤其 2048 的其他合法值不触发副作用），两者是否等价\"",
     "waa_orig": {
       "id": "e8f68f22-1f6a-4cba-a97a-ac611bb4c67b-wos",
       "instruction": "Enable the \"Storage Sense\" feature and configure it to run every week.",

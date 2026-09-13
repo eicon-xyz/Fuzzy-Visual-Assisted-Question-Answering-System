@@ -6,6 +6,10 @@ oracle 逐谓词人读；③任务 id 唯一前缀匹配 / 歧义 / 找不到近
 ⑤--check 等非 Windows 拒跑（rc≠0 且提示含 Windows）；
 ⑥核心纯逻辑（oracle 宏展开 + trace 格式化）用 FakeProbe 注入测
 （沿用 test_eval_tools 的 probe 注入惯例）。
+gold 自动校准扩展：⑦--selftest 五段序列状态机（monkeypatch run_ps_checked +
+FakeProbe 可编程 FAIL→PASS→FAIL，含三种断言反例=整体 FAIL 且不写戳）；
+⑧task_hash 漂移→旧戳自动失效；⑨--calib-done --via-gold 无戳拒绝/有戳成功
+（calibration_method 正确写入）；⑩--list 的 method 列。
 """
 from __future__ import annotations
 
@@ -14,7 +18,10 @@ import os
 import re
 import shutil
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # server_A/
 
@@ -141,13 +148,18 @@ def test_calib_done_edits_one_line_keeps_order_and_idempotent(tmp_path, capsys):
     olines, nlines = orig.splitlines(), new.splitlines()
     assert len(olines) == len(nlines), "回写不得改变行数（目标化单行编辑）"
     diff = [(a, b) for a, b in zip(olines, nlines) if a != b]
-    assert diff == [('    "calibrated": false,', '    "calibrated": true,')], \
-        "git-diff 等价面：只许动 calibrated 这一行"
+    assert diff == [('    "calibrated": false,',
+                     '    "calibrated": true, "calibration_method": "human",')], \
+        "git-diff 等价面：只许动 calibrated 这一行（method 键内联同行，行数不变）"
     data = json.loads(new)
     assert data[0]["calibrated"] is True
-    assert list(data[0].keys()) == list(json.loads(orig)[0].keys()), "键序不破坏"
+    assert data[0]["calibration_method"] == "human"
+    okeys = list(json.loads(orig)[0].keys())
+    cut = okeys.index("calibrated") + 1
+    assert list(data[0].keys()) == \
+        okeys[:cut] + ["calibration_method"] + okeys[cut:], "既有键序不破坏，新键只内联在 calibrated 后"
     assert all(t["calibrated"] is False for t in data[1:]), "不得误伤其他任务"
-    # waa 重生成的坑必须警告；两向皆过提醒必须打印
+    # waa 重生成的坑必须警告；两向皆过提醒必须打印；无 gold 走 human 必填提醒
     assert "重生成" in errtext and "两向皆过" in out
 
     # 幂等：再跑一次不改文件
@@ -172,7 +184,7 @@ def test_calib_done_edits_one_line_keeps_order_and_idempotent(tmp_path, capsys):
 
 def test_windows_only_actions_refuse_off_windows(capsys, monkeypatch):
     monkeypatch.setattr(calib, "IS_WINDOWS", False)  # 本机=Linux 也显式钉住，Windows 上跑测不翻转
-    for act in ("--check", "--setup", "--cleanup"):
+    for act in ("--check", "--setup", "--cleanup", "--selftest"):
         rc, _o, comb = _run(capsys, ["waa_notepad_draft_save", act])
         assert rc != 0, f"{act} 在非 Windows 必须拒跑"
         assert "Windows" in comb, "提示须说明要在 Windows 评测机上跑"
@@ -220,3 +232,244 @@ def test_describe_predicate_covers_whitelist():
         chk = {"type": typ, **{k: f"<{k}>" for k in fields}}
         d = calib.describe_predicate(chk)
         assert typ in d and "——" in d and typ in calib.PREDICATE_MEANING, f"{typ} 缺人读含义"
+
+
+# ── ⑦ --selftest 五段状态机（monkeypatch run_ps_checked + 可编程 FakeProbe）──
+
+GOLD_ID = "waa_notepad_draft_save"
+STAMP_DONE = ["setup", "check_initial_fail", "calib_gold",
+              "check_after_gold_pass", "cleanup_recheck_fail"]
+
+
+def _draft_path(ed):
+    return f"{ed}/waa_pilot/notepad_draft_a/draft.txt"
+
+
+def _selftest_env(tmp_path, monkeypatch, behavior=None):
+    """共享布景：任务副本 + eval_dir 重定向 + 假 run_ps_checked（按调用次序走
+    setup→gold→cleanup 状态迁移）+ FakeProbe 引用同一 files/texts。
+    behavior 造三种断言反例：
+      setup_no_reset   → setup 不复位，第②段（初始应 FAIL）翻转
+      gold_no_effect   → gold 不落盘，第④段（gold 后应 PASS）翻转
+      cleanup_no_reset → cleanup 不清场，第⑤段（复位应回 FAIL）翻转
+    """
+    d = tmp_path / "tasks"
+    d.mkdir()
+    shutil.copy(TASKS_DIR / "waa_pilot.json", d / "waa_pilot.json")
+    ed = str(tmp_path / "evalroot")
+    monkeypatch.setattr(calib, "IS_WINDOWS", True)
+    monkeypatch.setattr(calib, "resolve_eval_dir", lambda: ed)
+    # 假 probe 与 fake_ps 共享同一容器对象：FakeProbe 的 `files or set()` 会在传入
+    # 空容器时换新对象——先带哨兵构造，构造完即从同一对象摘除哨兵
+    files, texts, ps_calls = {"/dummy"}, {"/dummy": ""}, []
+    p = _draft_path(ed)
+    if behavior == "setup_no_reset":          # 脏现场：初始态就是 PASS
+        files.add(p)
+        texts[p] = "This is a draft.\r\n"
+    probe = FakeProbe(files=files, texts=texts)
+    files.discard("/dummy")
+    texts.pop("/dummy", None)
+
+    def fake_ps(lines, env, title):
+        ps_calls.append((title, list(lines)))
+        step = len(ps_calls)
+        if (behavior == "setup_no_reset" and step == 1) or \
+           (behavior == "gold_no_effect" and step == 2) or \
+           (behavior == "cleanup_no_reset" and step == 3):
+            return True                        # "跑了但没效果"——制造断言反
+        if step == 2:                          # gold 段：直接落终态
+            files.add(p)
+            texts[p] = "This is a draft.\r\n"
+        else:                                  # setup/cleanup 段：复位
+            files.discard(p)
+            texts.pop(p, None)
+        return True
+
+    monkeypatch.setattr(calib, "run_ps_checked", fake_ps)
+    monkeypatch.setattr(runner, "WindowsProbe", lambda: probe)
+    return d, ed, ps_calls
+
+
+def test_selftest_five_segments_pass_and_stamp(capsys, monkeypatch, tmp_path):
+    d, ed, ps_calls = _selftest_env(tmp_path, monkeypatch)
+    rc, out, comb = _run(capsys, ["--tasks", str(d), GOLD_ID, "--selftest"])
+    assert rc == 0, comb
+    for i in range(1, 6):
+        assert re.search(rf"\[selftest {i}/5\].*OK", out), f"第{i}段应 OK:\n{out}"
+    # PS 执行次序 = setup → gold → cleanup（check 段不碰 PS）
+    assert [t for t, _l in ps_calls] == ["selftest/1", "selftest/3",
+                                         "selftest/5-cleanup"]
+    all_lines = [l for _t, ls in ps_calls for l in ls]
+    assert all("{EVAL_DIR}" not in l and "{seed}" not in l for l in all_lines), \
+        "进 PS 的行必须两跳展开（同 --setup 语义）"
+    assert any("$env:EVAL_DIR/waa_pilot/notepad_draft_a/draft.txt" in l
+               for l in ps_calls[1][1]), \
+        "gold 段目标=oracle 同一文件（{seed} 已代入；PS 侧路径按设计留 $env:EVAL_DIR）"
+    assert "人审" in out and "--calib-done --via-gold" in out, "成功输出必须指路人审下一步"
+    sp = Path(ed) / ".calib_stamps" / (GOLD_ID + ".json")
+    rec = json.loads(sp.read_text(encoding="utf-8"))
+    task = next(t for t in load_tasks(d) if t.id == GOLD_ID)
+    assert rec["task_hash"] == calib.task_hash(task)
+    assert rec["phases"] == STAMP_DONE
+    datetime.fromisoformat(rec["ts"])
+    assert calib.stamp_status(task, ed)[0] is True, "刚写的戳必须即刻有效"
+
+
+@pytest.mark.parametrize("behavior,bad_seg,marker", [
+    ("setup_no_reset", 2, "oracle=PASS 而期望 FAIL"),    # 初始态断言反
+    ("gold_no_effect", 4, "oracle=FAIL 而期望 PASS"),    # gold 后断言反
+    ("cleanup_no_reset", 5, "脏状态掩盖"),               # 复位断言反
+])
+def test_selftest_assertion_reversals_fail_and_no_stamp(
+        capsys, monkeypatch, tmp_path, behavior, bad_seg, marker):
+    d, ed, ps_calls = _selftest_env(tmp_path, monkeypatch, behavior)
+    rc, out, comb = _run(capsys, ["--tasks", str(d), GOLD_ID, "--selftest"])
+    assert rc == 1, f"{behavior} 必须整体 FAIL"
+    assert f"[selftest {bad_seg}/5]" in comb and marker in comb
+    assert "oracle_trace 摘要" in comb, "断言反例要打逐谓词 trace 供定位"
+    assert "状态戳**未写入**" in comb
+    assert not (_draft_path(ed) and (Path(ed) / ".calib_stamps" /
+                                     (GOLD_ID + ".json")).exists())
+    if behavior == "cleanup_no_reset":
+        assert [t for t, _l in ps_calls] == ["selftest/1", "selftest/3",
+                                             "selftest/5-cleanup"]
+
+
+def test_selftest_skip_reset_check_escape_hatch(capsys, monkeypatch, tmp_path):
+    d, ed, ps_calls = _selftest_env(tmp_path, monkeypatch)
+    rc, out, comb = _run(capsys, ["--tasks", str(d), GOLD_ID, "--selftest",
+                                  "--skip-reset-check"])
+    assert rc == 0
+    assert "跳过第⑤段" in comb, "逃生舱必须打警示"
+    assert [t for t, _l in ps_calls] == ["selftest/1", "selftest/3"], \
+        "skip 时不得执行 cleanup"
+    assert not any("[selftest 5/" in out for _ in [0])
+    rec = json.loads((Path(ed) / ".calib_stamps" / (GOLD_ID + ".json"))
+                     .read_text(encoding="utf-8"))
+    assert rec["phases"] == STAMP_DONE[:4] + ["skip_reset_check"]
+
+
+def test_selftest_refused_for_task_without_gold(capsys, monkeypatch, tmp_path):
+    d, ed, _ = _selftest_env(tmp_path, monkeypatch)
+    rc, _o, comb = _run(capsys, ["--tasks", str(d), "waa_inf_vscode_arabic",
+                                 "--selftest"])
+    assert rc == 2 and "calib_gold" in comb and "人工" in comb
+
+
+# ── ⑧ task_hash 漂移 → 旧戳自动失效 ──────────────────────────────────────
+
+def test_task_hash_drift_invalidates_old_stamp(capsys, monkeypatch, tmp_path):
+    d, ed, _ = _selftest_env(tmp_path, monkeypatch)
+    rc, out, comb = _run(capsys, ["--tasks", str(d), GOLD_ID, "--selftest"])
+    assert rc == 0, comb
+    task = next(t for t in load_tasks(d) if t.id == GOLD_ID)
+    assert calib.stamp_status(task, ed)[0] is True
+    # 配方语义变更：gold 末行文本改一个字符 → hash 变、旧戳作废
+    fp = d / "waa_pilot.json"
+    data = json.loads(fp.read_text(encoding="utf-8"))
+    obj = next(x for x in data if x["id"] == GOLD_ID)
+    obj["calib_gold"][-1] = obj["calib_gold"][-1].replace(
+        'This is a draft." ', 'This is a draft!\" ')
+    fp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                  encoding="utf-8")
+    task2 = next(t for t in load_tasks(d) if t.id == GOLD_ID)
+    assert calib.task_hash(task2) != calib.task_hash(task)
+    ok, why = calib.stamp_status(task2, ed)
+    assert not ok and "task_hash" in why
+    rc, _o, comb = _run(capsys, ["--tasks", str(d), GOLD_ID, "--calib-done",
+                                 "--via-gold"])
+    assert rc == 1 and "拒绝置位" in comb and "重跑 --selftest" in comb
+    assert "calibration_method" not in json.dumps(
+        [t for t in json.loads(fp.read_text(encoding="utf-8"))
+         if t["id"] == GOLD_ID][0])  # 被拒后文件不得留下半截置位
+    # 时限半边：把 ts 拨到 8 天前 → 过期拒；拨回 6 天前 → 有效
+    sp = Path(ed) / ".calib_stamps" / (GOLD_ID + ".json")
+    rec = json.loads(sp.read_text(encoding="utf-8"))
+    for days, want_ok in ((8, False), (6, True)):
+        rec["ts"] = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(
+            timespec="seconds")
+        sp.write_text(json.dumps(rec, ensure_ascii=False), encoding="utf-8")
+        ok, why = calib.stamp_status(task, ed)
+        assert ok is want_ok, f"{days} 天应为 {want_ok}: {why}"
+        if not ok:
+            assert "过期" in why and "7 天" in why
+
+
+# ── ⑨ --calib-done --via-gold 核验矩阵 ───────────────────────────────────
+
+def test_calib_done_via_gold_requires_valid_stamp(capsys, monkeypatch, tmp_path):
+    d = tmp_path / "tasks"
+    d.mkdir()
+    shutil.copy(TASKS_DIR / "waa_pilot.json", d / "waa_pilot.json")
+    ed = str(tmp_path / "evalroot")
+    monkeypatch.setattr(calib, "resolve_eval_dir", lambda: ed)
+    orig = (d / "waa_pilot.json").read_text(encoding="utf-8")
+
+    # 无戳 → 拒绝 + 指路 --selftest，文件不动
+    rc, _o, comb = _run(capsys, ["--tasks", str(d), "waa_fe_move", "--calib-done",
+                                 "--via-gold"])
+    assert rc == 1 and "无 selftest 状态戳" in comb and "--selftest" in comb
+    assert (d / "waa_pilot.json").read_text(encoding="utf-8") == orig
+
+    # 无 calib_gold 的任务用 --via-gold → 用法错
+    rc, _o, comb = _run(capsys, ["--tasks", str(d), "waa_inf_vscode_arabic",
+                                 "--calib-done", "--via-gold"])
+    assert rc == 2 and "无 calib_gold" in comb
+
+    # 有戳 → 成功，calibrated:true + calibration_method:gold-v1，行数不变
+    task = next(t for t in load_tasks(d) if t.id == "waa_fe_move_myfolder")
+    calib.write_stamp(task, ed, STAMP_DONE)
+    rc, out, comb = _run(capsys, ["--tasks", str(d), "waa_fe_move", "--calib-done",
+                                  "--via-gold"])
+    assert rc == 0 and "戳核验通过" in out, comb
+    new = (d / "waa_pilot.json").read_text(encoding="utf-8")
+    assert len(new.splitlines()) == len(orig.splitlines())
+    diff = [(a, b) for a, b in zip(orig.splitlines(), new.splitlines()) if a != b]
+    assert diff == [('    "calibrated": false,',
+                     '    "calibrated": true, "calibration_method": "gold-v1",')]
+    obj = next(x for x in json.loads(new) if x["id"] == "waa_fe_move_myfolder")
+    assert obj["calibrated"] is True and obj["calibration_method"] == "gold-v1"
+    assert "gold-v1 语义" in out and "人审" in out
+    # 幂等再跑不动文件
+    rc, out2, _ = _run(capsys, ["--tasks", str(d), "waa_fe_move_myfolder",
+                                "--calib-done", "--via-gold"])
+    assert rc == 0 and "已是" in out2
+    assert (d / "waa_pilot.json").read_text(encoding="utf-8") == new
+
+
+# ── ⑩ --list 的 method 列 ────────────────────────────────────────────────
+
+def test_list_method_column_states(capsys, monkeypatch, tmp_path):
+    d = tmp_path / "tasks"
+    d.mkdir()
+    shutil.copy(TASKS_DIR / "waa_pilot.json", d / "waa_pilot.json")
+    ed = str(tmp_path / "evalroot")
+    monkeypatch.setattr(calib, "resolve_eval_dir", lambda: ed)
+    tasks = {t.id: t for t in load_tasks(d)}
+    # 有戳未置位 → gold✓
+    calib.write_stamp(tasks["waa_fe_move_myfolder"], ed, STAMP_DONE)
+    # gold-v1 置位
+    calib.write_stamp(tasks["waa_notepad_draft_save"], ed, STAMP_DONE)
+    rc, out, _ = _run(capsys, ["--tasks", str(d), "waa_notepad_draft_save",
+                               "--calib-done", "--via-gold"])
+    assert rc == 0
+    # human 置位（无 gold 的负向走人工路径）
+    rc, out, _ = _run(capsys, ["--tasks", str(d), "waa_inf_vscode_arabic",
+                               "--calib-done"])
+    assert rc == 0
+    rc, out, _ = _run(capsys, ["--tasks", str(d), "--list"])
+    assert rc == 0
+    header = out.splitlines()[0]
+    assert "calibrated" in header and "method" in header and "expect" in header
+    rows = {l.split()[1]: l for l in out.splitlines()
+            if re.match(r"^\s*\d+\s{2}\S", l)}
+    assert len(rows) == 10  # tmp 目录只放了 waa_pilot.json
+    assert "gold-v1" in rows["waa_notepad_draft_save"]
+    assert "gold✓" in rows["waa_fe_move_myfolder"]
+    assert "human" in rows["waa_inf_vscode_arabic"]
+    for tid in ("waa_calc_days_to_file", "waa_notepad_count_example",
+                "waa_fe_archive_docx"):  # 有 gold 无戳/未置位 → 该列为空
+        cells = rows[tid].split()
+        assert cells[2] == "false" and cells[3] in ("success", "fail"), \
+            f"{tid}: method 列应为空（{rows[tid]!r}）"
+    assert "gold✓" in out.splitlines()[-1], "表尾图例必须解释 gold✓"
