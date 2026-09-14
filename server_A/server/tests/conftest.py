@@ -12,8 +12,16 @@ import types
 
 import pytest
 
-from server.models.schemas import UIElement
-from server.services.session.manager import SessionManager
+# 环境消毒（必须在任何 httpx 相关 import 之前）：httpx 0.28 对 NO_PROXY 的
+# IPv6 字面量 [::1] 解析崩溃（Invalid port: ':1]'），沙箱 NO_PROXY 恰好含它。
+for _k in ("NO_PROXY", "no_proxy"):
+    if _k in os.environ:
+        os.environ[_k] = ",".join(
+            p for p in os.environ[_k].split(",") if "[::1]" not in p
+        )
+
+from server.models.schemas import UIElement  # noqa: E402
+from server.services.session.manager import SessionManager  # noqa: E402
 
 
 # ── T5 基建：Linux 无 pyautogui 环境兜底桩（conftest 先于所有测试文件收集导入）──

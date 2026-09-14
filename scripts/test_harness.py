@@ -44,46 +44,22 @@ COVERAGE_TARGETS = {
     "planning": 50,
 }
 
-# ── 预存失败门禁（T5 取证：2026-09-03 Linux 全量收集后精确 29 例）──
-# 语义：当前 failed 集合必须是此清单的**子集**（允许因环境改善而减少，
-# 但清单外任何新失败=门禁失败）。这些是 L4 旧管线测试的环境性失败
-# （依赖 LLM key/playwright/音频），与 L5 执行链无关，修复列 T7 之后。
-PRESET_FAILURES = [
-    "server/tests/test_api_routes.py::TestHealth::test_degraded",
-    "server/tests/test_blueprint.py::TestBlueprintEngineP3::test_advance_from_executing_moves_pointer",
-    "server/tests/test_blueprint.py::TestBlueprintEngineP3::test_advance_from_rolling_back_behaves_like_executing",
-    "server/tests/test_blueprint.py::TestBlueprintEngineP3::test_advance_from_suspended_resumes_without_moving_pointer",
-    "server/tests/test_blueprint.py::TestBlueprintEngineP3::test_strict_fingerprint_match_advances",
-    "server/tests/test_blueprint.py::TestBlueprintEngineP3::test_strict_fingerprint_mismatch_suspends",
-    "server/tests/test_blueprint.py::TestBlueprintEngineP3::test_strict_fingerprint_with_no_stored_fingerprint_advances",
-    "server/tests/test_blueprint.py::TestBlueprintEngineP3::test_suspend_from_executing_sets_suspended",
-    "server/tests/test_blueprint.py::TestBlueprintEngineP3::test_suspend_from_non_executing_does_nothing",
-    "server/tests/test_blueprint.py::TestBlueprintEngineP3::test_terminate_from_suspended",
-    "server/tests/test_constraint.py::TestBlueprintConstraintHint::test_advance_appends_install_path_hint",
-    "server/tests/test_constraint.py::TestConstraintSchema::test_process_response_has_constraints_field",
-    "server/tests/test_constraint.py::TestProcessQueryConstraints::test_process_query_without_constraints",
-    "server/tests/test_legacy.py::TestBlueprintEngine::test_advance_from_step_1_to_2",
-    "server/tests/test_legacy.py::TestBlueprintEngine::test_complete_all_steps",
-    "server/tests/test_legacy.py::TestBlueprintEngine::test_rollback_from_step_2_to_1",
-    "server/tests/test_legacy.py::TestBlueprintEngine::test_terminate",
-    "server/tests/test_legacy.py::TestGenerateSteps::test_screenshot_scenario_steps_count",
-    "server/tests/test_legacy.py::TestGenerateSteps::test_wechat_scenario_steps_count",
-    "server/tests/test_legacy.py::TestProcessQuery::test_process_first_step_binding_legacy",
-    "server/tests/test_legacy.py::TestProcessQuery::test_process_without_image",
-    "server/tests/test_perception.py::test_conceptual_step_has_no_binding",
-    "server/tests/test_perception.py::test_empty_elements_generate_text_only_steps",
-    "server/tests/test_perception.py::test_hallucinated_element_id_falls_back",
-    "server/tests/test_perception.py::test_mock_fallback_uses_predefined_bindings",
-    "server/tests/test_perception.py::test_semantic_match_download_button",
-    "server/tests/test_perception.py::test_type_text_match_password_input",
-    "server/tests/test_replanner.py::test_advance_triggers_replanning_binds_address_bar",
-    "server/tests/test_replanner.py::test_rollback_does_not_trigger_replanning",
-]
+
+
+def _clean_env(env: dict) -> dict:
+    """环境消毒：httpx 0.28 对 NO_PROXY 里的 IPv6 字面量 [::1] 解析崩溃
+    （Invalid port: ':1]'），测试运行前剔除该条目；不影响真实运行环境。"""
+    env = dict(env)
+    for key in ("NO_PROXY", "no_proxy"):
+        if key in env:
+            parts = [p for p in env[key].split(",") if "[::1]" not in p]
+            env[key] = ",".join(parts)
+    return env
 
 
 def _run(cmd, cwd=None, check=True) -> int:
     print(f"\n$ {' '.join(cmd)}")
-    env = dict(os.environ)
+    env = _clean_env(os.environ)
     env.setdefault("QT_QPA_PLATFORM", "offscreen")
     p = subprocess.run(cmd, cwd=str(cwd or ROOT), env=env)
     if check and p.returncode != 0:
@@ -143,39 +119,52 @@ def level_L0() -> int:
     return rc
 
 
-def level_L1() -> int:
-    """单元/组件层：server_A 全量（Linux，mock 桩）+ 预存失败门禁。
+def _load_preset_failures() -> list:
+    """读基线快照（test_reports/preset_failed.txt，FAILED+ERROR 集合）。
 
-    门禁：failed 集合 ⊆ PRESET_FAILURES（子集判定，环境改善自动放宽）；
-    收集错误（ERROR）同样必须 ⊆ 预存集合（当前 15 个环境性收集错误）。
+    快照由环境变化时人工重生成（如新装 pytest 插件/修复环境依赖后）：
+        pytest server/tests -q --continue-on-collection-errors --tb=no \
+          | grep -E '^(FAILED|ERROR)' | sed 's/ - .*//' | sort > test_reports/preset_failed.txt
     """
+    fp = ROOT / "test_reports" / "preset_failed.txt"
+    if not fp.exists():
+        return []
+    return [ln.strip() for ln in fp.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+
+def level_L1() -> int:
+    """单元/组件层：server_A 全量（Linux，mock 桩）+ 基线快照门禁。
+
+    门禁：当前 FAILED+ERROR 集合 ⊆ test_reports/preset_failed.txt 基线快照
+    （子集判定：环境改善自动放宽，快照外任何新失败/新错误=门禁失败）。
+    """
+    preset = set(_load_preset_failures())
+    if not preset:
+        print("✗ 基线快照 test_reports/preset_failed.txt 缺失——先取证再跑")
+        return 1
     p = subprocess.run(
         _py() + ["-m", "pytest", "server/tests", "-q",
                  "--continue-on-collection-errors", "--tb=no"],
         cwd=str(SERVER_A), capture_output=True, text=True,
-        env=dict(os.environ, QT_QPA_PLATFORM="offscreen"),
+        env=_clean_env(dict(os.environ, QT_QPA_PLATFORM="offscreen")),
     )
     out = p.stdout + p.stderr
-    failed_now = []
+    now = set()
     for line in out.splitlines():
-        if line.startswith("FAILED "):
-            failed_now.append(line[len("FAILED "):].split(" - ")[0].strip())
+        if line.startswith("FAILED ") or line.startswith("ERROR "):
+            now.add(line.split(" ", 1)[1].split(" - ")[0].strip())
     summary = [l for l in out.splitlines() if l and l[0].isdigit() and "passed" in l]
     print("\n".join(summary[-2:]))
-    new_fails = sorted(set(failed_now) - set(PRESET_FAILURES))
-    if new_fails:
-        print(f"✗ 新增失败 {len(new_fails)}（不在预存清单）：")
-        for f in new_fails:
+    new_items = sorted(now - preset)
+    if new_items:
+        print(f"✗ 新增失败/错误 {len(new_items)}（不在基线快照）：")
+        for f in new_items[:15]:
             print(f"   {f}")
         return 1
-    missing = sorted(set(PRESET_FAILURES) - set(failed_now))
-    if missing:
-        print(f"✓ 预存失败减少了 {len(missing)} 例（环境/修复改善，门禁自动放宽）")
-    print(f"✓ 门禁通过：当前失败 {len(failed_now)} 例全部为预存清单内")
-    # 收集错误（ERROR）数量对比基线 15（只报不减不罚，T7 处理）
-    errs = [l for l in out.splitlines() if l.startswith("ERROR ")]
-    if errs:
-        print(f"  （收集错误 {len(errs)} 例——T7 修复目标，暂不判红）")
+    fixed = sorted(preset - now)
+    if fixed:
+        print(f"✓ 基线项减少了 {len(fixed)} 例（环境/修复改善，门禁自动放宽）")
+    print(f"✓ 门禁通过：当前 {len(now)} 例失败/错误全部在基线快照内（基线共 {len(preset)}）")
     return 0
 
 
@@ -194,7 +183,7 @@ def level_L2() -> int:
     p = subprocess.run(
         _py() + ["-m", "pytest", "tests", "-q", "--tb=no"],
         cwd=str(UI), capture_output=True, text=True,
-        env=dict(os.environ, QT_QPA_PLATFORM="offscreen"),
+        env=_clean_env(dict(os.environ, QT_QPA_PLATFORM="offscreen")),
     )
     out = p.stdout + p.stderr
     failed_now = [
