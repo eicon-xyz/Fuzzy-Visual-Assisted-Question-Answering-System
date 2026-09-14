@@ -6,3 +6,7 @@ __pycache__/
 data/hajimi.db*
 data/eval/
 OmniParser/
+
+# 测试运行产物
+.coverage
+coverage_current.json

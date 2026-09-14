@@ -65,3 +65,6 @@ new_JIMI/HAJIMI_UI/OmniParser
 
 # IDE / agent local settings
 .claude/
+
+# 测试运行产物
+test_reports/coverage_current.json
