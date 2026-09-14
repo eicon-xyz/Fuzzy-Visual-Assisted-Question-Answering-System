@@ -32,12 +32,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SERVER_A = ROOT / "server_A"
 UI = ROOT / "HAJIMI_UI"
 
-# 覆盖率基线（2026-09-14 实测，Linux 全量收集后，含预存失败环境）——防回退门禁
-# executor 69.3%（conftest 桩回收 agent/browser 测试后）；planning 42.4%
-#（受预存失败影响大；T6 补 planning 测试后收紧）
+# 覆盖率基线（2026-09-14 实测，Linux 全量收集后）——防回退门禁
+# executor 79.2%（T5 桩回收 + T6 clicker/launcher/planner/memory 补测后，已达 75% 目标，
+# 门禁随之收紧）；planning 46.4%（受预存失败影响，目标 50% 待 T7 修复收集后冲）
 COVERAGE_GATES = {
-    "executor": 65,
-    "planning": 40,
+    "executor": 75,
+    "planning": 45,
 }
 COVERAGE_TARGETS = {
     "executor": 75,  # 目标：T6 补 clicker/safety 后可达

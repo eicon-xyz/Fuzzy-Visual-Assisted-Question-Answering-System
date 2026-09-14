@@ -20,7 +20,7 @@ from server.services.session.manager import SessionManager
 # agent.py/clicker.py 模块级 `import pyautogui` 在缺依赖机器上使测试文件收集失败。
 # 缺啥补啥：仅当真实模块不可导入时注入 no-op 桩；Windows/有依赖环境不覆盖真实模块。
 # 注意：本桩必须留在 conftest 顶部，让 test_agent_* 等文件 import 阶段即生效。
-for _mod_name in ("pyautogui", "pygetwindow", "mouseinfo"):
+for _mod_name in ("pyautogui", "pygetwindow", "mouseinfo", "pydirectinput"):
     if _mod_name in sys.modules:
         continue
     try:
