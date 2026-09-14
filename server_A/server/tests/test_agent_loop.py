@@ -204,7 +204,9 @@ class TestExecuteStepRoundExhaustion:
         step = _make_step(1, "Endless task")
         result = agent.execute_step(step, goal="Test", previous_steps=[])
         # Should have been called at most MAX_TOOL_CALL_ROUNDS times
-        assert call_count[0] <= 15
+        from server.services.executor.agent import MAX_TOOL_CALL_ROUNDS
+
+        assert call_count[0] <= MAX_TOOL_CALL_ROUNDS
         assert result.status == "failed"
 
 

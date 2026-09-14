@@ -7,11 +7,35 @@ from typing import List, Optional
 from uuid import uuid4
 import json
 import os
+import sys
+import types
 
 import pytest
 
 from server.models.schemas import UIElement
 from server.services.session.manager import SessionManager
+
+
+# ── T5 基建：Linux 无 pyautogui 环境兜底桩（conftest 先于所有测试文件收集导入）──
+# agent.py/clicker.py 模块级 `import pyautogui` 在缺依赖机器上使测试文件收集失败。
+# 缺啥补啥：仅当真实模块不可导入时注入 no-op 桩；Windows/有依赖环境不覆盖真实模块。
+# 注意：本桩必须留在 conftest 顶部，让 test_agent_* 等文件 import 阶段即生效。
+for _mod_name in ("pyautogui", "pygetwindow", "mouseinfo"):
+    if _mod_name in sys.modules:
+        continue
+    try:
+        __import__(_mod_name)
+    except Exception:
+        _stub = types.ModuleType(_mod_name)
+
+        def _stub_attr(_n):
+            def _noop(*a, **k):
+                return None
+
+            return _noop
+
+        _stub.__getattr__ = _stub_attr  # type: ignore[attr-defined]
+        sys.modules[_mod_name] = _stub
 
 
 @pytest.fixture(scope="session", autouse=True)
