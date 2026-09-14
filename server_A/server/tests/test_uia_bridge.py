@@ -95,7 +95,9 @@ def test_snapshot_collects_named_controls(monkeypatch):
     els = b.snapshot()
     names = {e.text for e in els}
     assert {"确定", "搜索", "文件"} <= names
-    assert all(e.element_id.startswith("u") for e in els)
+    # A4: 稳定 id 形状为 e<10hex>（GetRuntimeId 可解析时）；本文件假控件无
+    # GetRuntimeId → 走 u{n} 回退。按新契约同时允许两形状（最小断言修正）。
+    assert all(e.element_id.startswith(("u", "e")) for e in els)
     btn_el = next(e for e in els if e.text == "确定")
     assert btn_el.element_type == "button"
     assert btn_el.center == [35, 20]

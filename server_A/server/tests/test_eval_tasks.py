@@ -106,3 +106,35 @@ def test_dupe_ids_across_files_rejected(tmp_path):
     (tmp_path / "b.json").write_text(json.dumps([_minimal(name="dup")]), encoding="utf-8")
     with pytest.raises(TaskValidationError, match="重复任务 id"):
         load_tasks(tmp_path)
+
+
+# ── gold 校准 schema 扩展（__init__.py 最小 diff 的回归钉）──────────────────
+
+def test_seed_tasks_ship_calib_fields_at_defaults():
+    """20 条自研任务不写新字段也合法：loader 给默认值（兼容承诺）。"""
+    tasks = load_tasks(TASKS_DIR)  # 全目录 = seed.json 20 条 + waa_pilot.json 10 条
+    hand = [t for t in tasks if t.source == "handcrafted"]
+    assert len(hand) == 20
+    assert all(t.calib_gold == [] and t.calibration_method == "" for t in hand)
+
+
+def test_calib_gold_fields_roundtrip_and_render():
+    t = validate_task(_minimal(
+        calib_gold=['Set-Content "{EVAL_DIR}/f_{seed}.txt" -Value "x"'],
+        calibration_method="gold-v1"))
+    assert t.calib_gold and t.calibration_method == "gold-v1"
+    r = t.render("s9")
+    assert r.calib_gold == ['Set-Content "{EVAL_DIR}/f_s9.txt" -Value "x"'], \
+        "render 必须把 {seed} 代入 gold 行（与 setup/cleanup 同规则）"
+    assert r.calibration_method == "gold-v1"
+    # 原任务不被 render 污染（纯函数性回归）
+    assert "{seed}" in t.calib_gold[0]
+
+
+def test_calibration_method_whitelist_enforced():
+    with pytest.raises(TaskValidationError):
+        validate_task(_minimal(calibration_method="llm-judged"))
+    with pytest.raises(TaskValidationError):
+        validate_task(_minimal(calib_gold=[42]))
+    for m in ("", "gold-v1", "human"):
+        assert validate_task(_minimal(calibration_method=m)).calibration_method == m

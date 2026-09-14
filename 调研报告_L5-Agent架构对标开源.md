@@ -267,6 +267,8 @@ checkpoint/time-travel/interrupt 的本质=状态外置+每步落盘+可回滚�
 
 ### P1 —— 骨架升级（1-2 周，解决"复杂任务"结构性问题）
 
+> **⚠️ 2026-09-03 P0.5 先行抵扣注记**（详见《审查台账_L5执行链全流程质疑与决策.md》）：**1.4 已全量落地**（perform_batch，首败即停+ids_refreshed 截断+子动作逐个进滑窗与证据账本，`git log --grep=P0.5-B1`）；**1.6 主体已落**（ExpandCollapse 展开→自动重观察→再选择=P0-0.5、select_menu_path/RangeValue/WindowPattern/焦点断言=P0.5-B3/B4，剩余"动词拆分"并入 R4 prompt 重写）；A2/A3/A4（多窗口/浅探下钻/稳定 id）作为台账三连已 ✔（`--grep=P0.5-A4/A3/A2`）。**下表按 P0.5 抵扣后的余量执行**；1.1/1.2（stall 账本+proactive replan）与评测台 2.4 在审查中被评为当前成功率的第一限制，建议优先。
+
 | # | 改造 | 命中断点 | 依据 | 说明 |
 |---|---|---|---|---|
 | 1.1 | **engine FSM 化 + 单 agent 双账本**：外层 step 循环改为显式状态机（EXECUTE/VERIFY/REPLAN/FAIL_UP 分级，FAIL→账本记录 root cause→重规划，ERROR→终止）；每步收尾 5 字段 JSON 自评（progress/in-loop/next…），stall>3 → **清消息历史、保留账本、强制重规划** | §1.3-3 | Magentic-One（消融 -31%）、UFO 7 态 FSM | 计划不再是静态一次性：replan prompt 抄 UFO"先述 root cause，新计划特别避免重蹈覆辙" + 账本"已试败方案"段 |
