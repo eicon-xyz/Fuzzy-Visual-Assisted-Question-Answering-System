@@ -200,3 +200,30 @@ server_A\server\.venv\Scripts\python eval\report.py eval\results\pilot-t1.jsonl 
 ```
 report 出数即含逐任务 All-Pass@4、pass@1、成本与四类失败打标；未校准条目分数照旧
 只用于修 oracle，不进汇报口径。
+
+## 9. 全任务校准批次清单（T8 归因闭环衔接）
+
+> 目标：30 条（自研 20 + waa_pilot 10）全部 `calibrated:true` 后，评测分数才具备
+> 汇报资格。按批次推进，**每批验收点 = 该批全绿 + fail_analyzer 无新增环境噪音**。
+
+| 批次 | 范围 | 校准方式 | 验收点 |
+|---|---|---|---|
+| B1 | 自研 5 条稳定任务（notepad_type_save / explorer_rename_file / explorer_new_folder / notepad_type_chinese / notepad_click_nonexistent） | calib.py 人工两向（§8.1 流程） | 5/5 calibrated + oracle 两向实证 |
+| B2 | waa_pilot 正向 7 条 | calib.py 人工两向（8.1）；已具备 gold 脚本的任务走 gold-v1 | 7/7 calibrated + gold 人审签收 |
+| B3 | 自研菜单/弹窗类 8 条（notepad_menu_font_dialog / settings_display_search / calculator_add / notepad_find_dialog_type / notepad_close_popup_dialog / notepad_settings_zoom_via_menu / taskmgr_sort_column / control_panel_power_plan） | calib.py 人工两向 | 8/8 calibrated；UIA 树不稳的任务（taskmgr/设置）允许改 oracle 谓词但要重新两向 |
+| B4 | 自研编辑/浏览器类 7 条 + waa 负向 3 条 | 人工两向；负向按 §8.1 的 attribution_class 语义 | 10/10 calibrated；负向三条的"正确放弃+现场保护"两向过 |
+| 收尾 | `calib.py --list` 核对 30 条全 calibrated | 全量 `--repeats 4 --label full-<date>` | 首份可汇报评测报告 |
+
+### 9.1 归因闭环（每批跑分后必做）
+```bat
+:: 跑分后生成缺陷票，驱动下一轮优化拍板（decision_rules.md）：
+server_A\server\.venv\Scripts\python eval\fail_analyzer.py ^
+  eval\results\full-<date>.jsonl eval\results\defects.jsonl
+:: 读 decision_rules.md 按占比最大类别裁决 → 开 P0.5/P1 批次 → 重跑对比
+```
+- 缺陷票按 label 绑 git_sha，周度对比看类别分布迁移（grounding 降、recovery 升 = 正常迁移信号）
+- 每批跑分在同一台机器/同一任务集/同 `--order-seed`，换环境必须重标 label
+
+### 9.2 校准状态红线
+- `calib.py --list` 显示 `calibrated:false` 的任务，其分数**禁止**出现在任何汇报口径
+- 重生成/编辑任务 JSON 会把 calibrated 打回 false（§8.1 纪律），重校准才能再置位
