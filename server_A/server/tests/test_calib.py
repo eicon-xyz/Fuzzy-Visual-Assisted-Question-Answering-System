@@ -85,10 +85,18 @@ def test_list_shows_all_30_with_columns(capsys):
     rows = [l for l in out.splitlines() if re.match(r"^\s*\d+\s{2}\S", l)]
     assert len(rows) == 30, "eval/tasks 应为 20 自研 + 10 WAA pilot = 30 行"
     byid = {l.split()[1]: l for l in rows}
-    # calibrated 列：当前入库口径 = 全 false（铁律：新集必须未校准）
-    assert all(" false " in l or l.split()[2] == "false" for l in rows)
+    # calibrated 列：WAA pilot 必须全未校准（铁律：新集必须未校准）；
+    # 自研 B1 已校准 5 条允许 true，其余必须 false
+    B1_CALIBRATED = {"notepad_type_save", "explorer_rename_file",
+                     "explorer_new_folder", "notepad_type_chinese",
+                     "notepad_click_nonexistent"}
+    for l in rows:
+        lid, cal = l.split()[1], l.split()[2]
+        if lid in B1_CALIBRATED:
+            assert cal == "true", lid
+        else:
+            assert cal == "false", f"{lid} 应未校准，实际 {cal}"
     assert byid["waa_notepad_draft_save"].split()[2] == "false"
-    assert byid["notepad_type_save"].split()[2] == "false"
     # expect_status + 负向标记列
     assert "fail" in byid["waa_inf_vscode_arabic"]
     assert "success" in byid["waa_fe_archive_docx"]
@@ -168,7 +176,14 @@ def test_calib_done_edits_one_line_keeps_order_and_idempotent(tmp_path, capsys):
     assert (d / "waa_pilot.json").read_text(encoding="utf-8") == new
 
     # 紧凑手写格式的 seed.json 同样只动一行
-    sorig = (d / "seed.json").read_text(encoding="utf-8")
+    # B1 后 notepad_type_save 已是 true——先在副本上复位为 false 构造可测初始态
+    sp = d / "seed.json"
+    sraw = sp.read_text(encoding="utf-8")
+    sp.write_text(sraw.replace(
+        '"calibrated": true, "calibration_method": "human",',
+        '"calibrated": false,', 1), encoding="utf-8")
+    sorig = sp.read_text(encoding="utf-8")
+    assert '"calibrated": false,' in sorig
     rc, *_ = _run(capsys, ["--tasks", str(d), "notepad_type_save", "--calib-done"])
     assert rc == 0
     snew = (d / "seed.json").read_text(encoding="utf-8")
@@ -177,7 +192,12 @@ def test_calib_done_edits_one_line_keeps_order_and_idempotent(tmp_path, capsys):
 
     # 回写后文件仍是 loader 认可的合法任务集，且校准计数正确
     tasks = load_tasks(d)
-    assert len(tasks) == 30 and sum(t.calibrated for t in tasks) == 2
+    assert len(tasks) == 30
+    # B1 已校准 4 条（seed 中除被复位再置回的 notepad_type_save 外）+ waa 1 条 = 5
+    cal_ids = {t.id for t in tasks if t.calibrated}
+    assert cal_ids == {"notepad_type_save", "explorer_rename_file",
+                       "explorer_new_folder", "notepad_type_chinese",
+                       "notepad_click_nonexistent", "waa_fe_archive_docx"}
 
 
 # ── ⑤ 非 Windows 动作闸 ─────────────────────────────────────────────────

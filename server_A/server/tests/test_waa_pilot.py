@@ -334,10 +334,14 @@ def test_loader_defaults_keep_20_handcrafted_compatible():
     hand = [t for t in tasks if not t.source.startswith("waa:")]
     assert len(hand) == 20
     seed_raw = json.loads((TASKS_DIR / "seed.json").read_text(encoding="utf-8"))
-    assert len(seed_raw) == 20 and all(
-        "calib_gold" not in r and "calibration_method" not in r for r in seed_raw), \
-        "seed.json 不重排不补键（铁律文件零触碰，靠 loader 默认值兼容）"
-    assert all(t.calib_gold == [] and t.calibration_method == "" for t in hand)
+    assert len(seed_raw) == 20, "seed.json 条数不变"
+    # 未校准任务不得带校准键（防误配钉）；已校准任务（B1 起）可带 method 且必须合法
+    for r in seed_raw:
+        if not r.get("calibrated"):
+            assert "calib_gold" not in r and "calibration_method" not in r, r["id"]
+        else:
+            assert r.get("calibration_method") in ("human", "gold-v1"), r["id"]
+    assert all(t.calibration_method in ("", "human", "gold-v1") for t in hand)
     waa_pos = [t for t in tasks if t.id in POS_IDS]
     assert all(len(t.calib_gold) >= 1 for t in waa_pos)
     # render 传递新字段（gold 里 {seed} 代入）
