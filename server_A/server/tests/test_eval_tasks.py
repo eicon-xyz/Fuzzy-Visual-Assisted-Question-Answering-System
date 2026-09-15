@@ -111,11 +111,21 @@ def test_dupe_ids_across_files_rejected(tmp_path):
 # ── gold 校准 schema 扩展（__init__.py 最小 diff 的回归钉）──────────────────
 
 def test_seed_tasks_ship_calib_fields_at_defaults():
-    """20 条自研任务不写新字段也合法：loader 给默认值（兼容承诺）。"""
+    """未校准任务不写新字段也合法：loader 给默认值（兼容承诺）。
+
+    已校准任务（calibrated:true）可带 calibration_method（human/gold-v1），
+    未校准任务必须为空——后者是防误配的默认值钉。
+    """
     tasks = load_tasks(TASKS_DIR)  # 全目录 = seed.json 20 条 + waa_pilot.json 10 条
     hand = [t for t in tasks if t.source == "handcrafted"]
     assert len(hand) == 20
-    assert all(t.calib_gold == [] and t.calibration_method == "" for t in hand)
+    uncal = [t for t in hand if not t.calibrated]
+    assert uncal, "至少应有未校准的 handcrafted 任务"
+    assert all(t.calib_gold == [] and t.calibration_method == "" for t in uncal)
+    # 已校准任务（B1 置位后）：method 必须非空且合法
+    for t in hand:
+        if t.calibrated:
+            assert t.calibration_method in ("human", "gold-v1"), t.id
 
 
 def test_calib_gold_fields_roundtrip_and_render():
