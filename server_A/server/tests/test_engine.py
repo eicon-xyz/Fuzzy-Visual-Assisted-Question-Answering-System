@@ -48,6 +48,12 @@ def _clean_global_state():
     engine._cancel_events.clear()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_eval_telemetry(tmp_path, monkeypatch):
+    """T1：engine 测试的遥测落盘重定向到 tmp，不污染真实 data/eval 目录。"""
+    monkeypatch.setenv("HAJIMI_EVAL_DIR", str(tmp_path))
+
+
 # ============================================================================
 # Task registration / cancellation
 # ============================================================================

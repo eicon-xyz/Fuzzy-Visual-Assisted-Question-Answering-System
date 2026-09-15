@@ -18,6 +18,7 @@ from server.models.schemas import (
     RedlineInfo,
     UIElement,
 )
+from server.config import settings
 from server.services.redline_service import check_redline
 
 logger = logging.getLogger(__name__)
@@ -224,12 +225,18 @@ def process_query(
     planner_future = None
     ui_elements: List[UIElement] = []
     annotated_image: Optional[str] = image_base64
-    detection_meta: dict = {"backend": "omniparser", "route": "L3"}
+    omni_enabled = bool(getattr(settings, "OMNIPARSER_ENABLED", True))
+    detection_meta: dict = (
+        {"backend": "omniparser", "route": "L3"}
+        if omni_enabled
+        else {"backend": "uia_execution", "route": "L4", "omniparser": "not_required"}
+    )
     parse_result_temp = None
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         planner_future = executor.submit(_call_planner)
         # While Planning Agent runs, start OmniParser in main thread
-        if image_base64:
+        # 无 :9800 纯视觉模式（OMNIPARSER_ENABLED=false）：跳过，避免阻塞 /execute
+        if image_base64 and omni_enabled:
             try:
                 from server.services.omniparser_client import parse_screenshot_full
 

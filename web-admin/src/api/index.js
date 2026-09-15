@@ -1,7 +1,9 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { AUTH_REFRESH_ON_401 } from '../auth/constants'
 
 const api = axios.create({
+  // 相对路径：dev 由 vite proxy 转发到 L5 Sidecar（见 vite.config.js），无需硬编码端口
   baseURL: '/api',
   timeout: 15000,
 })
@@ -15,12 +17,21 @@ function getAccessToken() {
 }
 
 function getRefreshToken() {
-  return localStorage.getItem('hajimi_refresh_token')
+  const t = localStorage.getItem('hajimi_refresh_token')
+  // setTokens 曾把 null/undefined 写成字符串，避免误判为「有刷新令牌」
+  if (!t || t === 'null' || t === 'undefined') return null
+  return t
 }
 
 function setTokens(accessToken, refreshToken) {
   localStorage.setItem('hajimi_access_token', accessToken)
-  localStorage.setItem('hajimi_refresh_token', refreshToken)
+  // L5 Sidecar 的 POST /api/auth/login 只返回 access_token（无 refresh_token），
+  // 不可把 null/undefined 落盘成字符串。
+  if (refreshToken) {
+    localStorage.setItem('hajimi_refresh_token', refreshToken)
+  } else {
+    localStorage.removeItem('hajimi_refresh_token')
+  }
 }
 
 function clearAuth() {
@@ -71,12 +82,15 @@ api.interceptors.response.use(
   async (err) => {
     const originalRequest = err.config
 
-    // 401 → 尝试刷新
+    // 401 → 会话失效。L5 Sidecar 只实现 POST /api/auth/login，
+    // 未实现 POST /api/auth/refresh（旧 A 端 :8010 的接口），故默认直接清登录态回登录页；
+    // 待 Sidecar 补齐 refresh 后，用 VITE_AUTH_REFRESH_ON_401=true 开启下方刷新逻辑。
     if (err.response?.status === 401 && !originalRequest._retry) {
-      const refreshToken = getRefreshToken()
+      const refreshToken = AUTH_REFRESH_ON_401 ? getRefreshToken() : null
 
       if (!refreshToken) {
         clearAuth()
+        ElMessage.error('登录已过期，请重新登录')
         window.location.hash = '#/login'
         return Promise.reject(err)
       }

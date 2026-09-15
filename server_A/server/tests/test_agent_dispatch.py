@@ -145,14 +145,23 @@ class TestDispatchWait:
 
 class TestDispatchStepControl:
     def test_mark_step_done(self, agent):
-        result = agent.dispatch_tool("mark_step_done", {"reason": "completed"})
-        assert result["__step_complete__"] is True
-        assert result["reason"] == "completed"
+        # 0.7 done 证据化：无证据首调拒收，二次放行并标注 unverified_done
+        r1 = agent.dispatch_tool("mark_step_done", {"reason": "completed"})
+        assert r1["ok"] is False
+        assert r1["error_code"] == "done_without_evidence"
+        r2 = agent.dispatch_tool("mark_step_done", {"reason": "completed"})
+        assert r2["__step_complete__"] is True
+        assert r2["reason"] == "completed"
+        assert r2["unverified_done"] is True
 
     def test_mark_step_failed(self, agent):
-        result = agent.dispatch_tool("mark_step_failed", {"reason": "not found"})
-        assert result["__step_failed__"] is True
-        assert "not found" in result["reason"]
+        # 0.7 防过早放弃：首调拦一次要求换策略，二次生效
+        r1 = agent.dispatch_tool("mark_step_failed", {"reason": "not found"})
+        assert r1["ok"] is False
+        assert r1["error_code"] == "giveup_refused_retry"
+        r2 = agent.dispatch_tool("mark_step_failed", {"reason": "not found"})
+        assert r2["__step_failed__"] is True
+        assert "not found" in r2["reason"]
 
 
 class TestDispatchUnknownTool:

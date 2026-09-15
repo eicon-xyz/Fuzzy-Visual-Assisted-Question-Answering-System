@@ -1,5 +1,5 @@
 @echo off
-REM HAJIMI äº¤æŽ¥éªŒæ”¶ä¸€é”®è„šæœ¬ â€” è§ HANDOFF.md Â§4
+REM HAJIMI ½»½ÓÑéÊÕÒ»¼ü½Å±¾ ¡ª ¼û HANDOFF.md ¡ì4
 cd /d "%~dp0.."
 call "%~dp0_resolve_python.bat"
 if errorlevel 1 exit /b 1

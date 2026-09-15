@@ -3,7 +3,7 @@ setlocal EnableExtensions
 
 cd /d %~dp0..
 
-if not defined HAJIMI_PORT set HAJIMI_PORT=8010
+if not defined HAJIMI_PORT set HAJIMI_PORT=8011
 if not defined HAJIMI_HOST set HAJIMI_HOST=127.0.0.1
 
 set "PYTHON=server\.venv\Scripts\python.exe"
@@ -11,7 +11,7 @@ set "PYTHON=server\.venv\Scripts\python.exe"
 if not exist "%PYTHON%" (
     echo [HAJIMI] ERROR: L5 ^(8011^) server\.venv not found at:
     echo   %CD%\server\.venv
-    echo This is NOT HAJIMI_UI\server\.venv â€” run: scripts\setup_server_env.bat
+    echo This is NOT HAJIMI_UI\server\.venv ¡ª run: scripts\setup_server_env.bat
     exit /b 1
 )
 

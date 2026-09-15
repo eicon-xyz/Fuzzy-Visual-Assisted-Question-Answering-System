@@ -18,7 +18,7 @@ if errorlevel 1 exit /b 1
 
 echo.
 echo [OK] Setup complete.
-echo Next: set HAJIMI_MOCK_ONLY=1 ^&^& .venv\Scripts\python main.py
-echo Full stack: copy server\.env.example server\.env, then scripts\setup_server_env.bat
+echo Next: run scripts\start_local_vision.bat or the root fullstack bat
+echo L5 env: server_A\server\.env must contain DEEPSEEK_API_KEY / LLM settings
 endlocal
 exit /b 0

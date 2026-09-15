@@ -17,7 +17,7 @@ if /I "%HAJIMI_RECREATE_VENV%"=="1" (
         echo [HAJIMI-L5] Removing server\.venv ...
         rmdir /s /q server\.venv 2>nul
         if exist server\.venv (
-            echo [HAJIMI-L5] ERROR: Cannot remove server\.venv â€” stop L5 server first:
+            echo [HAJIMI-L5] ERROR: Cannot remove server\.venv ¡ª stop L5 server first:
             echo   - Press Ctrl+C in the server terminal, OR
             echo   - scripts\stop_server.bat
             echo   Then run: set HAJIMI_RECREATE_VENV=1 ^&^& scripts\setup_server_env.bat
@@ -34,7 +34,7 @@ if not exist "%VENV_PY%" (
         exit /b 1
     )
 ) else (
-    echo [HAJIMI-L5] server\.venv exists â€” refresh dependencies.
+    echo [HAJIMI-L5] server\.venv exists ¡ª refresh dependencies.
 )
 
 :install_deps
@@ -84,7 +84,7 @@ echo [HAJIMI-L5] Verifying installation...
 "%VENV_PY%" -c "from fastapi import FastAPI; import fastapi, uvicorn, pydantic, sqlalchemy, psutil; print('ok fastapi', fastapi.__version__)"
 if errorlevel 1 (
     if "!_HAJIMI_VERIFY_RETRIED!"=="0" (
-        echo [HAJIMI-L5] Verification failed â€” retrying with full venv recreate ...
+        echo [HAJIMI-L5] Verification failed ¡ª retrying with full venv recreate ...
         set _HAJIMI_VERIFY_RETRIED=1
         set HAJIMI_RECREATE_VENV=1
         goto begin

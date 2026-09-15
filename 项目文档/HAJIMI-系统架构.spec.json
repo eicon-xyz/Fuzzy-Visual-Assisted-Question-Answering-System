@@ -1,0 +1,379 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "HAJIMI 智能桌面指引助手架构",
+    "output": "/tmp/hajimi-architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1440,
+      720
+    ],
+    "repository": {
+      "url": "https://github.com/eicon-xyz/Fuzzy-Visual-Assisted-Question-Answering-System.git",
+      "revision": "734140949deb97e0efde34f1386f70e4a55a12d3"
+    },
+    "views": [
+      {
+        "id": "l5-exec",
+        "label": "L5 自动执行",
+        "focus": [
+          "bend",
+          "l5",
+          "llm",
+          "uia",
+          "browser"
+        ],
+        "note": "B端下发任务，L5 自包含规划 + UIA/Playwright 精确执行，SSE 回推进度。"
+      },
+      {
+        "id": "l4-guide",
+        "label": "L4 指引模式",
+        "focus": [
+          "bend",
+          "aend",
+          "llm",
+          "db"
+        ],
+        "note": "B端截图请求，A端 DeepSeek 文本规划，标注回 B端覆盖层。"
+      },
+      {
+        "id": "support",
+        "label": "语音与运维",
+        "focus": [
+          "cend",
+          "webadmin",
+          "aend"
+        ],
+        "note": "C端本地语音/审计，Web 管理面板调用 A端管理接口。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "bend",
+      "type": "frontend",
+      "label": "B端 桌面客户端",
+      "sublabel": "PyQt5 · 截图/覆盖层",
+      "pos": [
+        40,
+        400
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "HAJIMI_UI/main.py"
+        }
+      ]
+    },
+    {
+      "id": "aend",
+      "type": "backend",
+      "label": "A端 FastAPI",
+      "sublabel": ":8010 · L4 规划/路由",
+      "pos": [
+        600,
+        210
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "HAJIMI_UI/server/main.py"
+        }
+      ]
+    },
+    {
+      "id": "l5",
+      "type": "backend",
+      "label": "L5 Sidecar",
+      "sublabel": ":8011 · 执行 Agent",
+      "pos": [
+        600,
+        400
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "server_A/server/main.py"
+        }
+      ]
+    },
+    {
+      "id": "cend",
+      "type": "frontend",
+      "label": "C端 语音/审计",
+      "sublabel": "ASR/TTS · 本机模型",
+      "pos": [
+        40,
+        210
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "client/__init__.py"
+        }
+      ]
+    },
+    {
+      "id": "webadmin",
+      "type": "frontend",
+      "label": "Web 管理面板",
+      "sublabel": "Vue3 · admin",
+      "pos": [
+        40,
+        50
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "web-admin/src/main.js"
+        }
+      ]
+    },
+    {
+      "id": "llm",
+      "type": "external",
+      "label": "DeepSeek API",
+      "sublabel": "deepseek-chat",
+      "pos": [
+        1250,
+        210
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "SQLite",
+      "sublabel": "任务/审计记录",
+      "pos": [
+        1250,
+        50
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "uia",
+      "type": "external",
+      "label": "Windows 控件",
+      "sublabel": "UIA 绑定目标",
+      "pos": [
+        1250,
+        400
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "server_A/server/services/executor/uia_bridge.py"
+        }
+      ]
+    },
+    {
+      "id": "browser",
+      "type": "external",
+      "label": "浏览器",
+      "sublabel": "Playwright DOM",
+      "pos": [
+        1250,
+        560
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "omni",
+      "type": "external",
+      "label": "OmniParser",
+      "sublabel": ":9800 已停用",
+      "pos": [
+        600,
+        50
+      ],
+      "size": [
+        150,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Windows 本机多进程",
+      "wraps": [
+        "bend",
+        "aend",
+        "l5",
+        "cend",
+        "webadmin",
+        "db",
+        "uia",
+        "browser"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "被自动化对象（桌面/网页）",
+      "wraps": [
+        "uia",
+        "browser"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "bend-l5",
+      "from": "bend",
+      "to": "l5",
+      "label": "HTTP /api/demo/execute",
+      "variant": "emphasis",
+      "labelAt": [
+        214,
+        478
+      ]
+    },
+    {
+      "id": "bend-aend",
+      "from": "bend",
+      "to": "aend",
+      "label": "HTTP /process"
+    },
+    {
+      "id": "aend-llm",
+      "from": "aend",
+      "to": "llm",
+      "label": "文本规划",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [
+        800,
+        222
+      ]
+    },
+    {
+      "id": "aend-db",
+      "from": "aend",
+      "to": "db",
+      "label": "SQLite 记录"
+    },
+    {
+      "id": "l5-llm",
+      "from": "l5",
+      "to": "llm",
+      "label": "Agent 工具调用",
+      "labelAt": [
+        900,
+        405
+      ]
+    },
+    {
+      "id": "l5-uia",
+      "from": "l5",
+      "to": "uia",
+      "label": "UIA 绑定操作",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelAt": [
+        880,
+        448
+      ]
+    },
+    {
+      "id": "l5-browser",
+      "from": "l5",
+      "to": "browser",
+      "label": "Playwright DOM",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "l5-bend",
+      "from": "l5",
+      "to": "bend",
+      "label": "SSE 进度",
+      "variant": "dashed",
+      "labelAt": [
+        300,
+        392
+      ]
+    },
+    {
+      "id": "webadmin-aend",
+      "from": "webadmin",
+      "to": "aend",
+      "label": "HTTP /api/admin/*"
+    },
+    {
+      "id": "cend-aend",
+      "from": "cend",
+      "to": "aend",
+      "label": "HTTP 审计上报",
+      "labelAt": [
+        250,
+        218
+      ]
+    },
+    {
+      "id": "aend-omni",
+      "from": "aend",
+      "to": "omni",
+      "label": "已停用",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "执行链",
+      "items": [
+        "L5 自包含：text-plan + Agent 工具循环",
+        "UIA 绑定（Invoke/SetValue）+ Playwright DOM 精确操作",
+        "无 :9800，本地算力要求低"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "规划与数据",
+      "items": [
+        "A端 L4 纯视觉规划，文本走 DeepSeek",
+        "SQLite 记录任务与审计",
+        "health 报告 vision_llm / not_required"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "边界",
+      "items": [
+        "仅 DeepSeek 官方 key 有效（视觉 key 均已失效）",
+        "OmniParser :9800 已停用并删除脚本",
+        "C端语音/审计仅本机 + A端管理接口"
+      ]
+    }
+  ]
+}

@@ -7,7 +7,7 @@ B 端接入方式::
 
     # 在 B 的 AppController.__init__ 中：
     from client.bc_adapter import BCAdapter
-    self.bc = BCAdapter(server_url="http://localhost:8010")
+    self.bc = BCAdapter(server_url="http://localhost:8011")
     self.bc.wire(self)   # self = AppController 实例
 
 B 端需要暴露的属性和信号（对齐 HAJIMI_UI/b-c-api-contract.md）:
@@ -39,7 +39,7 @@ class BCAdapter:
 
     def __init__(
         self,
-        server_url: str = "http://127.0.0.1:8010",
+        server_url: str = "http://127.0.0.1:8011",
         demo_key: str = "hajimi-demo-2026",
         client_version: str = "v2.1.0",
         vosk_model_path: str = "models/vosk-model-small-cn-0.22",

@@ -128,7 +128,7 @@ def _read_http_error(exc: urllib.error.HTTPError) -> str:
 
 def login(username: str, password: str) -> Dict[str, Any]:
     """POST /api/auth/login (no Demo Key). Returns saved session dict."""
-    root = config.API_BASE_URL.rstrip("/")
+    root = config.L5_API_URL.rstrip("/")
     payload = json.dumps({"username": username, "password": password}).encode("utf-8")
     req = urllib.request.Request(
         f"{root}/api/auth/login",
@@ -145,7 +145,7 @@ def login(username: str, password: str) -> Dict[str, Any]:
         if _is_demo_credentials(username, password):
             return _create_local_demo_session(username.strip())
         raise RuntimeError(
-            f"无法连接 A 端 ({config.API_BASE_URL})。请先启动服务或设置 HAJIMI_SKIP_LOGIN=1"
+            f"无法连接 L5 Sidecar ({config.L5_API_URL})。请先启动服务或设置 HAJIMI_SKIP_LOGIN=1"
         ) from exc
 
     normalized = normalize_login_response(raw, username)

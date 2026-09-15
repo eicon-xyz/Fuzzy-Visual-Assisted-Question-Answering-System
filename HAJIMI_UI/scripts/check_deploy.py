@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Structured deploy check: venv / .env / tunnel / A-end / L5 (no service start)."""
+"""Structured deploy check: venv / .env / L5 Sidecar (read-only, no service start)."""
 from __future__ import annotations
 
 import json
@@ -68,7 +68,7 @@ def _ui_ok() -> tuple[bool, str]:
     )
     if r.returncode == 0:
         return True, f"OK ({ui_py.name})"
-    return False, "missing PyQt5/mss — run scripts\\setup.bat"
+    return False, "missing PyQt5 — run scripts\\setup.bat"
 
 
 def _http_json(url: str, timeout: float = 3.0) -> tuple[bool, str, dict | None]:
@@ -105,13 +105,17 @@ def main() -> int:
     env_fail = False
     link_fail = False
 
-    venv8010 = ROOT / "server" / ".venv" / "Scripts" / "python.exe"
-    ok, detail = _venv_import_ok(venv8010)
-    rows.append(("8010 A-end venv", ok, detail))
-    if not ok:
+    l5 = _l5_root()
+    rows.append(
+        (
+            "server_A Sidecar root",
+            (l5 / "scripts" / "start_server.bat").is_file(),
+            str(l5),
+        )
+    )
+    if not (l5 / "scripts" / "start_server.bat").is_file():
         env_fail = True
 
-    l5 = _l5_root()
     venv8011 = l5 / "server" / ".venv" / "Scripts" / "python.exe"
     ok, detail = _venv_import_ok(venv8011)
     rows.append(("8011 L5 venv", ok, detail if ok else f"{detail} @ {l5}"))
@@ -123,44 +127,22 @@ def main() -> int:
     if not ok:
         env_fail = True
 
-    env8010 = ROOT / "server" / ".env"
-    rows.append(("8010 server/.env", env8010.is_file(), str(env8010) if env8010.is_file() else "missing — copy .env.example"))
-
     env8011 = l5 / "server" / ".env"
-    rows.append(("8011 L5 server/.env", env8011.is_file(), str(env8011) if env8011.is_file() else "missing — copy .env.example"))
-
-    try:
-        sys.path.insert(0, str(SCRIPTS))
-        from check_gpu_api_tunnel import check as tunnel_check
-
-        ok, detail = tunnel_check()
-        rows.append((":9800 GPU tunnel", ok, str(detail)[:120] if not ok else "ready"))
-        if not ok:
-            link_fail = True
-    except Exception as exc:
-        rows.append((":9800 GPU tunnel", False, str(exc)[:120]))
-        link_fail = True
-
-    port = int(os.environ.get("HAJIMI_PORT", "8010"))
-    ok, detail, health = _http_json(f"http://127.0.0.1:{port}/api/demo/health", timeout=3.0)
-    if ok and health:
-        omni = health.get("omniparser_ready")
-        extra = f"omniparser_ready={omni}"
-        if omni is False:
-            link_fail = True
-            ok = False
-        rows.append((":8010 A-end health", ok, extra))
-    else:
-        rows.append((":8010 A-end health", False, detail))
-        link_fail = True
+    rows.append(
+        (
+            "8011 L5 server/.env",
+            env8011.is_file(),
+            str(env8011) if env8011.is_file() else "missing — copy .env.example",
+        )
+    )
 
     ok, detail = _l5_live(int(os.environ.get("L5_API_PORT", "8011")))
-    rows.append((":8011 L5 Sidecar", ok, detail))
+    rows.append(("8011 L5 Sidecar live", ok, detail))
     if not ok:
         link_fail = True
 
     print("=" * 60)
-    print(" HAJIMI deploy check (read-only, no GPU remote start)")
+    print(" HAJIMI deploy check (L5 auto-execute only)")
     print("=" * 60)
     for name, passed, info in rows:
         mark = "PASS" if passed else "FAIL"
@@ -168,15 +150,16 @@ def main() -> int:
     print("=" * 60)
 
     if env_fail:
-        print("[check_deploy] Environment not ready — run 启动HAJIMI.bat or scripts\\ensure_hajimi_gpu_prereqs.bat")
+        print("[check_deploy] Environment not ready — run 安装全栈.bat (creates venvs)")
         return 1
     if link_fail:
-        print("[check_deploy] Environment OK; backend links not ready (exit 2).")
-        print("  Fix: connect campus network and run 启动HAJIMI.bat, or start tunnel manually.")
+        print("[check_deploy] Environment OK; L5 Sidecar not live (exit 2).")
+        print("  Fix: run 启动全栈.bat and check the HAJIMI-L5-Sidecar window.")
         return 2
     print("[check_deploy] All checks passed.")
     return 0
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, str(ROOT))
     raise SystemExit(main())

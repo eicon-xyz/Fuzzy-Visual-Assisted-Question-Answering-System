@@ -9,9 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from PyQt5.QtCore import QThread, pyqtSignal
 
-from config import USE_MOCK_ONLY
 from core.api_client import ApiError, cancel_task as api_cancel_task, execute_task as api_execute_task
-from core.routing_config import is_l5_route
 
 
 class ExecuteWorkerThread(QThread):
@@ -60,10 +58,6 @@ class ExecuteWorkerThread(QThread):
         self._running_sse = False
 
     def run(self) -> None:
-        if USE_MOCK_ONLY or not is_l5_route():
-            self.sig_execute_error.emit("Mock 模式不支持 L5 自动执行，请切换指引路由")
-            return
-
         try:
             self.sig_progress.emit(15, "L5 规划与提交执行…")
             with ThreadPoolExecutor(max_workers=1) as pool:

@@ -39,6 +39,14 @@
 - `ui/web/` — Web 回退路径（`HAJIMI_NATIVE_UI=0`）仍可用
 - `test_parse_local.py`（根）— `[DIAGNOSE]` GPU 隧道探测
 
+### 已移动记录（按本清单「先文档后移动」约定追加）
+
+| 日期 | 原路径 | 新路径 | 原因 |
+|------|--------|--------|------|
+| 2026-09-03 | `server_A/server/docs/A端-GPU容器部署详细指南-group2_v2.md`<br>`server_A/server/docs/A端-学校GPU部署与联调指南_v2.md`<br>`server_A/server/docs/CHANGELOG-A端_v2.md` | `server_A/server/docs/archive/legacy-L4/` | L4 指引模式与 A 端 (:8010) 已于 2026-09 整体删除，三文为其运行史料；归档防被 agent/新人误当现行指南引用（同批：`server_A/CLAUDE.md` 旧稿重写——它曾把 :8010/OmniParser 口径自动注入 agent 指令链） |
+
+> 注：本目录（HAJIMI_UI/docs）内 v2 时代文档中的 `../server/docs/...` 相对链接指向的是**已删除的 L4 期 `HAJIMI_UI/server/`**，非上述 server_A 路径；按「历史文档不改」原则保持原样，勿试图"修好"。现行文档唯一权威 = 仓库根 `AGENTS.md`。
+
 ---
 
 ## 3. 打包时忽略（`[IGNORE]`）

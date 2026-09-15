@@ -1,0 +1,885 @@
+[
+  {
+    "id": "waa_fe_archive_docx",
+    "name": "WAA移植-建归档夹并移入全部docx",
+    "category": "file",
+    "instruction": "打开资源管理器进入 {EVAL_DIR}/waa_pilot/fe_archive_{seed}/Documents（内有若干 .docx 文件），新建名为 Archive 的文件夹，并把 Documents 里所有 .docx 文件移进 Archive",
+    "seeds": [
+      "a",
+      "b",
+      "c"
+    ],
+    "p0_coverage": [
+      "0.1",
+      "0.2",
+      "0.3",
+      "0.7"
+    ],
+    "setup_ps1": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents\" | Out-Null",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Archive\"",
+      "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Doc01.docx\" -Value \"HAJIMI_WAA_fe_archive_{seed}_DOC01\" -Force",
+      "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Doc02.docx\" -Value \"HAJIMI_WAA_fe_archive_{seed}_DOC02\" -Force",
+      "Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force"
+    ],
+    "cleanup_ps1": [
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}\""
+    ],
+    "calib_gold": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Archive\" | Out-Null",
+      "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Archive/Doc01.docx\" -Value \"HAJIMI_WAA_fe_archive_{seed}_DOC01\" -Force",
+      "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Archive/Doc02.docx\" -Value \"HAJIMI_WAA_fe_archive_{seed}_DOC02\" -Force",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Doc01.docx\"",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/fe_archive_{seed}/Documents/Doc02.docx\""
+    ],
+    "oracle": {
+      "all": [
+        {
+          "type": "file_exists",
+          "path": "{EVAL_DIR}/waa_pilot/fe_archive_{seed}/Documents/Archive/Doc01.docx"
+        },
+        {
+          "type": "file_exists",
+          "path": "{EVAL_DIR}/waa_pilot/fe_archive_{seed}/Documents/Archive/Doc02.docx"
+        },
+        {
+          "type": "file_not_exists",
+          "path": "{EVAL_DIR}/waa_pilot/fe_archive_{seed}/Documents/Doc01.docx"
+        },
+        {
+          "type": "file_not_exists",
+          "path": "{EVAL_DIR}/waa_pilot/fe_archive_{seed}/Documents/Doc02.docx"
+        }
+      ]
+    },
+    "max_wall_s": 360,
+    "requires": [
+      "explorer"
+    ],
+    "expect_status": "success",
+    "calibrated": false,
+    "source": "waa:0c9dda13-428c-492b-900b-f48562111f93-WOS",
+    "notes": "WAA 原 evaluator: exact_match(is_all_docx_in_archive, expected true)（getter 源码=Documents 下所有 docx 均在 Archive 内）。机械翻译=建夹+两文件移入+原位清空四个谓词。waa_upstream_asset_defect: \"0-byte at source; setup switched to local generation\"——上游 winarenafiles 的 Doc01/Doc02.docx 实测均 0 字节空占位（GitHub API size:0 + curl 200/0B 双核），WAA 原任务移的也是空文件；oracle 只认文件名/存在性，故 setup 改 Set-Content 本地生成带 {seed} 标记的占位字节，文件名不变、oracle 四谓词不动。因不再下载，requires 去掉 internet。gold 同为本地 Set-Content（与 setup 共用同一标记常量），本任务校准链整体无 internet 依赖——即是该任务的离线校准路径。 gold_semantics: \"gold 写了 Documents/Archive 下建 Doc01/Doc02（与 setup 同一标记单源）+ 删除原位两文件——「已归档」终态；人审点：instruction 说 资源管理器新建 Archive 并移入全部 .docx（gold 直接摆终态；若 Documents 曾有第三种 .docx，gold 的「两文件」与「全部」语义不等价——当前 setup 只造两文件，故成立），两者是否等价\"",
+    "waa_orig": {
+      "id": "0c9dda13-428c-492b-900b-f48562111f93-WOS",
+      "instruction": "Create a new folder named \"Archive\" in the Documents folder and move all .docx files into it.",
+      "config": [
+        {
+          "type": "download",
+          "parameters": {
+            "files": [
+              {
+                "url": "https://raw.githubusercontent.com/rogeriobonatti/winarenafiles/main/task_files/file_explorer/0c9dda13-428c-492b-900b-f48562111f93-WOS/config/Doc01.docx",
+                "path": "C:\\Users\\Docker\\Documents\\Doc01.docx"
+              },
+              {
+                "url": "https://raw.githubusercontent.com/rogeriobonatti/winarenafiles/main/task_files/file_explorer/0c9dda13-428c-492b-900b-f48562111f93-WOS/config/Doc02.docx",
+                "path": "C:\\Users\\Docker\\Documents\\Doc02.docx"
+              }
+            ]
+          }
+        },
+        {
+          "type": "launch",
+          "parameters": {
+            "command": [
+              "explorer",
+              "C:\\Users\\Docker\\Documents"
+            ]
+          }
+        },
+        {
+          "type": "sleep",
+          "parameters": {
+            "seconds": 0.5
+          }
+        }
+      ],
+      "evaluator": {
+        "postconfig": [
+          {
+            "type": "activate_window",
+            "parameters": {
+              "window_name": "Documents",
+              "strict": true
+            }
+          },
+          {
+            "type": "sleep",
+            "parameters": {
+              "seconds": 0.5
+            }
+          }
+        ],
+        "func": "exact_match",
+        "result": {
+          "type": "is_all_docx_in_archive",
+          "folder_path": "C:/Users/Docker/Documents"
+        },
+        "expected": {
+          "type": "rule",
+          "rules": {
+            "expected": "true"
+          }
+        }
+      },
+      "postconfig": null,
+      "related_apps": [
+        "file_explorer"
+      ],
+      "snapshot": "file_explorer",
+      "source": "Microsoft Corporation"
+    }
+  },
+  {
+    "id": "waa_fe_move_myfolder",
+    "name": "WAA移植-桌面文件夹移动到文档",
+    "category": "file",
+    "instruction": "打开资源管理器，把 {EVAL_DIR}/waa_pilot/fe_move_{seed}/Desktop 下的 MyFolder 文件夹移动到同级 Documents 文件夹里",
+    "seeds": [
+      "a",
+      "b",
+      "c"
+    ],
+    "p0_coverage": [
+      "0.1",
+      "0.2",
+      "0.7"
+    ],
+    "setup_ps1": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/fe_move_{seed}/Desktop/MyFolder\" | Out-Null",
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/fe_move_{seed}/Documents\" | Out-Null",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/fe_move_{seed}/Documents/MyFolder\"",
+      "Get-Process explorer -ErrorAction SilentlyContinue | Stop-Process -Force"
+    ],
+    "cleanup_ps1": [
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/fe_move_{seed}\""
+    ],
+    "calib_gold": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/fe_move_{seed}/Documents/MyFolder\" | Out-Null",
+      "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/fe_move_{seed}/Documents/MyFolder/note.txt\" -Value \"HAJIMI_WAA_fe_move_{seed}_MYFOLDER\" -Force",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/fe_move_{seed}/Desktop/MyFolder\""
+    ],
+    "oracle": {
+      "all": [
+        {
+          "type": "file_exists",
+          "path": "{EVAL_DIR}/waa_pilot/fe_move_{seed}/Documents/MyFolder"
+        },
+        {
+          "type": "file_not_exists",
+          "path": "{EVAL_DIR}/waa_pilot/fe_move_{seed}/Desktop/MyFolder"
+        }
+      ]
+    },
+    "max_wall_s": 300,
+    "requires": [
+      "explorer"
+    ],
+    "expect_status": "success",
+    "calibrated": false,
+    "source": "waa:1876fe7f-6fdc-5dd6-c9e0-237d4c8411f0-WOS",
+    "notes": "WAA 原 evaluator: exact_match(vm_folder_exists_in_documents MyFolder, expected true)（config 于真实 Desktop 建 MyFolder）。裸机移植：桌面/文档改为沙箱目录两个子文件夹；补 file_not_exists(原位) 收紧为「移动而非复制」——WAA 的 folder_name 语义就是 move，此收紧符合原意（其指令原文即 Move）。 gold_semantics: \"gold 写了 Documents/MyFolder（含 seed 标记内容文件）+ 删除 Desktop 源文件夹——即「已移走」终态；Desktop 源由 setup 造、gold 只删不建；人审点：instruction 说 用资源管理器把 Desktop/MyFolder 移动到 Documents（gold 用 建+删 两条模拟 move，不启动 explorer），两者是否等价\"",
+    "waa_orig": {
+      "id": "1876fe7f-6fdc-5dd6-c9e0-237d4c8411f0-WOS",
+      "instruction": "Move the folder named \"MyFolder\" from the Desktop to the Documents folder.",
+      "config": [
+        {
+          "type": "create_folder",
+          "parameters": {
+            "path": "C:\\Users\\Docker\\Desktop\\MyFolder"
+          }
+        },
+        {
+          "type": "sleep",
+          "parameters": {
+            "seconds": 2
+          }
+        }
+      ],
+      "evaluator": {
+        "func": "exact_match",
+        "result": {
+          "type": "vm_folder_exists_in_documents",
+          "folder_name": "MyFolder"
+        },
+        "expected": {
+          "type": "rule",
+          "rules": {
+            "expected": true
+          }
+        }
+      },
+      "postconfig": null,
+      "related_apps": [
+        "file_explorer"
+      ],
+      "snapshot": "file_explorer",
+      "source": "null"
+    }
+  },
+  {
+    "id": "waa_calc_days_to_file",
+    "name": "WAA移植-计算器日期差写文件",
+    "category": "form",
+    "instruction": "打开计算器（用「日期计算」模式），算出 2024年1月3日 到 2024年8月20日 相差多少天，把结果按「X days」格式（如 230 days）保存到 {EVAL_DIR}/waa_pilot/calc_days/numdays.txt",
+    "seeds": [
+      "default"
+    ],
+    "p0_coverage": [
+      "0.1",
+      "0.2",
+      "0.3",
+      "0.7"
+    ],
+    "setup_ps1": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/calc_days\" | Out-Null",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/calc_days/numdays.txt\"",
+      "Get-Process CalculatorApp -ErrorAction SilentlyContinue | Stop-Process -Force",
+      "Get-Process Calculator -ErrorAction SilentlyContinue | Stop-Process -Force"
+    ],
+    "cleanup_ps1": [
+      "Get-Process CalculatorApp -ErrorAction SilentlyContinue | Stop-Process -Force",
+      "Get-Process Calculator -ErrorAction SilentlyContinue | Stop-Process -Force",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/calc_days\""
+    ],
+    "calib_gold": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/calc_days\" | Out-Null",
+      "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/calc_days/numdays.txt\" -Value \"230 days\" -Force"
+    ],
+    "oracle": {
+      "all": [
+        {
+          "type": "file_exists",
+          "path": "{EVAL_DIR}/waa_pilot/calc_days/numdays.txt"
+        },
+        {
+          "type": "file_content_contains",
+          "path": "{EVAL_DIR}/waa_pilot/calc_days/numdays.txt",
+          "needle": "230 days"
+        }
+      ]
+    },
+    "max_wall_s": 300,
+    "requires": [
+      "calculator"
+    ],
+    "expect_status": "success",
+    "calibrated": false,
+    "source": "waa:28b91a24-5d97-4c2a-891c-dccbd3820c62-WOS-2",
+    "notes": "WAA 原 evaluator: exact_match(is_file_saved_desktop numdays.txt contains '230 days')（getter 源码=文件存在且 textcontent in file，故用 file_content_contains 同语义）。seeds=[default]：同 base id 28b91a24 有 WOS/WOS-2/WOS-3 三个变体（不同日期对+不同答案串），WAA 自己拆成三个 JSON——答案随日期变，单 {seed} 宏无法联动，故只移 WOS-2一条，另两条算独立候选任务不混入。 gold_semantics: \"gold 写了 沙箱 numdays.txt = 结果串（同一常量单源）；人审点：instruction 说 计算器日期模式算出天数差再保存（gold 不验算——正确性押移植时对该日期差的人工核算与 WAA 原 expected 一致），两者是否等价\"",
+    "waa_orig": {
+      "id": "28b91a24-5d97-4c2a-891c-dccbd3820c62-WOS-2",
+      "instruction": "Can you use the calculator app to find how many days are between Jan 3, 2024 and Aug 20 2024? Save the result in a file called 'numdays.txt' on the Desktop (e.g. X days)",
+      "config": [
+        {
+          "type": "launch",
+          "parameters": {
+            "command": "calc"
+          }
+        },
+        {
+          "type": "sleep",
+          "parameters": {
+            "seconds": 2
+          }
+        }
+      ],
+      "evaluator": {
+        "func": "exact_match",
+        "result": {
+          "type": "is_file_saved_desktop",
+          "filename": "numdays.txt",
+          "textcontent": "230 days"
+        },
+        "expected": {
+          "type": "rule",
+          "rules": {
+            "expected": "true"
+          }
+        }
+      },
+      "postconfig": null,
+      "related_apps": [
+        "windows_calc"
+      ],
+      "snapshot": "base_setup",
+      "source": "Microsoft Corporation"
+    }
+  },
+  {
+    "id": "waa_notepad_draft_save",
+    "name": "WAA移植-记事本新建草稿保存",
+    "category": "editor",
+    "instruction": "打开记事本，输入文字 This is a draft.（一字不差），另存为 {EVAL_DIR}/waa_pilot/notepad_draft_{seed}/draft.txt",
+    "seeds": [
+      "a",
+      "b",
+      "c"
+    ],
+    "p0_coverage": [
+      "0.1",
+      "0.2",
+      "0.3",
+      "0.7"
+    ],
+    "setup_ps1": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/notepad_draft_{seed}\" | Out-Null",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/notepad_draft_{seed}/draft.txt\"",
+      "Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"
+    ],
+    "cleanup_ps1": [
+      "Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/notepad_draft_{seed}\""
+    ],
+    "calib_gold": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/notepad_draft_{seed}\" | Out-Null",
+      "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/notepad_draft_{seed}/draft.txt\" -Value \"This is a draft.\" -Force"
+    ],
+    "oracle": {
+      "all": [
+        {
+          "type": "file_exists",
+          "path": "{EVAL_DIR}/waa_pilot/notepad_draft_{seed}/draft.txt"
+        },
+        {
+          "type": "file_content_equals",
+          "path": "{EVAL_DIR}/waa_pilot/notepad_draft_{seed}/draft.txt",
+          "text": "This is a draft."
+        }
+      ]
+    },
+    "max_wall_s": 300,
+    "requires": [
+      "notepad"
+    ],
+    "expect_status": "success",
+    "calibrated": false,
+    "source": "waa:366de66e-cbae-4d72-b042-26390db2b145-WOS",
+    "notes": "WAA 原 evaluator: [exact_match(vm_file_exists_in_vm_folder Documents/draft.txt) + compare_text_file(gold=cloud draft.txt 相似度1.0)]。gold 内容实测 'This is a draft.'，已内联为 file_content_equals（strip 比较，容忍末换行）。产物路径改沙箱目录不碰真实 Documents；{seed} 仅作隔离参数（WAA 原文文件名 draft.txt 保留）。 gold_semantics: \"gold 写了 沙箱 draft.txt = oracle 期望文本（同一常量单源）；人审点：instruction 说 打开记事本输入该文字并另存（gold 不经 GUI 直接落盘），两者是否等价\"",
+    "waa_orig": {
+      "id": "366de66e-cbae-4d72-b042-26390db2b145-WOS",
+      "instruction": "Please open Notepad, create a new file named \"draft.txt\", type \"This is a draft.\", and save it to the Documents folder.",
+      "config": [],
+      "evaluator": {
+        "postconfig": [
+          {
+            "type": "open",
+            "parameters": {
+              "path": "C:\\Users\\Docker\\Documents\\draft.txt"
+            }
+          },
+          {
+            "type": "activate_window",
+            "parameters": {
+              "window_name": "draft.txt - Notepad"
+            }
+          },
+          {
+            "type": "sleep",
+            "parameters": {
+              "seconds": 0.5
+            }
+          }
+        ],
+        "func": [
+          "exact_match",
+          "compare_text_file"
+        ],
+        "result": [
+          {
+            "type": "vm_file_exists_in_vm_folder",
+            "folder_name": "C:\\Users\\Docker\\Documents",
+            "file_name": "draft.txt"
+          },
+          {
+            "type": "vm_file",
+            "path": "C:\\Users\\Docker\\Documents\\draft.txt",
+            "dest": "draft.txt"
+          }
+        ],
+        "expected": [
+          {
+            "type": "rule",
+            "rules": {
+              "expected": 1.0
+            }
+          },
+          {
+            "type": "cloud_file",
+            "path": "https://raw.githubusercontent.com/rogeriobonatti/winarenafiles/main/task_files/notepad/366de66e-cbae-4d72-b042-26390db2b145-WOS/eval/draft.txt",
+            "dest": "draft_gold.txt"
+          }
+        ]
+      },
+      "postconfig": null,
+      "related_apps": [
+        "notepad"
+      ],
+      "snapshot": "notepad",
+      "source": ""
+    }
+  },
+  {
+    "id": "waa_settings_notifications_off",
+    "name": "WAA移植-关闭系统通知",
+    "category": "settings",
+    "instruction": "打开 Windows 设置的「通知」页，把系统通知总开关关闭",
+    "seeds": [
+      "default"
+    ],
+    "p0_coverage": [
+      "0.1",
+      "0.3",
+      "0.5"
+    ],
+    "setup_ps1": [
+      "reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\PushNotifications\" /v ToastEnabled /t REG_DWORD /d 1 /f",
+      "Get-Process SystemSettings -ErrorAction SilentlyContinue | Stop-Process -Force"
+    ],
+    "cleanup_ps1": [
+      "reg delete \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\PushNotifications\" /v ToastEnabled /f"
+    ],
+    "calib_gold": [
+      "reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\PushNotifications\" /v ToastEnabled /t REG_DWORD /d 0 /f"
+    ],
+    "oracle": {
+      "all": [
+        {
+          "type": "registry_value",
+          "hive": "HKEY_CURRENT_USER",
+          "key": "Software\\Microsoft\\Windows\\CurrentVersion\\PushNotifications",
+          "name": "ToastEnabled",
+          "expect": 0
+        }
+      ]
+    },
+    "max_wall_s": 300,
+    "requires": [
+      "settings"
+    ],
+    "expect_status": "success",
+    "calibrated": false,
+    "source": "waa:37e10fc4-b4c5-4b02-a65c-bfae8bc51d3f-wos",
+    "notes": "WAA 原 evaluator: exact_match(result=getter system_notifications, expected='True')。getter 源码（settings.py get_system_notifications）= HKCU\\...\\PushNotifications\\ToastEnabled 为 0 时返回 'True'（即已关闭）→ 直接映射 registry_value ToastEnabled=0。setup 先置 1（开启）造基线，cleanup 删除该值恢复系统默认。seeds=[default]：机器级单值状态，无可参数化自由度。 gold_semantics: \"gold 写了 HKCU 的 ToastEnabled=0（oracle 读的同一个键，键路径/期望值单源）；人审点：instruction 说 在设置 GUI 里拨通知总开关（gold 直写注册表，与设置页拨动是否等效），两者是否等价\"",
+    "waa_orig": {
+      "id": "37e10fc4-b4c5-4b02-a65c-bfae8bc51d3f-wos",
+      "instruction": "I need to \"turn off\" notifications for my system in the settings.",
+      "config": [],
+      "evaluator": {
+        "func": "exact_match",
+        "result": {
+          "type": "system_notifications"
+        },
+        "expected": {
+          "type": "rule",
+          "rules": {
+            "expected": "True"
+          }
+        }
+      },
+      "postconfig": null,
+      "related_apps": [
+        "settings"
+      ],
+      "snapshot": "base_setup",
+      "source": "https://support.microsoft.com/en-us/windows/change-notification-settings-in-windows-8942c744-6198-fe56-4639-34320cf9444e"
+    }
+  },
+  {
+    "id": "waa_notepad_count_example",
+    "name": "WAA移植-记事本查找计数写回",
+    "category": "editor",
+    "instruction": "打开记事本载入 {EVAL_DIR}/waa_pilot/notepad_count/largefile.txt，统计单词 example 出现的次数，把次数结果（只写数字）另存为 {EVAL_DIR}/waa_pilot/notepad_count/example_count.txt",
+    "seeds": [
+      "default"
+    ],
+    "p0_coverage": [
+      "0.1",
+      "0.2",
+      "0.8"
+    ],
+    "setup_ps1": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/notepad_count\" | Out-Null",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/notepad_count/example_count.txt\"",
+      "Invoke-WebRequest -UseBasicParsing -Uri \"https://raw.githubusercontent.com/rogeriobonatti/winarenafiles/main/task_files/notepad/a7d4b6c5-569b-452e-9e1d-ffdb3d431d15-WOS/config/largefile.txt\" -OutFile \"$env:EVAL_DIR/waa_pilot/notepad_count/largefile.txt\"",
+      "Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force"
+    ],
+    "cleanup_ps1": [
+      "Get-Process notepad -ErrorAction SilentlyContinue | Stop-Process -Force",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/notepad_count\""
+    ],
+    "calib_gold": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/notepad_count\" | Out-Null",
+      "Set-Content -Path \"$env:EVAL_DIR/waa_pilot/notepad_count/example_count.txt\" -Value \"22\" -Force"
+    ],
+    "oracle": {
+      "all": [
+        {
+          "type": "file_exists",
+          "path": "{EVAL_DIR}/waa_pilot/notepad_count/example_count.txt"
+        },
+        {
+          "type": "file_content_equals",
+          "path": "{EVAL_DIR}/waa_pilot/notepad_count/example_count.txt",
+          "text": "22"
+        }
+      ]
+    },
+    "max_wall_s": 300,
+    "requires": [
+      "notepad",
+      "internet"
+    ],
+    "expect_status": "success",
+    "calibrated": false,
+    "source": "waa:a7d4b6c5-569b-452e-9e1d-ffdb3d431d15-WOS",
+    "notes": "WAA 原 evaluator: compare_text_file(vm example_count.txt vs cloud gold)。gold 实测内容 '22'（本机 grep -o example largefile.txt 复核=22），内联为 file_content_equals。seeds=[default]：语料与答案固定，{seed} 无参数化自由度。需查找功能计数（不逐屏数）。gold 段自身离线（只写沙箱文件、不下载）；但 --selftest 的 setup 段仍要联网抓语料 largefile.txt——评测机离线时该条 selftest 需先联网跑一次 setup 或临时放行网络。 gold_semantics: \"gold 写了 沙箱 example_count.txt = 计数结果（同一常量单源，与语料无关联）；人审点：instruction 说 打开记事本统计 largefile.txt 中 example 出现次数后写回（gold 不做真实统计，正确性押在移植时 grep 复核的 22 上），两者是否等价\"",
+    "waa_orig": {
+      "id": "a7d4b6c5-569b-452e-9e1d-ffdb3d431d15-WOS",
+      "instruction": "Please open Notepad, load the file \"largefile.txt\" from the Documents folder, and search for the word \"example\", count all instances. Store the number of \"example\" counts (and nothing else) in a file named \"example_count.txt\" under Documents folder",
+      "config": [
+        {
+          "type": "download",
+          "parameters": {
+            "files": [
+              {
+                "url": "https://raw.githubusercontent.com/rogeriobonatti/winarenafiles/main/task_files/notepad/a7d4b6c5-569b-452e-9e1d-ffdb3d431d15-WOS/config/largefile.txt",
+                "path": "C:\\Users\\Docker\\Documents\\largefile.txt"
+              }
+            ]
+          }
+        }
+      ],
+      "evaluator": {
+        "postconfig": [
+          {
+            "type": "open",
+            "parameters": {
+              "path": "C:\\Users\\Docker\\Documents\\largefile.txt"
+            }
+          },
+          {
+            "type": "open",
+            "parameters": {
+              "path": "C:\\Users\\Docker\\Documents\\example_count.txt"
+            }
+          },
+          {
+            "type": "sleep",
+            "parameters": {
+              "seconds": 0.5
+            }
+          },
+          {
+            "type": "execute",
+            "parameters": {
+              "command": [
+                "python",
+                "-c",
+                "import pyautogui; import time; pyautogui.hotkey('ctrl', 's'); time.sleep(0.5); "
+              ]
+            }
+          }
+        ],
+        "func": "compare_text_file",
+        "result": {
+          "type": "vm_file",
+          "path": "C:\\Users\\Docker\\Documents\\example_count.txt",
+          "dest": "example_count.txt"
+        },
+        "expected": {
+          "type": "cloud_file",
+          "path": "https://raw.githubusercontent.com/rogeriobonatti/winarenafiles/main/task_files/notepad/a7d4b6c5-569b-452e-9e1d-ffdb3d431d15-WOS/eval/example_count_gold.txt",
+          "dest": "example_count_gold.txt"
+        }
+      },
+      "postconfig": null,
+      "related_apps": [
+        "notepad"
+      ],
+      "snapshot": "notepad",
+      "source": ""
+    }
+  },
+  {
+    "id": "waa_settings_storagesense_weekly",
+    "name": "WAA移植-存储感知每周运行",
+    "category": "settings",
+    "instruction": "打开设置里的「存储感知」（ms-settings:storagesense），开启存储感知，并把「检测磁盘空间的时间间隔」设置为每周",
+    "seeds": [
+      "default"
+    ],
+    "p0_coverage": [
+      "0.1",
+      "0.2",
+      "0.5"
+    ],
+    "setup_ps1": [
+      "reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy\" /v 01 /t REG_DWORD /d 0 /f",
+      "reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy\" /v 2048 /t REG_DWORD /d 30 /f",
+      "Get-Process SystemSettings -ErrorAction SilentlyContinue | Stop-Process -Force"
+    ],
+    "cleanup_ps1": [
+      "reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy\" /v 01 /t REG_DWORD /d 0 /f"
+    ],
+    "calib_gold": [
+      "reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy\" /v 01 /t REG_DWORD /d 1 /f",
+      "reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy\" /v 2048 /t REG_DWORD /d 7 /f"
+    ],
+    "oracle": {
+      "all": [
+        {
+          "type": "registry_value",
+          "hive": "HKEY_CURRENT_USER",
+          "key": "Software\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy",
+          "name": "01",
+          "expect": 1
+        },
+        {
+          "type": "registry_value",
+          "hive": "HKEY_CURRENT_USER",
+          "key": "Software\\Microsoft\\Windows\\CurrentVersion\\StorageSense\\Parameters\\StoragePolicy",
+          "name": "2048",
+          "expect": 7
+        }
+      ]
+    },
+    "max_wall_s": 360,
+    "requires": [
+      "settings"
+    ],
+    "expect_status": "success",
+    "calibrated": false,
+    "source": "waa:e8f68f22-1f6a-4cba-a97a-ac611bb4c67b-wos",
+    "notes": "WAA 原 evaluator: exact_match(result=getter storage_sense_run_frequency, expected='7')。getter 源码（settings.py）='01'==1（开启）且 '2048'==7 → 两个 registry_value 谓词组合。setup 造「关闭+每月」基线，cleanup 复位为关。seeds=[default]：机器级单状态。存储感知在精简 Win11 可能被组策略禁用——requires 声明，校准不过则记环境不适用。 gold_semantics: \"gold 写了 SS_EXPECT 两条 reg 值（01/2048 与 oracle 同一字典单源）；人审点：instruction 说 设置页开存储感知+间隔选每周（gold 直写两个 DWORD，是否等效 GUI 拨动，尤其 2048 的其他合法值不触发副作用），两者是否等价\"",
+    "waa_orig": {
+      "id": "e8f68f22-1f6a-4cba-a97a-ac611bb4c67b-wos",
+      "instruction": "Enable the \"Storage Sense\" feature and configure it to run every week.",
+      "config": [
+        {
+          "type": "launch",
+          "parameters": {
+            "command": [
+              "cmd",
+              "/c",
+              "start ms-settings:storagesense"
+            ]
+          }
+        }
+      ],
+      "evaluator": {
+        "func": "exact_match",
+        "result": {
+          "type": "storage_sense_run_frequency"
+        },
+        "expected": {
+          "type": "rule",
+          "rules": {
+            "expected": "7"
+          }
+        }
+      },
+      "postconfig": null,
+      "related_apps": [
+        "settings"
+      ],
+      "snapshot": "base_setup",
+      "source": "https://support.microsoft.com/en-us/windows/manage-drive-space-with-storage-sense-654f6ada-7bfc-45e5-966b-e24aded96ad5"
+    }
+  },
+  {
+    "id": "waa_inf_vlc_autoclose",
+    "name": "WAA移植负向-VLC播完不自动退出",
+    "category": "negative",
+    "instruction": "打开 VLC 媒体播放器，帮我设置成：视频播放结束后不要让 VLC 自动关闭/退出",
+    "seeds": [
+      "default"
+    ],
+    "p0_coverage": [
+      "0.4",
+      "0.6",
+      "0.7"
+    ],
+    "setup_ps1": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/inf_vlc_autoclose\" | Out-Null",
+      "Get-Process vlc -ErrorAction SilentlyContinue | Stop-Process -Force"
+    ],
+    "cleanup_ps1": [
+      "Get-Process vlc -ErrorAction SilentlyContinue | Stop-Process -Force",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/inf_vlc_autoclose\""
+    ],
+    "oracle": {
+      "all": [
+        {
+          "type": "uia_window_title_contains",
+          "needle": "VLC"
+        },
+        {
+          "type": "uia_window_not_exists",
+          "needle": "Media Information"
+        }
+      ]
+    },
+    "max_wall_s": 300,
+    "requires": [
+      "vlc"
+    ],
+    "expect_status": "fail",
+    "calibrated": false,
+    "source": "waa:INF-5ac2891a-eacd-4954-b339-98abba077adb-WOS",
+    "notes": "负向。WAA 原 evaluator 原文: {\"func\": \"infeasible\"}；「做不到」出处=WAA JSON source 字段社区帖原文: https://superuser.com/questions/1412810/how-to-prevent-vlc-media-player-from-auto-closing-after-video-end#:%7E:text=Click%20on%20%22Media%22on%20the,VLC%20player%20after%20video%20ending（VLC 无「播完保持窗口不退出」的设置项）。attribution_class=app_present_capability_infeasible；评测机没装 VLC 时退化为 app_absent_env_infeasible（仍是有效「不假成功」测试，归因不同）。oracle=现场保护（打开观察后放弃，未陷入设置迷宫）。",
+    "waa_orig": {
+      "id": "INF-5ac2891a-eacd-4954-b339-98abba077adb-WOS",
+      "instruction": "My VLC Media Player has been auto-closing once the video ends. It is very annoying. Could you help me prevent the VLC Media Player from auto-closing once the video ends?",
+      "config": [
+        {
+          "type": "launch",
+          "parameters": {
+            "command": "vlc"
+          }
+        }
+      ],
+      "evaluator": {
+        "func": "infeasible"
+      },
+      "postconfig": null,
+      "related_apps": [
+        "vlc"
+      ],
+      "snapshot": "base_setup",
+      "source": "https://superuser.com/questions/1412810/how-to-prevent-vlc-media-player-from-auto-closing-after-video-end#:%7E:text=Click%20on%20%22Media%22on%20the,VLC%20player%20after%20video%20ending"
+    }
+  },
+  {
+    "id": "waa_inf_vscode_arabic",
+    "name": "WAA移植负向-VSCode改阿拉伯语",
+    "category": "negative",
+    "instruction": "打开 VS Code，把它的显示语言（display language）改成阿拉伯语（Arabic）",
+    "seeds": [
+      "default"
+    ],
+    "p0_coverage": [
+      "0.4",
+      "0.6",
+      "0.7"
+    ],
+    "setup_ps1": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/inf_vscode_arabic\" | Out-Null",
+      "Get-Process Code -ErrorAction SilentlyContinue | Stop-Process -Force"
+    ],
+    "cleanup_ps1": [
+      "Get-Process Code -ErrorAction SilentlyContinue | Stop-Process -Force",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/inf_vscode_arabic\""
+    ],
+    "oracle": {
+      "all": [
+        {
+          "type": "uia_window_title_contains",
+          "needle": "Visual Studio Code"
+        },
+        {
+          "type": "uia_window_not_exists",
+          "needle": "Marketplace"
+        }
+      ]
+    },
+    "max_wall_s": 300,
+    "requires": [
+      "vscode"
+    ],
+    "expect_status": "fail",
+    "calibrated": false,
+    "source": "waa:INF-7c4cc09e-7a92-40dd-8338-b2286535c4ed-WOS",
+    "notes": "负向。WAA 原 evaluator 原文: {\"func\": \"infeasible\"}；source 字段为空串（vs_code 5 条 INF 均无出处链接，与 vlc/lo 的 8 条不同——调研报告 §2.1「附社区帖出处」对这条不适用）。不可行语义：换显示语言需装 Language Pack for Arabic 扩展/重启，WAA 判环境内做不到。attribution_class=app_present_capability_infeasible（装了 VS Code 的机器上测「知难而退」）；若评测机没装 VS Code，退化为 app_absent_env_infeasible——仍是有效的「不假成功」测试（report_infeasible→task_failed 判 pass，乱点装扩展或假 done 判 fail），归因不同而已。oracle=现场保护：VS Code 窗口还在且没陷入Marketplace 乱逛。",
+    "waa_orig": {
+      "id": "INF-7c4cc09e-7a92-40dd-8338-b2286535c4ed-WOS",
+      "instruction": "Please help me change the display language of VS Code to \"Arabic\".",
+      "config": [
+        {
+          "type": "launch",
+          "parameters": {
+            "command": [
+              "code"
+            ]
+          }
+        },
+        {
+          "type": "sleep",
+          "parameters": {
+            "seconds": 2
+          }
+        },
+        {
+          "type": "activate_window",
+          "parameters": {
+            "window_name": "Visual Studio Code"
+          }
+        }
+      ],
+      "evaluator": {
+        "func": "infeasible"
+      },
+      "postconfig": null,
+      "related_apps": [
+        "vscode"
+      ],
+      "snapshot": "vscode",
+      "source": ""
+    }
+  },
+  {
+    "id": "waa_inf_vlc_ab_replay",
+    "name": "WAA移植负向-VLC只循环前半段",
+    "category": "negative",
+    "instruction": "打开 VLC 媒体播放器，让它反复循环播放视频的前半段（从开头到视频中点，不要播后半段）",
+    "seeds": [
+      "default"
+    ],
+    "p0_coverage": [
+      "0.4",
+      "0.6",
+      "0.7"
+    ],
+    "setup_ps1": [
+      "New-Item -ItemType Directory -Force -Path \"$env:EVAL_DIR/waa_pilot/inf_vlc_ab\" | Out-Null",
+      "Get-Process vlc -ErrorAction SilentlyContinue | Stop-Process -Force"
+    ],
+    "cleanup_ps1": [
+      "Get-Process vlc -ErrorAction SilentlyContinue | Stop-Process -Force",
+      "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue \"$env:EVAL_DIR/waa_pilot/inf_vlc_ab\""
+    ],
+    "oracle": {
+      "all": [
+        {
+          "type": "uia_window_title_contains",
+          "needle": "VLC"
+        }
+      ]
+    },
+    "max_wall_s": 300,
+    "requires": [
+      "vlc"
+    ],
+    "expect_status": "fail",
+    "calibrated": false,
+    "source": "waa:INF-d1ba14d0-fef8-4026-8418-5b581dc68ca0-WOS",
+    "notes": "负向。WAA 原 evaluator 原文: {\"func\": \"infeasible\"}；「做不到」出处=WAA JSON source 字段社区帖原文: https://superuser.com/questions/306154/how-to-use-a-b-repeat-feature-of-vlc（VLC 的 A-B 循环需手动设终点，官方判「自动取中点循环」做不到）。attribution_class=app_present_capability_infeasible；无 VLC 的机器上退化为 app_absent_env_infeasible（仍为「不假成功」测试）。注意本条 oracle 只要求 VLC 窗口在场（正确路径=打开查看播放列表/循环控件后放弃）；校准若发现 agent 不开VLC 直接口头放弃也判 pass 太松，可收紧（如 needle 具体按钮不存在）。",
+    "waa_orig": {
+      "id": "INF-d1ba14d0-fef8-4026-8418-5b581dc68ca0-WOS",
+      "instruction": "Could you help me make VLC Media Player to repeatedly play a video from the beginning to its midpoint? I'm analyzing the first half of a film for a class project, and continuously replaying this specific section would greatly help my detailed review and analysis.",
+      "config": [],
+      "evaluator": {
+        "func": "infeasible",
+        "result": {},
+        "expected": {}
+      },
+      "postconfig": null,
+      "related_apps": [
+        "vlc"
+      ],
+      "snapshot": "chrome",
+      "source": "https://superuser.com/questions/306154/how-to-use-a-b-repeat-feature-of-vlc"
+    }
+  }
+]

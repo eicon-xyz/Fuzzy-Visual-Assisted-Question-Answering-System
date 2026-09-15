@@ -92,7 +92,7 @@ class VoiceIntegrationController:
 
     def __init__(
         self,
-        server_url: str = "http://127.0.0.1:8010",   # A端主端口（B端嵌入）; L5 Sidecar 在 8011
+        server_url: str = "http://127.0.0.1:8011",   # L5 Sidecar (server_A)：唯一后端
         demo_key: str = "hajimi-demo-2026",
         client_version: str = "v2.1.0",
         voice_settings: Optional[Dict[str, Any]] = None,

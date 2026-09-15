@@ -43,7 +43,9 @@ def _with_temp_settings_file(fn) -> None:
             seed = deepcopy(us.DEFAULT_SETTINGS)
             seed["ui_theme"] = "current"
             seed["font_size"] = 15
-            seed["a_end_url"] = "http://127.0.0.1:8010"
+            seed["a_end_url_removed"] = None
+            del seed["a_end_url_removed"]
+            seed["demo_key"] = "seed-demo"
             seed["llm"] = {**seed["llm"], "api_key": "seed-key", "model": "seed-model"}
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(seed, f)
@@ -62,25 +64,13 @@ def _check_split_save_merge() -> None:
         assert base.get("llm", {}).get("api_key") == "seed-key"
 
         model_frag = {
-            "deployment_mode": "gpu_api",
-            "a_end_url": "http://127.0.0.1:9999",
             "demo_key": "new-demo",
-            "routing_mode": "fast",
-            "llm_speed_mode": "fast",
             "llm": {"base_url": "https://x/v1", "api_key": "new-key", "model": "new-model"},
-            "omniparser": {"url": "http://omni", "gpu_url": ""},
-            "l4": {
-                "planner_model": "p",
-                "locator_model": "l",
-                "planner_use_vision": False,
-                "strict_locate": True,
-                "pipeline_enabled": True,
-            },
         }
         after_model = us.save_settings_fragment(model_frag)
         assert after_model.get("font_size") == 15, "model save must not wipe appearance"
         assert after_model.get("ui_theme") == base.get("ui_theme")
-        assert after_model.get("a_end_url") == "http://127.0.0.1:9999"
+        assert after_model.get("demo_key") == "new-demo"
         assert after_model.get("llm", {}).get("api_key") == "new-key"
 
         appearance_frag = {
@@ -90,7 +80,7 @@ def _check_split_save_merge() -> None:
             "orange_cat_user_avatar": "/tmp/test-user.png",
         }
         after_appearance = us.save_settings_fragment(appearance_frag)
-        assert after_appearance.get("a_end_url") == "http://127.0.0.1:9999", (
+        assert after_appearance.get("demo_key") == "new-demo", (
             "appearance save must not wipe model"
         )
         assert after_appearance.get("llm", {}).get("api_key") == "new-key"
@@ -107,7 +97,7 @@ def _check_split_save_merge() -> None:
             }
         }
         after_voice = us.save_settings_fragment(voice_frag)
-        assert after_voice.get("a_end_url") == "http://127.0.0.1:9999", (
+        assert after_voice.get("demo_key") == "new-demo", (
             "voice save must not wipe model"
         )
         assert after_voice.get("font_size") == 14, "voice save must not wipe appearance"
@@ -131,12 +121,12 @@ def _check_collect_decoupling(app: QApplication) -> None:
     assert "font_size" not in model_data, "model collect must not read appearance form"
     assert model_data.get("llm", {}).get("model") == "form-model-xyz"
     assert appearance_data.get("font_size") == 14
-    assert "a_end_url" not in appearance_data, "appearance collect must not read model form"
+    assert "demo_key" not in appearance_data, "appearance collect must not read model form"
     assert "llm" not in appearance_data
 
     voice_data = panel._voice_group.current_voice()
     assert "tts_enabled" in voice_data
-    assert "a_end_url" not in voice_data
+    assert "llm" not in voice_data
 
     panel._field_llm_model.set_text("changed-but-not-saved")
     panel._appearance_group._font_size_slider.setValue(12)

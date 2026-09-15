@@ -62,4 +62,4 @@ def test_login_connection_error_non_demo_credentials_fails(tmp_path, monkeypatch
             login("other", "wrong")
         assert False, "expected RuntimeError"
     except RuntimeError as exc:
-        assert "无法连接 A 端" in str(exc)
+        assert "无法连接 L5 Sidecar" in str(exc)

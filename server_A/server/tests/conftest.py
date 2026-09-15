@@ -6,11 +6,51 @@ HAJIMI Server 测试共享 fixtures
 from typing import List, Optional
 from uuid import uuid4
 import json
+import os
+import sys
+import types
 
 import pytest
 
-from server.models.schemas import UIElement
-from server.services.session.manager import SessionManager
+# 环境消毒（必须在任何 httpx 相关 import 之前）：httpx 0.28 对 NO_PROXY 的
+# IPv6 字面量 [::1] 解析崩溃（Invalid port: ':1]'），沙箱 NO_PROXY 恰好含它。
+for _k in ("NO_PROXY", "no_proxy"):
+    if _k in os.environ:
+        os.environ[_k] = ",".join(
+            p for p in os.environ[_k].split(",") if "[::1]" not in p
+        )
+
+from server.models.schemas import UIElement  # noqa: E402
+from server.services.session.manager import SessionManager  # noqa: E402
+
+
+# ── T5 基建：Linux 无 pyautogui 环境兜底桩（conftest 先于所有测试文件收集导入）──
+# agent.py/clicker.py 模块级 `import pyautogui` 在缺依赖机器上使测试文件收集失败。
+# 缺啥补啥：仅当真实模块不可导入时注入 no-op 桩；Windows/有依赖环境不覆盖真实模块。
+# 注意：本桩必须留在 conftest 顶部，让 test_agent_* 等文件 import 阶段即生效。
+for _mod_name in ("pyautogui", "pygetwindow", "mouseinfo", "pydirectinput"):
+    if _mod_name in sys.modules:
+        continue
+    try:
+        __import__(_mod_name)
+    except Exception:
+        _stub = types.ModuleType(_mod_name)
+
+        def _stub_attr(_n):
+            def _noop(*a, **k):
+                return None
+
+            return _noop
+
+        _stub.__getattr__ = _stub_attr  # type: ignore[attr-defined]
+        sys.modules[_mod_name] = _stub
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _eval_telemetry_tmpdir(tmp_path_factory):
+    """T1：全部测试的评测遥测落盘统一到 session tmp，不污染真实 data/eval。"""
+    os.environ["HAJIMI_EVAL_DIR"] = str(tmp_path_factory.mktemp("eval-telemetry"))
+    yield
 
 
 # ═══════════════════════════════════════════════════════════════════════════

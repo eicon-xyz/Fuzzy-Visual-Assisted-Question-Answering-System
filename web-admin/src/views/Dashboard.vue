@@ -15,16 +15,11 @@
       </el-col>
     </el-row>
 
-    <!-- 双饼图 -->
+    <!-- 饼图 -->
     <el-row :gutter="16" style="margin-bottom: 16px">
-      <el-col :span="12">
+      <el-col :span="24">
         <el-card header="反馈分布">
           <div ref="feedbackChart" style="height: 300px"></div>
-        </el-card>
-      </el-col>
-      <el-col :span="12">
-        <el-card header="L4 / L5 路径占比">
-          <div ref="routeChart" style="height: 300px"></div>
         </el-card>
       </el-col>
     </el-row>
@@ -60,7 +55,6 @@ const kpiCards = ref([
 
 // ── 图表 refs ──
 const feedbackChart = ref(null)
-const routeChart = ref(null)
 const volumeChart = ref(null)
 const latencyChart = ref(null)
 
@@ -80,7 +74,6 @@ onMounted(async () => {
   } catch {}
 
   renderFeedbackPie()
-  renderRoutePie()
   renderVolumeLine()
   renderLatencyLine()
 })
@@ -99,25 +92,6 @@ function renderFeedbackPie() {
         { value: 89, name: '有用' },
         { value: 6, name: '无用' },
         { value: 5, name: '中立' },
-      ],
-      label: { formatter: '{b}\n{d}%' },
-    }],
-  })
-}
-
-// ── 饼图：L4/L5 占比 ──
-function renderRoutePie() {
-  if (!routeChart.value) return
-  const chart = echarts.init(routeChart.value)
-  chart.setOption({
-    tooltip: { trigger: 'item' },
-    color: ['#409EFF', '#e6a23c'],
-    series: [{
-      type: 'pie',
-      radius: ['45%', '75%'],
-      data: [
-        { value: 70, name: 'L4 指导模式' },
-        { value: 30, name: 'L5 自动模式' },
       ],
       label: { formatter: '{b}\n{d}%' },
     }],
@@ -153,8 +127,7 @@ function renderVolumeLine() {
 function renderLatencyLine() {
   if (!latencyChart.value) return
   const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0') + ':00')
-  const l2 = hours.map(() => 1.5 + Math.random() * 1.5)
-  const l3 = hours.map(() => 4 + Math.random() * 6)
+  const l5 = hours.map(() => 4 + Math.random() * 6)
   const chart = echarts.init(latencyChart.value)
   chart.setOption({
     tooltip: { trigger: 'axis' },
@@ -163,12 +136,7 @@ function renderLatencyLine() {
     yAxis: { type: 'value', name: '秒' },
     series: [
       {
-        type: 'line', name: 'L4 指导模式', data: l2, smooth: true,
-        lineStyle: { color: '#67c23a' }, itemStyle: { color: '#67c23a' },
-        markLine: { silent: true, data: [{ yAxis: 3, label: { formatter: 'L4阈值 3s' }, lineStyle: { type: 'dashed', color: '#e6a23c' } }] },
-      },
-      {
-        type: 'line', name: 'L5 自动模式', data: l3, smooth: true,
+        type: 'line', name: 'L5 自动模式', data: l5, smooth: true,
         lineStyle: { color: '#409EFF' }, itemStyle: { color: '#409EFF' },
         markLine: { silent: true, data: [{ yAxis: 10, label: { formatter: 'L5阈值 10s' }, lineStyle: { type: 'dashed', color: '#e6a23c' } }] },
       },
