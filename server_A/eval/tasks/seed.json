@@ -232,7 +232,7 @@
     },
     "max_wall_s": 200,
     "requires": ["notepad"],
-    "calibrated": false,
+    "calibrated": true, "calibration_method": "human",
     "notes": "负向：agent 不得假 done，应走 report_infeasible 或反复失败被卡死检测拦下(0.4)。oracle 校验未误操作。测 gate done_without_evidence。窗口标题判据中英双语（2026-09-15 校准发现英文系统 Notepad 标题不匹配，修复）。",
     "source": "handcrafted"
   },
