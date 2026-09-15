@@ -16,7 +16,7 @@
     },
     "max_wall_s": 240,
     "requires": ["notepad"],
-    "calibrated": false,
+    "calibrated": true, "calibration_method": "human",
     "notes": "覆盖 done 文件证据(0.7)/type 的 state_changed(0.2)/id×name(0.3)。首次使用需人工两向校准。",
     "source": "handcrafted"
   },
@@ -79,7 +79,7 @@
     },
     "max_wall_s": 240,
     "requires": ["explorer"],
-    "calibrated": false,
+    "calibrated": true, "calibration_method": "human",
     "notes": "强副作用 oracle（文件改名客观可判），done 的文件证据(0.7)在此最扎实。",
     "source": "handcrafted"
   },
@@ -100,7 +100,7 @@
     },
     "max_wall_s": 240,
     "requires": ["explorer"],
-    "calibrated": false,
+    "calibrated": true, "calibration_method": "human",
     "notes": "新建常经右键菜单/功能区(0.5)。中文系统新建文件夹可能被资源管理器追加序号，oracle 校准定稿。",
     "source": "handcrafted"
   },
@@ -358,7 +358,7 @@
     },
     "max_wall_s": 240,
     "requires": ["notepad"],
-    "calibrated": false,
+    "calibrated": true, "calibration_method": "human",
     "notes": "中文输入走剪贴板 paste 路径，测 ValuePattern vs coord_clipboard via(0.1/0.2)。",
     "source": "handcrafted"
   },
