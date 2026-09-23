@@ -68,3 +68,12 @@ new_JIMI/HAJIMI_UI/OmniParser
 
 # 测试运行产物
 test_reports/coverage_current.json
+
+# ==================== Electron B 端构建产物（front 分支源码在 desktop/，产物勿提交） ====================
+desktop/node_modules/
+desktop/out/
+desktop/dist/
+*.tsbuildinfo
+
+# ==================== archify 视觉检查产物（勿提交） ====================
+项目文档/*.visual-check.*

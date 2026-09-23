@@ -10,7 +10,7 @@ HAJIMI — C↔A 数据连通性集成测试
     python -m uvicorn server.main:app --host 127.0.0.1 --port 8011
 
     # 再跑测试
-    cd E:\Fuzzy-Visual-Assisted-Question-Answering-System
+    cd <仓库根>
     python client/real_api_test.py
 """
 

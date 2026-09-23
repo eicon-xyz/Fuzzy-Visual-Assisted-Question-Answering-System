@@ -44,6 +44,7 @@
 | 日期 | 原路径 | 新路径 | 原因 |
 |------|--------|--------|------|
 | 2026-09-03 | `server_A/server/docs/A端-GPU容器部署详细指南-group2_v2.md`<br>`server_A/server/docs/A端-学校GPU部署与联调指南_v2.md`<br>`server_A/server/docs/CHANGELOG-A端_v2.md` | `server_A/server/docs/archive/legacy-L4/` | L4 指引模式与 A 端 (:8010) 已于 2026-09 整体删除，三文为其运行史料；归档防被 agent/新人误当现行指南引用（同批：`server_A/CLAUDE.md` 旧稿重写——它曾把 :8010/OmniParser 口径自动注入 agent 指令链） |
+| 2026-09-23 | `server_A/README.md`<br>`server_A/server/README.md`<br>`server_A/server/README_v2.md`<br>`server_A/docs/DEV-GUIDE.md`<br>`server_A/docs/API-CONTRACT.md`<br>`server_A/docs/BACKEND-CHECKLIST.md`<br>`server_A/docs/UI-SPEC.md`<br>`server_A/docs/api-admin-users.md`<br>`server_A/docs/api-auth.md`<br>`server_A/docs/api-reference.md` | `server_A/server/docs/archive/legacy-L4/server_A-layer/`（按原路径保结构） | 同批 L4 治理续：10 份均为 2026-07 的 L4 口径（`:8010` / OmniParser `:9800` / A 端 / Mock 演示），与现行 L5（唯一后端 `server_A` Sidecar `:8011`）直接矛盾，且会被 GitHub 目录页/新人当作现行指南。**同批删除** `server_A/docs/docs/`——9 文件与父目录零内容差异、全仓零引用的误建嵌套副本。现行入口 = 仓库根 `README.md` + `AGENTS.md` |
 
 > 注：本目录（HAJIMI_UI/docs）内 v2 时代文档中的 `../server/docs/...` 相对链接指向的是**已删除的 L4 期 `HAJIMI_UI/server/`**，非上述 server_A 路径；按「历史文档不改」原则保持原样，勿试图"修好"。现行文档唯一权威 = 仓库根 `AGENTS.md`。
 
@@ -81,7 +82,7 @@
 | `docs/GPU-API远程接入手册.md` | 补充 | 与上重叠，按需查 |
 | `docs/GPU OmniParser API — SSH 本地端口转发接入手册（最终版）.md` | 补充 | SSH 隧道细节 |
 | `docs/OmniParser GPU API 本地开发接入指南（SSH 隧道版最终最终版）.md` | 补充 | 同上，更长版 |
-| `server/README.md` vs `server/README_v2.md` | 查 CHANGELOG | 以 `server/docs/CHANGELOG-A端_v2.md` 为准 |
+| ~~`server/README.md` vs `server/README_v2.md`~~ | **已归档（2026-09-23）** | 两份均为 L4 口径，已移至 `server_A/server/docs/archive/legacy-L4/server_A-layer/server/`；现行指南见仓库根 `AGENTS.md` |
 
 ---
 
@@ -99,7 +100,8 @@
 | 日期 | 操作 | 说明 |
 |------|------|------|
 | 2026-07-06 | 创建本文档 | 仅文档标记，**零文件移动、零删除** |
-| — | （待定） | 若执行 `_archive/` 迁移，在此追加 git mv 列表 |
+| 2026-09-03 | git mv ×3 | L4 A 端史料 → `server_A/server/docs/archive/legacy-L4/`（见 §2 已移动记录） |
+| 2026-09-23 | git mv ×10 + 删除 ×9 | `server_A/` 的 L4 文档层 → `legacy-L4/server_A-layer/`（按原路径保结构）；同时删除误建嵌套副本 `server_A/docs/docs/`。详见 §2 |
 
 ### 迁移模板（日后使用）
 
