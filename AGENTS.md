@@ -148,3 +148,18 @@ HAJIMI_UI\scripts\start_l5_sidecar.bat
 - **Redline is two-layered**: B-end `l5_query_normalize` first, Sidecar `redline_service`/`executor/safety` second; both must stay in sync (B-end loads rules from server_A source).
 - **Task storage is in-memory**: tasks/steps/state are lost on Sidecar restart (demo phase).
 - **.bat files**: must be GBK-encoded or pure ASCII, CRLF endings; never `echo` unescaped `( )` inside `if`/`for` parenthesized blocks (`HAJIMI_UI/scripts/dev/check_bat_parens.py` checks this).
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as GitHub issues, driven by the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical triage roles; each label string equals its role name. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
