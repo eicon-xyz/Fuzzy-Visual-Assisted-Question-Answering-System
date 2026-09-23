@@ -7,7 +7,7 @@
 ## 1. 事故概述
 
 **时间**：2026-09-23 15:14（Asia/Shanghai）
-**触发命令**：`git reset --hard origin/master`（`hajimi-eval` 从 `1459a290` 快进到 `14cc5b19`）
+**触发命令**：`git reset --hard origin/master`（`hajimi-eval` 从 **`60a9943c`** 快进到 `14cc5b19`；`60a9943c` 取自 reflog 15:14:03，**不是**更早的 `1459a290`，见 §6.3）
 **现象**：`server_A/` 下受跟踪文件中 **291 个从磁盘消失**（`git status` 显示为 291 条 ` D`）；磁盘上 `server_A` 全树仅存 2 个 `.py` 文件（即本次有变更、被写回的那两个测试文件）。注：事故当时 `server_A/` 受跟踪文件为 304 个，此处仅为叙事，**不是校验基准**——任何绝对数量都会随仓库演进过期，校验请用 §4 的自洽写法。
 **结果**：`git checkout-index -a -f` 全额恢复，四条验收通过，Sidecar 冒烟通过
 
@@ -15,14 +15,15 @@
 
 ## 2. 机理（推断）
 
-> **本节为推断。** 未抓到代理的行为日志，全部为间接证据。**本节全部内容均为推断**；步骤 2 的「（推断）」标注仅为强调，不代表其余条目已获证实。§3 的 9 条证据只用于说明"该推断与观测一致"，不构成证明。
+> **本节为推断。** 未抓到代理的行为日志，**本节全部内容均为推断**；步骤 2 的「（推断）」标注仅为强调，不代表其余条目已获证实。
+> 例外：**§3 证据 10** 是唯一接近直接观测的一条——它同时具备"删除痕迹"与"幸存结果"，直接证明「先删除、再写回」这个动作序列发生过。但它只覆盖 2 个文件，**不能证明"整目录删除"这个动作本身**，因此步骤 1 的整体范围仍属推断。§3 的 10 条证据只用于说明"该推断与观测一致"，不构成完整证明。
 
 代理的写盘方式为「**先删除，再写入**」：
 
 | 步骤 | 代理的行为 | 后果 |
 |---|---|---|
 | 1 | 把目标整棵子树删除（走 Windows 回收站 API，故进入 `$RECYCLE.BIN`） | 未跟踪文件（`__pycache__`/`.pyc`）一并被带走——git 绝不会碰未跟踪文件，这是"删除者不是 git"的最直接证据 |
-| 2 | （推断）只把本次有差异的文件写回（本例 30～41 个） | 其余未变更文件不会被写回，留在回收站 |
+| 2 | （推断）只把本次有差异的文件写回（本例精确为 **13 个**，核对过程见 §6.3） | 其余未变更文件不会被写回，留在回收站 |
 | 3 | 索引仍认为这些文件存在且内容匹配（stat 缓存未失效） | `git status` 此前显示"干净"，问题被隐藏到下次操作才暴露 |
 
 **风险面理论上不止于 `reset --hard`**：`git checkout`、`git switch`、`git stash`、`git restore`、大范围 `git checkout -- <path>` 等会批量重写工作区的操作，理论上适用同一机理；**但本次仅在 `reset --hard` 上得到观测**，其余命令未经验证，请按"可能"而非"必然"对待。
@@ -35,13 +36,14 @@
 |---|---|---|
 | 1 | 回收站 `$I*` 元数据解码：338 个条目，解码去重后 **332 条路径**（`hajimi-eval` 下 329 + 主仓库 `.git` 下 3），时间戳**全部集中在 2026-09-23 15:14**（同一批次另有 15:13 的 2 条） | 删除是**一次性**发生的，时刻与 `reset --hard` 重合（reflog：15:14:03 checkout / 15:14:29 reset） |
 | 2 | 回收站时间分布中 **09-16 ～ 09-22 无任何条目**；09-15 只有 B1 校准期的零星条目 | 排除"09-15 之后被人手工删除/ `git clean` 过"的假设 |
-| 3 | `git diff --name-status 1459a290 14cc5b19 -- server_A/` 仅 **22 条路径**（9D / 3M / 10R），全仓 31 文件 | reset 本不该触碰 291 个文件 |
+| 3 | `git diff --name-status 60a9943c 14cc5b19 -- server_A/` 仅 **22 条路径**（9D / 3M / 10R），全仓 31 文件（3A / 9D / 9M / 10R） | reset 本不该触碰 291 个文件。基准必须是 `60a9943c`；若误用更早的 `1459a290`，该命令会输出 30 条 / 全仓 39 文件，与此处数字不符——见 §6.3 |
 | 4 | 被删的 `defaults.py` / `run_eval.py` / `providers.py` / `fonts.py` / `test_perception.py` 在 `14cc5b19` 中均存在（`cat-file -e` 通过） | 这些文件属于"不应被删"的范畴 |
 | 5 | 回收站中存在未跟踪路径 `__pycache__` / `*.pyc` / `server_A\data\*` | 非 git 行为（git 不动未跟踪文件，且 git 的 unlink 不会进回收站） |
 | 6 | Windows Defender：`Get-MpThreatDetection` 为空；`wevtutil` 唯一 1116 事件是 `SakuraFrpLauncher.exe`（`Trojan:Win32/Kepavll!rfn`），0 条 1117 | **排除杀毒误报** |
 | 7 | `D:\` 为普通本地盘（含 `$RECYCLE.BIN`、`System Volume Information`），无同步目录指向 `D:\HAJIMI_B` | **排除云同步** |
 | 8 | PowerShell / shell 历史中无任何针对 `server_A` 或 `hajimi-eval` 的删除命令 | **排除历史清理命令** |
-| 9 | 幸存文件恰好是本次差异文件（`test_calib.py`、`test_waa_pilot.py`） | 与"只写回差异文件"的模型吻合（支持，非证明） |
+| 9 | 幸存文件恰好是本次差异文件（详见 §6.3 的 13 个清单） | 与"只写回差异文件"的模型吻合（支持，非证明） |
+| 10 | 13 个应写回文件中，`test_calib.py` 与 `test_waa_pilot.py` **既出现在回收站 15:14 批次中，又在磁盘上完好存在** | **最接近直接观测的一条**：这两个文件删除前就在磁盘上（属 `M` 类），被删除后又被写回，因此同时留下删除痕迹与磁盘副本。它直接证明了「先删除、再写回」这一动作序列确实发生过——区别于其余只证明"文件消失了"的间接证据 |
 
 ## 4. 修复方法
 
@@ -193,6 +195,57 @@ _DEFAULT_DIR = _REPO_ROOT / "server_A" / "data" / "eval"
 
 **结论**：数据库基线未丢失（主仓库那份完好，可直接用于对照）；响应时间 / 准确率的遥测基线（`runs.jsonl`）**确认丢失，只能重跑重建**。后续跑分建议把 `server_A/data/eval/` 纳入定期备份，因为它既不受版本控制保护，也不在回收站里留内容。
 
+### 6.3 应写回 13 个：数字闭环，兼答"差额 8"
+
+复核时发现一个**极易踩的坑**：reset 前的 HEAD 是 **`60a9943c`**，不是 `1459a290`。
+
+```
+reflog:
+  14cc5b19 HEAD@{15:14:29}  reset: moving to origin/master
+  60a9943c HEAD@{15:14:03}  checkout: moving from master to master   ← reset 前的真实 HEAD
+```
+
+`1459a290` 是 `60a9943c` 的**更早祖先**（两者之间夹着 4 个 B1 校准提交：`da0d7cff`、`c53de7b6`、`f31a64e8`、`60a9943c`）。用错基准会直接算错应写回数：
+
+| 基准 | `server_A/` 下变更行数 | 构成 | 应写回（`M` + `R` 的新路径） |
+|---|---|---|---|
+| `1459a290 → 14cc5b19`（**错误基准**） | 30 | 6A + 9D + 5M + 10R | 21 |
+| `60a9943c → 14cc5b19`（**正确基准**） | 22 | 9D + 3M + 10R | **13** |
+
+**差额 8 条的精确来源**——全部是 `1459a290 → 60a9943c` 之间那 4 个 B1 校准提交引入、且在 `60a9943c` 时**已经落地**的变更，因此在本次 reset 中不属于"差异文件"：
+
+```
+A  server_A/eval/calib_evidence/agent_log_2026-09-15.md
+A  server_A/eval/calib_evidence/signoff_b1.md
+A  server_A/eval/calib_evidence/task1_notepad_type_save_do.ps1
+A  server_A/eval/calib_evidence/task2_explorer_rename_file_do.ps1
+A  server_A/eval/calib_evidence/task3_explorer_new_folder_do.ps1
+A  server_A/eval/calib_evidence/task4_notepad_type_chinese_do.ps1
+M  server_A/eval/tasks/seed.json
+M  server_A/server/tests/test_eval_tasks.py
+```
+
+**闭环验证（三个数字互相咬合）：**
+
+```
+14cc5b19 中 server_A/ 受跟踪文件数        = 304
+应写回（3 个 M + 10 个 R 的新路径）        =  13
+304 − 291（消失）                          =  13   ✅ 与应写回数完全相等
+```
+
+**因此 §6.0 标为权威口径的 291 无需修正。** 本文不采纳"缺失应为 283"的推算——那是基于错误基准 `1459a290` 得出的；正确基准下 21 应为 13，与 304−291 严丝合缝。
+
+**13 个应写回文件的完整清单**（均位于 `server_A/` 下）：
+
+| 类别 | 数量 | 路径 |
+|---|---|---|
+| `M`（修改） | 3 | `server/server/docs/archive/legacy-L4/README.md`、`server/tests/test_calib.py`、`server/tests/test_waa_pilot.py` |
+| `R` 的新路径（重命名目标） | 10 | `server/docs/archive/legacy-L4/server_A-layer/` 下的 `README.md`、`docs/{API-CONTRACT, BACKEND-CHECKLIST, DEV-GUIDE, UI-SPEC, api-admin-users, api-auth, api-reference}.md`、`server/{README, README_v2}.md` |
+
+其中 `test_calib.py` 与 `test_waa_pilot.py` **同时存在于回收站与磁盘上**——这正是 §3 证据 10，也是"先删除、再写回"最接近直接观测的一条证据。
+
+> **本次基准修正的波及范围**：同一处基准混淆（`1459a290` vs `60a9943c`）曾同时污染三处，均已修正为 `60a9943c`——**§1 触发命令的 from-commit**、**§3 证据 3 的命令行**（其"全仓 31 文件"其实一直属于 `60a9943c` 口径，只有 hash 写错）、以及本文 §6.3 的应写回数。核对时可用一条命令自查：`git diff --name-status <基准> 14cc5b19 -- server_A/ | wc -l`，**输出 22 才是正确基准**。
+
 ## 7. 附录：取证命令（可复用）
 
 **第 0 步：拿到当前用户的 SID**（回收站目录名就是它，后面全部用到 `<SID>`）：
@@ -222,8 +275,15 @@ Get-ChildItem "D:\`$RECYCLE.BIN\<SID>" -Force |
 `$I` 是 UTF-16LE。**bash 用 `tr` 去 NUL，不要用 `iconv`**——`iconv` 遇到非法序列会中途停止，只解出前一部分。
 
 ```bash
+# 单条
 tr -d '\000' < "D:/\$RECYCLE.BIN/<SID>/\$IXXXX" | grep -ao "D:.HAJIMI_B[A-Za-z0-9_.\\/-]*"
+
+# 全量（推荐）：一次解出所有 $I，输出即为命令 3 的输入 all_i.txt
+cat "D:/\$RECYCLE.BIN/<SID>"/\$I* | tr -d '\000' \
+  | grep -ao "D:.HAJIMI_B[A-Za-z0-9_.\\/-]*" | sort -u > all_i.txt
 ```
+
+> 下文命令 3 的输入统一为 **`all_i.txt`**（本命令全量版的产物）。
 
 ```powershell
 # 单条
@@ -239,21 +299,31 @@ Get-ChildItem "D:\`$RECYCLE.BIN\<SID>" -Force -Filter '$I*' | ForEach-Object {
 
 ### 3) 差集：真正未跟踪的丢失
 
-两个坑（详见 §6.0）：① 索引用**删除前后并集**，否则会把本次正常删除的文件误算成丢失；② 路径筛选用**严格前缀**，不要用 `grep "hajimi-eval"` 字符串匹配——主仓库 `.git\worktrees\hajimi-eval\` 下的文件会被误纳入。
+三个坑（详见 §6.0、§6.3）：
+
+① 索引用**删除前后并集**，否则会把本次正常删除的文件误算成丢失。
+② 路径筛选用**严格前缀**，不要用 `grep "hajimi-eval"` 字符串匹配——主仓库 `.git\worktrees\hajimi-eval\` 下的文件会被误纳入。
+③ `<旧HEAD>` 必须是**事故发生前那一刻**的 HEAD，用 reflog 取，**不要凭记忆或按分支推断**：
 
 ```bash
-grep -a "^D:.HAJIMI_B.hajimi-eval." all_paths.txt \
+git reflog --date=iso | head        # 找 reset/checkout 之前的那一行
+# 本例：15:14:03 checkout 时的 60a9943c。
+# 注意它不是更早的 1459a290——用错基准会多算 8 条，见 §6.3。
+```
+
+```bash
+grep -a "^D:.HAJIMI_B.hajimi-eval." all_i.txt \
   | sed 's|^D:.HAJIMI_B.hajimi-eval.||' | tr '\\' '/' | sort -u > lost_relative_paths.txt
 
-git ls-tree -r --name-only HEAD     > tracked_new.txt
-git ls-tree -r --name-only <旧HEAD> > tracked_old.txt
+git ls-tree -r --name-only HEAD        > tracked_new.txt
+git ls-tree -r --name-only <旧HEAD>    > tracked_old.txt
 cat tracked_new.txt tracked_old.txt | sort -u > tracked_all.txt
 grep -vxF -f tracked_all.txt lost_relative_paths.txt
 ```
 
 ```powershell
 # 严格前缀筛选 + 转相对路径
-Get-Content all_paths.txt |
+Get-Content all_i.txt |
   Where-Object { $_ -like 'D:\HAJIMI_B\hajimi-eval\*' } |
   ForEach-Object { ($_ -replace '^D:\\HAJIMI_B\\hajimi-eval\\','').Replace('\','/') } |
   Sort-Object -Unique | Out-File -Encoding utf8 lost_relative_paths.txt
@@ -297,16 +367,23 @@ $r = Get-ChildItem "D:\`$RECYCLE.BIN\<SID>" -Force | Where-Object Name -like '$R
 | 操作 | 首次 | 结果 |
 |---|---|---|
 | `git push origin master`（第 1 次） | 失败：`Host key verification failed`（`known_hosts` Permission denied） | 带 `escalation-approved` 重试一次通过：`14cc5b19..bdd1e7be master -> master` |
-| `git push origin master`（第 2、3 次） | 权限请求**未获批准** | 未执行，改由人工在沙箱外推送 |
+| `git push origin master`（第 2、3、4 次） | 权限请求**未获批准** | 未执行，改由人工在沙箱外推送 |
 | `git ls-remote origin HEAD` | — | 正常 |
 | `git fetch origin master` | — | 正常 |
 | `git rev-parse origin/master` | — | 正常，确认为 `bdd1e7be` |
 
-**批准的实际情况**：放行由人工判断，**可能被拒，且被拒是常态**。同一天（2026-09-23）内共 **3 次 `git push`**：第 1 次带 `escalation-approved` 一次通过；**第 2、3 次权限请求均未获批准**（沙箱列出的被挡路径为 `~/.ssh/*` 全目录，含 `config`、`id_rsa`、`id_ed25519`、`known_hosts` 等 21 项）。通过率约 1/3。
+**批准的实际情况**：放行由人工判断，**可能被拒，且被拒是常态**。同一天（2026-09-23）内共 **4 次 `git push`**：第 1 次带 `escalation-approved` 一次通过；**第 2、3、4 次权限请求均未获批准**（沙箱列出的被挡路径为 `~/.ssh/*` 全目录，含 `config`、`id_rsa`、`id_ed25519`、`known_hosts` 等 21 项）。**通过率约 1/4**。
 
 因此**不要假设"一定会放行"**——被拒时把阻塞如实上报即可，不要改用变通手段绕过；真正的解法是下面的首选修复。按此通过率，`grill → spec → implement → review → retro` 这类需要高频网络操作的流程在本环境下基本不可行，**应先解决白名单再开工**。
 
-**影响**：agent 可以完整做到 commit，**push 需要一次批准**。因此 `ready-for-agent` 的语义**不受影响**，但纪律中应写明：**网络 git 操作预期会触发一次批准，属正常流程，不要视为阻塞、也不要为此改用变通手段绕过沙箱。**
+**对 `ready-for-agent` 的影响**：**取决于白名单是否解决**，两种情形结论相反：
+
+| 情形 | agent 能力 | `ready-for-agent` 语义 |
+|---|---|---|
+| **白名单已解决** | 网络操作与本地操作无异，push / fetch / 建 issue 全自主 | **不受影响**，按原定义使用 |
+| **白名单未解决**（当前状态） | 可完整做到 commit，**push 由人执行**；`gh` 亦不可用 | **受影响**：按 1/4 的通过率，凡需要高频网络操作的流程**不应标为 `ready-for-agent`**（其定义是 "Fully specified, ready for an AFK agent"，而一个推不上去的 agent 不是 fully AFK）。此时该标签应理解为「**agent 可完成到 commit，push 由人执行**」 |
+
+纪律中应写明：**网络 git 操作预期会触发一次批准且可能被拒，属正常流程，不要视为阻塞、也不要为此改用变通手段绕过沙箱。**
 
 **首选修复**：把 `~/.ssh/` 加入沙箱允许读取路径（只读密钥与 `known_hosts`，不写入，风险面小），以消除每次批准。
 
