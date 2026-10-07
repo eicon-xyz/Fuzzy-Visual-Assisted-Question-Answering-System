@@ -153,7 +153,7 @@ HAJIMI_UI\scripts\start_l5_sidecar.bat
 
 ### Issue tracker
 
-Issues and specs live as GitHub issues, driven by the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues and specs live as local markdown under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
@@ -161,5 +161,5 @@ Five canonical triage roles; each label string equals its role name. See `docs/a
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Single-context: `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
