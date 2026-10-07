@@ -153,149 +153,6 @@ class SettingsFieldRow(QWidget):
         self.input.setEnabled(enabled)
 
 
-class DeploymentModeGroup(QFrame):
-    mode_changed = pyqtSignal(str)
-
-    def __init__(self, parent=None, *, embedded: bool = False):
-        super().__init__(parent)
-        if not embedded:
-            self.setObjectName("Card")
-        layout = QVBoxLayout(self)
-        margins = (0, 0, 0, 0) if embedded else (16, 16, 16, 16)
-        layout.setContentsMargins(*margins)
-        layout.setSpacing(8)
-
-        title = QLabel("部署模式")
-        title.setObjectName("SectionTitle" if embedded else "SectionTitle")
-        layout.addWidget(title)
-
-        hint = QLabel(
-            "GPU API（推荐）：本机 A 端 + SSH 隧道 :9800；"
-            "本地 CPU：本机 OmniParser :8002 + A 端；"
-            "内网 API：仅连远程 A 端（需校园网/VPN）"
-        )
-        hint.setObjectName("HintTextSmall")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-
-        self._gpu_api = QRadioButton("GPU API（推荐）")
-        self._gpu_api.setObjectName("SettingsRadio")
-        self._local = QRadioButton("本地 CPU")
-        self._local.setObjectName("SettingsRadio")
-        self._intranet = QRadioButton("内网 API")
-        self._intranet.setObjectName("SettingsRadio")
-        self._gpu_api.setChecked(True)
-
-        self._group = QButtonGroup(self)
-        self._group.addButton(self._gpu_api, 0)
-        self._group.addButton(self._local, 1)
-        self._group.addButton(self._intranet, 2)
-        self._group.buttonClicked.connect(self._on_click)
-
-        row = QHBoxLayout()
-        row.setSpacing(12)
-        row.addWidget(self._gpu_api)
-        row.addWidget(self._local)
-        row.addWidget(self._intranet)
-        row.addStretch()
-        layout.addLayout(row)
-
-    def _on_click(self):
-        self.mode_changed.emit(self.current_mode())
-
-    def current_mode(self) -> str:
-        if self._intranet.isChecked():
-            return "intranet"
-        if self._local.isChecked():
-            return "local"
-        return "gpu_api"
-
-    def set_mode(self, mode: str) -> None:
-        if mode == "intranet":
-            self._intranet.setChecked(True)
-        elif mode == "local":
-            self._local.setChecked(True)
-        else:
-            self._gpu_api.setChecked(True)
-
-
-class GuidanceRouteGroup(QFrame):
-    """指引路由：显式 L4 / L3_DEFERRED / L3 / 自动。"""
-
-    mode_changed = pyqtSignal(str)
-
-    _MODES = (
-        ("l5", "L5 自动执行（默认）", "Agent 自动操作本机鼠标键盘；步骤保留在时间线，完成后可切 balanced/fast 做纯指引"),
-        ("fast", "L4 Vision 快路径", "跳过 OmniParser，Planner+Locator Vision，仅需 A 端+LLM"),
-        ("balanced", "L3 逐步 Vision", "先文本规划，每步 Vision 定位，屏幕红框指引，不需 OmniParser"),
-        ("precision", "L3 OmniParser 精准", "全屏 UI 检测 + 元素绑定，需 GPU/CPU 检测服务"),
-        ("auto", "自动选择（不含 L5）", "有截图时优先 L4，模板/浏览器等自动分流"),
-    )
-
-    def __init__(self, parent=None, *, embedded: bool = False):
-        super().__init__(parent)
-        if not embedded:
-            self.setObjectName("Card")
-        layout = QVBoxLayout(self)
-        margins = (0, 0, 0, 0) if embedded else (16, 16, 16, 16)
-        layout.setContentsMargins(*margins)
-        layout.setSpacing(8)
-
-        title = QLabel("指引路由")
-        title.setObjectName("SectionTitle")
-        layout.addWidget(title)
-
-        hint = QLabel(
-            "选择任务处理路径。默认 L5 为自动执行（会操作本机鼠标键盘），"
-            "步骤保留在时间线供回看；仅需屏幕红框指引时选 L4/L3。"
-        )
-        hint.setObjectName("HintTextSmall")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-
-        self._buttons: dict[str, QRadioButton] = {}
-        self._group = QButtonGroup(self)
-        for idx, (mode_id, label, _desc) in enumerate(self._MODES):
-            rb = QRadioButton(label)
-            rb.setObjectName("SettingsRadio")
-            self._group.addButton(rb, idx)
-            self._buttons[mode_id] = rb
-            layout.addWidget(rb)
-        self._buttons["l5"].setChecked(True)
-        self._group.buttonClicked.connect(self._on_click)
-
-        self._mode_hint = QLabel(self._MODES[0][2])
-        self._mode_hint.setObjectName("HintTextSmall")
-        self._mode_hint.setWordWrap(True)
-        layout.addWidget(self._mode_hint)
-
-    def _on_click(self):
-        mode = self.current_mode()
-        for mid, _label, desc in self._MODES:
-            if mid == mode:
-                self._mode_hint.setText(desc)
-                break
-        self.mode_changed.emit(mode)
-
-    def current_mode(self) -> str:
-        for mode_id, rb in self._buttons.items():
-            if rb.isChecked():
-                return mode_id
-        return "l5"
-
-    def set_mode(self, mode: str) -> None:
-        target = mode if mode in self._buttons else "l5"
-        self._buttons[target].setChecked(True)
-        for mid, _label, desc in self._MODES:
-            if mid == target:
-                self._mode_hint.setText(desc)
-                break
-
-
-# 兼容旧引用
-SpeedModeGroup = GuidanceRouteGroup
-
-
 class L5ExecutionGroup(QFrame):
     """L5 自动执行：桌面标注与快捷键。"""
 
@@ -336,80 +193,8 @@ class L5ExecutionGroup(QFrame):
         }
 
 
-class L4VisionGroup(QFrame):
-    """L4 Vision 快路径：Planner / Locator 模型与 Pipeline 开关。"""
-
-    def __init__(self, parent=None, *, embedded: bool = False):
-        super().__init__(parent)
-        if not embedded:
-            self.setObjectName("Card")
-        layout = QVBoxLayout(self)
-        margins = (0, 0, 0, 0) if embedded else (16, 16, 16, 16)
-        layout.setContentsMargins(*margins)
-        layout.setSpacing(8)
-
-        title = QLabel("L4 Vision")
-        title.setObjectName("SectionTitle")
-        layout.addWidget(title)
-
-        hint = QLabel(
-            "快速路由下使用。Planner 默认纯文本规划；Locator 必须支持识图（Vision）。"
-            "留空则 Planner 用 DeepSeek、Locator 用上方「问答模型名」。"
-            "保存后写入 server/.env，本地/GPU 模式会自动重启 A 端。"
-        )
-        hint.setObjectName("HintTextSmall")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-
-        self._field_planner = SettingsFieldRow(
-            "L4 Planner 模型",
-            "留空=DeepSeek，如 deepseek-chat",
-        )
-        self._field_locator = SettingsFieldRow(
-            "L4 Locator 模型",
-            "gpt-5.5（Vision 识图定位）",
-        )
-        layout.addWidget(self._field_planner)
-        layout.addWidget(self._field_locator)
-
-        self._planner_vision = QCheckBox("Planner 规划时也传截图（默认关，更省 token）")
-        self._planner_vision.setObjectName("SettingsRadio")
-        self._strict_locate = QCheckBox("Strict 定位：无坐标时自动重试一次")
-        self._strict_locate.setObjectName("SettingsRadio")
-        self._pipeline = QCheckBox("轻量 Pipeline：屏幕摘要 + UIA 窗口提示")
-        self._pipeline.setObjectName("SettingsRadio")
-        self._strict_locate.setChecked(True)
-        self._pipeline.setChecked(True)
-
-        for cb in (self._planner_vision, self._strict_locate, self._pipeline):
-            layout.addWidget(cb)
-
-    def set_values(self, data: dict) -> None:
-        self._field_planner.set_text(data.get("planner_model", ""))
-        self._field_locator.set_text(data.get("locator_model", ""))
-        self._planner_vision.setChecked(bool(data.get("planner_use_vision")))
-        self._strict_locate.setChecked(bool(data.get("strict_locate", True)))
-        self._pipeline.setChecked(bool(data.get("pipeline_enabled", True)))
-
-    def get_values(self) -> dict:
-        return {
-            "planner_model": self._field_planner.text(),
-            "locator_model": self._field_locator.text(),
-            "planner_use_vision": self._planner_vision.isChecked(),
-            "strict_locate": self._strict_locate.isChecked(),
-            "pipeline_enabled": self._pipeline.isChecked(),
-        }
-
-    def set_enabled(self, enabled: bool) -> None:
-        self._field_planner.set_enabled(enabled)
-        self._field_locator.set_enabled(enabled)
-        self._planner_vision.setEnabled(enabled)
-        self._strict_locate.setEnabled(enabled)
-        self._pipeline.setEnabled(enabled)
-
-
 class ModelSettingsGroup(QFrame):
-    """部署 / 路由 / 模型 API / L4 — 单卡片 + 独立保存。"""
+    """模型 API / L5 自动执行 — 单卡片 + 独立保存（写入 server_A Sidecar .env）。"""
 
     model_save_requested = pyqtSignal()
 
@@ -424,11 +209,13 @@ class ModelSettingsGroup(QFrame):
         title.setObjectName("CardTitle")
         layout.addWidget(title)
 
-        self.deployment = DeploymentModeGroup(embedded=True)
-        layout.addWidget(self.deployment)
-
-        self.guidance = GuidanceRouteGroup(embedded=True)
-        layout.addWidget(self.guidance)
+        mode_hint = QLabel(
+            "当前版本仅保留 L5 自动执行模式（Sidecar :8011，UIA 绑定 + Playwright DOM）。"
+            "L4 指引模式与 OmniParser 检测已移除。"
+        )
+        mode_hint.setObjectName("HintTextSmall")
+        mode_hint.setWordWrap(True)
+        layout.addWidget(mode_hint)
 
         self.l5_exec = L5ExecutionGroup(embedded=True)
         layout.addWidget(self.l5_exec)
@@ -437,42 +224,25 @@ class ModelSettingsGroup(QFrame):
         api_title.setObjectName("SectionTitle")
         layout.addWidget(api_title)
 
-        from core.defaults import DEFAULT_OMNI_GPU_API_URL
-
-        self.field_a_url = SettingsFieldRow(
-            "内网 A 端地址",
-            "内网联调填远程 :8010；本地 L5 默认走 server_A :8011",
-        )
         self.field_demo_key = SettingsFieldRow("Demo Key", "hajimi-demo-2026")
         self.field_llm_base = SettingsFieldRow(
-            "问答 API Base", "https://www.daseinai.xyz/v1"
+            "问答 API Base", "https://api.deepseek.com"
         )
         self.field_llm_key = SettingsFieldRow("问答 API Key", "", password=True)
-        self.field_llm_model = SettingsFieldRow("问答模型名", "gpt-5.5")
-        self.field_omni_url = SettingsFieldRow("OmniParser 地址", DEFAULT_OMNI_GPU_API_URL)
-        self.field_omni_gpu = SettingsFieldRow(
-            "OmniParser GPU", "可选，SSH 隧道端口如 http://127.0.0.1:8002"
-        )
+        self.field_llm_model = SettingsFieldRow("问答模型名", "deepseek-chat")
         for row in (
-            self.field_a_url,
             self.field_demo_key,
             self.field_llm_base,
             self.field_llm_key,
             self.field_llm_model,
-            self.field_omni_url,
-            self.field_omni_gpu,
         ):
             layout.addWidget(row)
-
-        self.l4 = L4VisionGroup(embedded=True)
-        layout.addWidget(self.l4)
 
         proxy_title = QLabel("网络代理（仅 B 端 / Google ASR）")
         proxy_title.setObjectName("SectionTitle")
         layout.addWidget(proxy_title)
         proxy_hint = QLabel(
-            "默认关闭，不影响「启动本地」的 A/隧道。"
-            " 启用后写入当前 B 进程环境变量；本机 127.0.0.1 已加入 NO_PROXY。"
+            "默认关闭。 启用后写入当前 B 进程环境变量；本机 127.0.0.1 已加入 NO_PROXY。"
             " 需 Clash 等代理已运行。"
         )
         proxy_hint.setObjectName("HintTextSmall")
@@ -524,15 +294,10 @@ class ModelSettingsGroup(QFrame):
 
     def settings_inputs(self) -> list:
         return [
-            self.field_a_url.input,
             self.field_demo_key.input,
             self.field_llm_base.input,
             self.field_llm_key.input,
             self.field_llm_model.input,
-            self.field_omni_url.input,
-            self.field_omni_gpu.input,
-            self.l4._field_planner.input,
-            self.l4._field_locator.input,
             self.field_http_proxy.input,
             self.field_https_proxy.input,
         ]

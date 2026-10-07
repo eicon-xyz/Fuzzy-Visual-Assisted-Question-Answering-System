@@ -4,4 +4,9 @@ __pycache__/
 .env
 校园gpu使用.md
 data/hajimi.db*
+data/eval/
 OmniParser/
+
+# 测试运行产物
+.coverage
+coverage_current.json

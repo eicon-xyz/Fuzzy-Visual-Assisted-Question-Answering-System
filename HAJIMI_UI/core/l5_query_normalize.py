@@ -3,7 +3,29 @@ from __future__ import annotations
 
 import re
 
-from server.services.redline_service import check_redline
+from core.sidecar_modules import get_redline_check
+
+
+class _NoRedline:
+    """Sidecar 红线规则不可达时的降级结果：未触发，按归一化字面规则改写。"""
+
+    triggered = False
+    category = ""
+
+
+def _check(query: str):
+    fn = get_redline_check()
+    if fn is None:
+        return _NoRedline()
+    try:
+        return fn(query)
+    except Exception:
+        return _NoRedline()
+
+
+def _redline_available() -> bool:
+    return get_redline_check() is not None
+
 
 _PREFIX_RE = re.compile(r"^(请)?(帮我|替我|代我)\s*")
 
@@ -53,7 +75,7 @@ def _collapse_ws(text: str) -> str:
 
 
 def _physical_triggered(query: str) -> bool:
-    result = check_redline(query)
+    result = _check(query)
     return result.triggered and result.category == "physical_operation"
 
 
@@ -67,7 +89,7 @@ def normalize_l5_execute_query(query: str) -> str:
     if not original:
         return original
 
-    initial = check_redline(original)
+    initial = _check(original)
     if initial.triggered and initial.category != "physical_operation":
         return original
 

@@ -12,12 +12,10 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPalette, QColor
 
 from core.auth_session import is_session_valid
-from core.deployment_resolver import get_startup_hints
 from core.user_settings import apply_user_settings, load_user_settings
 
 _settings = load_user_settings()
 apply_user_settings(_settings)
-STARTUP_HINTS = get_startup_hints(_settings)
 
 from ui.main_widget import MainWidget
 from ui.native.login_dialog import LoginDialog
@@ -60,6 +58,6 @@ if __name__ == "__main__":
             if login_dlg.exec_() != QDialog.Accepted:
                 sys.exit(0)
 
-    widget = MainWidget(startup_hints=STARTUP_HINTS)
+    widget = MainWidget(startup_hints=[])
     widget.show()
     sys.exit(app.exec_())

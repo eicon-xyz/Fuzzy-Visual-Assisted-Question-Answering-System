@@ -21,7 +21,6 @@ from config import (
     MEDIUM_WIDTH,
     MEDIUM_HEIGHT,
 )
-from core.defaults import DEFAULT_OMNI_GPU_API_URL, DEFAULT_OMNI_LOCAL_URL
 from core.user_settings import load_user_settings
 from ui.native.window_state import clamp_size, _screen_max
 from ui.chat_bubble import ChatBubble
@@ -68,7 +67,6 @@ from ui.native.settings_widgets import (
 PANEL_LABELS = {
     "guide": "操作指引",
     "steps": "步骤列表",
-    "blueprint": "任务蓝图",
     "notifications": "提醒通知",
     "settings": "系统设置",
 }
@@ -76,14 +74,14 @@ PANEL_LABELS = {
 NAV_KEYS = list(PANEL_LABELS.keys())
 
 _WELCOME_TEXT = (
-    "你好！我是 HAJIMI 智能桌面指引助手。你可以问我类似于「怎么安装微信？」"
-    "或「如何保存文档？」的操作问题。"
+    "你好！我是 HAJIMI 智能桌面助手（L5 自动执行模式）。"
+    "直接下达操作指令，例如「打开记事本并输入你好」，"
+    "HAJIMI 会自动操作鼠标键盘完成任务；执行前请确保屏幕无敏感内容。"
 )
 
 PANEL_MODE_LEVEL = {
     "guide": 3,
     "steps": 2,
-    "blueprint": 1,
     "notifications": 3,
     "settings": 3,
 }
@@ -109,16 +107,11 @@ class MediumPanel(QWidget):
 
     send_clicked = pyqtSignal(str)
     next_clicked = pyqtSignal()
-    prev_clicked = pyqtSignal()
     stop_clicked = pyqtSignal()
     compact_requested = pyqtSignal()
     drag_requested = pyqtSignal()
-    inspect_requested = pyqtSignal()
-    inspect_exit_requested = pyqtSignal()
     start_services_requested = pyqtSignal()
-    gpu_one_click_requested = pyqtSignal()
     stop_services_requested = pyqtSignal()
-    chain_diagnostic_requested = pyqtSignal()
     model_settings_saved = pyqtSignal(dict)
     appearance_settings_saved = pyqtSignal(dict)
     voice_settings_saved = pyqtSignal(dict)
@@ -126,7 +119,6 @@ class MediumPanel(QWidget):
     mic_clicked = pyqtSignal()
     panel_resize_requested = pyqtSignal(int, int)
     panel_restore_size = pyqtSignal()
-    prepare_banner_clicked = pyqtSignal()
     quit_requested = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -207,7 +199,6 @@ class MediumPanel(QWidget):
         make_widget_transparent(self._pages)
         self._pages.addWidget(self._build_guide_page())
         self._pages.addWidget(self._build_steps_page())
-        self._pages.addWidget(self._build_blueprint_page())
         self._pages.addWidget(self._build_notifications_page())
         self._pages.addWidget(self._build_settings_page())
         cw_layout.addWidget(self._pages)
@@ -215,17 +206,9 @@ class MediumPanel(QWidget):
         self._content_scroll.setWidget(content_wrap)
         main_col.addWidget(self._content_scroll, 1)
 
-        self._prepare_banner = self._build_prepare_banner()
-        self._prepare_banner.hide()
-        main_col.addWidget(self._prepare_banner)
-
         self._step_controls = self._build_step_controls()
         self._step_controls.hide()
         main_col.addWidget(self._step_controls)
-
-        self._inspect_bar = self._build_inspect_bar()
-        self._inspect_bar.hide()
-        main_col.addWidget(self._inspect_bar)
 
         self._input_dock = self._build_input_dock()
         main_col.addWidget(self._input_dock)
@@ -290,7 +273,7 @@ class MediumPanel(QWidget):
             tooltip = ""
             breath = status == "processing" and not self._connection_error
         elif self._connection_error:
-            status, label = "error", "A端不可达"
+            status, label = "error", "Sidecar 不可达"
             tooltip = self._connection_tooltip
             breath = False
         else:
@@ -465,41 +448,6 @@ class MediumPanel(QWidget):
         self._l5_completed = False
         return page
 
-    def _build_blueprint_page(self) -> QWidget:
-        page = QWidget()
-        page.setObjectName("MediumPage")
-        make_widget_transparent(page)
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        card = QFrame()
-        card.setObjectName("Card")
-        cl = QVBoxLayout(card)
-        cl.setContentsMargins(16, 16, 16, 16)
-        cl.setSpacing(10)
-        title = QLabel("Task Blueprint")
-        title.setObjectName("CardTitle")
-        cl.addWidget(title)
-        meta = QHBoxLayout()
-        meta.setSpacing(12)
-        self._bp_count = QLabel("0 steps")
-        self._bp_count.setObjectName("MetaRowLabel")
-        self._bp_progress = QLabel("0 / 0")
-        self._bp_progress.setObjectName("MetaRowLabel")
-        meta.addWidget(self._bp_count)
-        meta.addWidget(self._bp_progress)
-        meta.addStretch()
-        cl.addLayout(meta)
-        self._bp_bar = QProgressBar()
-        self._bp_bar.setObjectName("BlueprintProgress")
-        self._bp_bar.setTextVisible(False)
-        self._bp_bar.setFixedHeight(3)
-        cl.addWidget(self._bp_bar)
-        self._blueprint_list = StepListWidget()
-        cl.addWidget(self._blueprint_list)
-        layout.addWidget(card)
-        layout.addStretch()
-        return page
-
     def _build_notifications_page(self) -> QWidget:
         page = QWidget()
         page.setObjectName("MediumPage")
@@ -562,19 +510,11 @@ class MediumPanel(QWidget):
 
         self._model_group = ModelSettingsGroup()
         self._model_group.model_save_requested.connect(self._save_model_settings)
-        self._model_group.deployment.mode_changed.connect(self._on_deployment_mode_changed)
-        self._model_group.guidance.mode_changed.connect(self._apply_guidance_route_ui)
-        self._deployment_mode = self._model_group.deployment
-        self._guidance_route = self._model_group.guidance
         self._l5_exec_group = self._model_group.l5_exec
-        self._l4_group = self._model_group.l4
-        self._field_a_url = self._model_group.field_a_url
         self._field_demo_key = self._model_group.field_demo_key
         self._field_llm_base = self._model_group.field_llm_base
         self._field_llm_key = self._model_group.field_llm_key
         self._field_llm_model = self._model_group.field_llm_model
-        self._field_omni_url = self._model_group.field_omni_url
-        self._field_omni_gpu = self._model_group.field_omni_gpu
         il.addWidget(self._model_group)
 
         self._appearance_group = UiAppearanceGroup()
@@ -604,31 +544,7 @@ class MediumPanel(QWidget):
         dev_title.setObjectName("SectionTitle")
         dl.addWidget(dev_title)
 
-        inspect_row = QHBoxLayout()
-        self._inspect_btn = QPushButton("立即检测当前屏幕")
-        self._inspect_btn.setObjectName("StepBtnPrimary")
-        self._inspect_btn.clicked.connect(self.inspect_requested.emit)
-        inspect_row.addWidget(self._inspect_btn)
-        exit_btn = QPushButton("退出检验")
-        exit_btn.setObjectName("StepBtn")
-        exit_btn.clicked.connect(self.inspect_exit_requested.emit)
-        inspect_row.addWidget(exit_btn)
-        dl.addLayout(inspect_row)
-
-        self._inspect_status = QLabel("检验模式：未运行")
-        self._inspect_status.setObjectName("HintText")
-        self._inspect_status.setWordWrap(True)
-        dl.addWidget(self._inspect_status)
-
-        self._inspect_hint = QLabel(
-            "GPU API 模式约 2–5 秒；本地 CPU 约 2–4 分钟。检测期间请勿重复点击。"
-        )
-        self._inspect_hint.setObjectName("HintTextSmall")
-        self._inspect_hint.setWordWrap(True)
-        dl.addWidget(self._inspect_hint)
-
-        dl.addSpacing(8)
-        svc_title = QLabel("后端服务")
+        svc_title = QLabel("后端服务（L5 Sidecar :8011）")
         svc_title.setObjectName("SectionTitle")
         dl.addWidget(svc_title)
 
@@ -638,47 +554,24 @@ class MediumPanel(QWidget):
         dl.addWidget(self._api_lbl)
 
         svc_row = QHBoxLayout()
-        self._start_services_btn = QPushButton("启动 A 端")
+        self._start_services_btn = QPushButton("重启 L5 Sidecar")
         self._start_services_btn.setObjectName("StepBtnPrimary")
         self._start_services_btn.clicked.connect(self.start_services_requested.emit)
         svc_row.addWidget(self._start_services_btn)
-        self._gpu_one_click_btn = QPushButton("一键 GPU")
-        self._gpu_one_click_btn.setObjectName("StepBtn")
-        self._gpu_one_click_btn.clicked.connect(self.gpu_one_click_requested.emit)
-        svc_row.addWidget(self._gpu_one_click_btn)
-        self._stop_services_btn = QPushButton("停止全部服务")
+        self._stop_services_btn = QPushButton("停止服务")
         self._stop_services_btn.setObjectName("StepBtn")
         self._stop_services_btn.clicked.connect(self.stop_services_requested.emit)
         svc_row.addWidget(self._stop_services_btn)
+        svc_row.addStretch()
         dl.addLayout(svc_row)
 
-        diag_row = QHBoxLayout()
-        self._chain_diag_btn = QPushButton("链路诊断")
-        self._chain_diag_btn.setObjectName("StepBtn")
-        self._chain_diag_btn.clicked.connect(self.chain_diagnostic_requested.emit)
-        diag_row.addWidget(self._chain_diag_btn)
-        self._chain_diag_status = QLabel("")
-        self._chain_diag_status.setObjectName("HintTextSmall")
-        self._chain_diag_status.setWordWrap(True)
-        diag_row.addWidget(self._chain_diag_status, 1)
-        dl.addLayout(diag_row)
-
-        self._chain_diag_output = QTextEdit()
-        self._chain_diag_output.setObjectName("ChainDiagOutput")
-        self._chain_diag_output.setReadOnly(True)
-        self._chain_diag_output.setMinimumHeight(120)
-        self._chain_diag_output.setPlaceholderText("点击「链路诊断」查看 B→A→OmniParser 全链路状态…")
-        self._chain_diag_output.hide()
-        dl.addWidget(self._chain_diag_output)
-
-        self._stop_on_exit_cb = QCheckBox("关闭窗口时停止 A 端与 OmniParser")
+        self._stop_on_exit_cb = QCheckBox("关闭窗口时停止 L5 Sidecar")
         self._stop_on_exit_cb.setChecked(STOP_SERVICES_ON_EXIT)
         dl.addWidget(self._stop_on_exit_cb)
 
         self._local_svc_widgets = (
             svc_title,
             self._start_services_btn,
-            self._gpu_one_click_btn,
             self._stop_services_btn,
             self._stop_on_exit_cb,
         )
@@ -698,68 +591,32 @@ class MediumPanel(QWidget):
         return page
 
     def load_settings_form(self) -> None:
-        from core.l4_settings import merge_l4_for_display
-
         data = load_user_settings()
-        self._deployment_mode.set_mode(data.get("deployment_mode", "gpu_api"))
         self._appearance_group.set_appearance(data)
         self._appearance_group.sync_scheme_sections()
         if hasattr(self, "_voice_group"):
             self._voice_group.set_voice(data)
-        self._field_a_url.set_text(data.get("a_end_url", ""))
         self._field_demo_key.set_text(data.get("demo_key", ""))
         llm = data.get("llm") or {}
         self._field_llm_base.set_text(llm.get("base_url", ""))
         self._field_llm_key.set_text(llm.get("api_key", ""))
         self._field_llm_model.set_text(llm.get("model", ""))
-        route = data.get("routing_mode") or data.get("llm_speed_mode", "fast")
-        self._guidance_route.set_mode(route)
         if hasattr(self, "_l5_exec_group"):
             self._l5_exec_group.set_values(data)
-        self._l4_group.set_values(merge_l4_for_display(data.get("l4")))
-        omni = data.get("omniparser") or {}
-        self._field_omni_url.set_text(omni.get("url", ""))
-        self._field_omni_gpu.set_text(omni.get("gpu_url", ""))
         if hasattr(self, "_model_group"):
             self._model_group.set_proxy(data)
-        self._apply_deployment_mode_ui(data.get("deployment_mode", "gpu_api"))
-        self._apply_guidance_route_ui(route)
+        self._update_api_url_label()
 
     def _forward_appearance_preview(self, data: dict) -> None:
         self.appearance_preview_requested.emit(data)
 
     def _collect_model_settings(self) -> dict:
-        mode = self._deployment_mode.current_mode()
-        a_url = self._field_a_url.text()
-        if mode == "intranet" and not a_url:
-            raise ValueError("内网 API 模式下 A 端地址为必填项")
-        default_omni = (
-            DEFAULT_OMNI_LOCAL_URL
-            if mode == "local"
-            else DEFAULT_OMNI_GPU_API_URL
-        )
-        route = self._guidance_route.current_mode()
-        speed_map = {
-            "auto": "fast",
-            "fast": "fast",
-            "balanced": "balanced",
-            "precision": "precision",
-        }
         payload = {
-            "deployment_mode": mode,
-            "a_end_url": a_url or "http://127.0.0.1:8010",
             "demo_key": self._field_demo_key.text() or "hajimi-demo-2026",
-            "routing_mode": route,
-            "llm_speed_mode": speed_map.get(route, "fast"),
-            "l4": self._l4_group.get_values(),
             "llm": {
                 "base_url": self._field_llm_base.text(),
                 "api_key": self._field_llm_key.text(),
                 "model": self._field_llm_model.text() or "deepseek-chat",
-            },
-            "omniparser": {
-                "url": self._field_omni_url.text() or default_omni,
-                "gpu_url": self._field_omni_gpu.text(),
             },
         }
         if hasattr(self, "_l5_exec_group"):
@@ -806,64 +663,14 @@ class MediumPanel(QWidget):
         for widget in candidates:
             widget.refresh_avatar()
 
-    def _on_deployment_mode_changed(self, mode: str) -> None:
-        self._apply_deployment_mode_ui(mode)
-
-    def _apply_guidance_route_ui(self, mode: str) -> None:
-        """L4 / L3_DEFERRED 可编辑 L4 模型；精准模式禁用。"""
-        use_l4_settings = mode in ("auto", "fast", "balanced")
-        self._l4_group.setVisible(True)
-        self._l4_group.set_enabled(use_l4_settings)
-        self._update_api_url_label()
-
-    def _apply_deployment_mode_ui(self, mode: str) -> None:
-        intranet = mode == "intranet"
-        gpu_api = mode == "gpu_api"
-        for w in self._local_svc_widgets:
-            w.setVisible(not intranet)
-        self._gpu_one_click_btn.setVisible(gpu_api)
-        if gpu_api:
-            self._start_services_btn.setText("启动 A 端")
-            self._inspect_hint.setText(
-                "GPU API 模式约 2–5 秒；请先运行「一键 GPU」或保持 :9800 隧道。"
-            )
-        elif mode == "local":
-            self._start_services_btn.setText("启动 OmniParser + A 端")
-            self._inspect_hint.setText(
-                "本地 CPU 检测约 2–4 分钟，检测期间请勿重复点击。"
-            )
-        else:
-            self._start_services_btn.setText("启动 A 端")
-            self._inspect_hint.setText("内网 API 模式由远程 A 端执行检测。")
-        llm_fields = (
-            self._field_llm_base,
-            self._field_llm_key,
-            self._field_llm_model,
-            self._field_omni_url,
-            self._field_omni_gpu,
-        )
-        for row in llm_fields:
-            row.set_enabled(not intranet)
-        self._apply_guidance_route_ui(self._guidance_route.current_mode())
-        if intranet:
-            self._l4_group.set_enabled(False)
-        self._update_api_url_label()
-
     def _update_api_url_label(self) -> None:
-        from config import API_BASE_URL, L5_API_URL
-        from core.routing_config import is_l5_route
+        from config import L5_API_URL
 
-        if is_l5_route():
-            self._api_lbl.setText(
-                f"L5 Sidecar (server_A)：{L5_API_URL}  ·  L4/A 端：{API_BASE_URL}"
-            )
-        else:
-            self._api_lbl.setText(f"A 端地址：{API_BASE_URL}")
+        self._api_lbl.setText(f"L5 Sidecar (server_A)：{L5_API_URL}")
 
     def on_model_settings_applied(self, data: dict, success_msg: str = "") -> None:
         feedback = success_msg or "已保存并应用"
         self._model_group.set_feedback(feedback)
-        self._apply_deployment_mode_ui(data.get("deployment_mode", "gpu_api"))
         self._update_api_url_label()
 
     def on_appearance_settings_applied(self, data: dict, success_msg: str = "") -> None:
@@ -1047,17 +854,6 @@ class MediumPanel(QWidget):
                 luxury_icon("logout", 16) if self._luxury_theme else nav_icon("logout", False)
             )
 
-    def _build_prepare_banner(self) -> QWidget:
-        bar = QWidget()
-        bar.setObjectName("PrepareBanner")
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self._prepare_banner_btn = QPushButton("")
-        self._prepare_banner_btn.setObjectName("PrepareBannerBtn")
-        self._prepare_banner_btn.clicked.connect(self.prepare_banner_clicked.emit)
-        layout.addWidget(self._prepare_banner_btn, 1)
-        return bar
-
     def _build_step_controls(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("MediumStepControls")
@@ -1066,9 +862,6 @@ class MediumPanel(QWidget):
         self._step_progress_label = QLabel("步骤 0 / 0")
         self._step_progress_label.setObjectName("StepProgressLabel")
         layout.addWidget(self._step_progress_label, 1)
-        prev_btn = QPushButton("上一步")
-        prev_btn.setObjectName("StepBtn")
-        prev_btn.clicked.connect(self.prev_clicked.emit)
         next_btn = QPushButton("下一步")
         next_btn.setObjectName("StepBtnPrimary")
         next_btn.clicked.connect(self.next_clicked.emit)
@@ -1079,28 +872,12 @@ class MediumPanel(QWidget):
         pause_btn.setObjectName("StepBtn")
         pause_btn.setEnabled(False)
         pause_btn.setToolTip("Sidecar 升级 pause API 后可用；当前请用停止 (J)")
-        self._step_prev_btn = prev_btn
         self._step_next_btn = next_btn
         self._step_stop_btn = stop_btn
         self._step_pause_btn = pause_btn
-        layout.addWidget(prev_btn)
         layout.addWidget(pause_btn)
         layout.addWidget(next_btn)
         layout.addWidget(stop_btn)
-        return bar
-
-    def _build_inspect_bar(self) -> QWidget:
-        bar = QWidget()
-        bar.setObjectName("InspectBar")
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(12, 6, 12, 6)
-        self._inspect_bar_label = QLabel("检验模式运行中")
-        self._inspect_bar_label.setObjectName("InspectBarLabel")
-        layout.addWidget(self._inspect_bar_label, 1)
-        exit_btn = QPushButton("退出检验")
-        exit_btn.setObjectName("StepBtn")
-        exit_btn.clicked.connect(self.inspect_exit_requested.emit)
-        layout.addWidget(exit_btn)
         return bar
 
     def _build_input_dock(self) -> QWidget:
@@ -1318,7 +1095,6 @@ class MediumPanel(QWidget):
             "StepBtn",
             "StepBtnPrimary",
             "IconBtnGhost",
-            "PrepareBannerBtn",
             "SettingsRadio",
             "CollapseToggle",
         }
@@ -1450,32 +1226,8 @@ class MediumPanel(QWidget):
             self.set_stage_hint("")
 
     def set_step_controls_enabled(self, enabled: bool):
-        if hasattr(self, "_step_prev_btn"):
-            self._step_prev_btn.setEnabled(enabled)
         if hasattr(self, "_step_next_btn"):
             self._step_next_btn.setEnabled(enabled)
-
-    def show_prepare_banner(
-        self,
-        text: str,
-        reason: str = "locate_failed",
-        *,
-        scene_id: str = "",
-        banner_prefix: str = "",
-    ):
-        if banner_prefix:
-            prefix = banner_prefix
-        elif scene_id == "locate_failed_retry" or scene_id == "multi_step_stuck":
-            prefix = "⏳ 可尝试继续下一步"
-        elif scene_id == "deferred_manual" or reason == "deferred":
-            prefix = "⏳ 请先手动完成"
-        else:
-            prefix = "⏳ 未定位到目标"
-        self._prepare_banner_btn.setText(f"{prefix}：{text} — 点击继续")
-        self._prepare_banner.show()
-
-    def hide_prepare_banner(self):
-        self._prepare_banner.hide()
 
     def update_steps(self, steps: list, active_index: int = 0):
         descriptions = [
@@ -1501,15 +1253,6 @@ class MediumPanel(QWidget):
                 self._step_progress_label.setText("L5 规划中…")
             else:
                 self._step_controls.hide()
-            return
-        self._guide_steps.set_steps(descriptions, active_index)
-        self._steps_list.set_steps(descriptions, active_index)
-        total = len(descriptions)
-        if total > 0 and active_index < total:
-            self._step_controls.show()
-            self._step_progress_label.setText(f"步骤 {active_index + 1} / {total}")
-        else:
-            self._step_controls.hide()
 
     def _apply_l5_steps_layout(self) -> None:
         self._steps_list.hide()
@@ -1540,7 +1283,6 @@ class MediumPanel(QWidget):
         self._switch_panel("steps")
         self._step_pause_btn.hide()
         self._step_stop_btn.hide()
-        self._step_prev_btn.hide()
         self._step_next_btn.setText("关闭")
         self._step_next_btn.show()
         self._step_controls.show()
@@ -1589,7 +1331,6 @@ class MediumPanel(QWidget):
             self._steps_l5_badge.setText("L5")
             self._steps_l5_badge.show()
             self._apply_l5_steps_layout()
-            self._step_prev_btn.hide()
             self._step_pause_btn.show()
             self._step_next_btn.setText(f"批准 ({approve})")
             self._step_stop_btn.setText(f"停止 ({stop})")
@@ -1601,7 +1342,6 @@ class MediumPanel(QWidget):
             self._steps_l5_badge.hide()
             self._l5_timeline.hide()
             self._steps_list.show()
-            self._step_prev_btn.show()
             self._step_pause_btn.hide()
             self._step_next_btn.setText("下一步")
             self._step_stop_btn.setText("停止")
@@ -1670,7 +1410,7 @@ class MediumPanel(QWidget):
             parent or self,
             "L5 自动执行 — 知情确认",
             "您已选择 L5 自动执行模式。\n\n"
-            "HAJIMI 将通过 A 端在本机自动操作鼠标与键盘完成步骤。"
+            "HAJIMI 将通过本机 Sidecar (server_A) 自动操作鼠标与键盘完成步骤。"
             "请确保屏幕无敏感内容，且可随时按 J 或「停止」终止任务。",
             theme_id=theme_id,
         )
@@ -1679,53 +1419,6 @@ class MediumPanel(QWidget):
         if dont_show:
             save_settings_fragment({"l5_consent_accepted": True})
         return True
-
-    def render_blueprint(self, steps: list, active_index: int = 0):
-        descriptions = [
-            s.get("desc") or s.get("description") or s.get("action", "")
-            for s in steps
-        ]
-        self._blueprint_list.set_steps(descriptions, active_index)
-        total = len(descriptions)
-        self._bp_count.setText(f"{total} steps")
-        if total and active_index >= total:
-            self._bp_progress.setText(f"{total} / {total}")
-            self._bp_bar.setValue(100)
-        else:
-            self._bp_progress.setText(f"{active_index + 1} / {total}")
-            pct = int((active_index + 1) / total * 100) if total else 0
-            self._bp_bar.setValue(pct)
-
-    def set_inspect_busy(self, busy: bool):
-        self._inspect_btn.setEnabled(not busy)
-        self._inspect_btn.setText("检测中…" if busy else "立即检测当前屏幕")
-
-    def set_inspect_status(self, text: str):
-        if text:
-            self._inspect_status.setText(text)
-            if text.startswith("检验模式：") and "失败" not in text:
-                self.set_inspect_bar_visible(True)
-                self._inspect_bar_label.setText(text)
-            elif text.startswith("检验失败"):
-                self.set_inspect_bar_visible(False)
-        else:
-            self._inspect_status.setText("检验模式：未运行")
-            self.set_inspect_bar_visible(False)
-
-    def set_inspect_bar_visible(self, visible: bool):
-        self._inspect_bar.show() if visible else self._inspect_bar.hide()
-
-    def set_chain_diag_busy(self, busy: bool):
-        self._chain_diag_btn.setEnabled(not busy)
-        self._chain_diag_btn.setText("诊断中…" if busy else "链路诊断")
-
-    def set_chain_diag_status(self, text: str):
-        self._chain_diag_status.setText(text)
-
-    def set_chain_diag_report(self, text: str):
-        self._chain_diag_output.show()
-        self._chain_diag_output.setPlainText(text)
-        self._schedule_settings_size()
 
     def should_stop_services_on_exit(self) -> bool:
         return self._stop_on_exit_cb.isChecked()

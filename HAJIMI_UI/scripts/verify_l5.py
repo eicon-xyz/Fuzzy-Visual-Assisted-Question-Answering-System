@@ -1,5 +1,5 @@
 # [VERIFY] L5 自动执行端点冒烟 — POST /execute + SSE heartbeat
-"""验证 new_JIMI L5 Sidecar (:8011) 路由是否接线（不触发真实 pyautogui 点击）。"""
+"""验证 server_A L5 Sidecar (:8011) 路由是否接线（不触发真实 pyautogui 点击）。"""
 from __future__ import annotations
 
 import argparse
@@ -70,7 +70,7 @@ def main() -> int:
         help="覆盖 L5_API_URL（默认 config.L5_API_URL）",
     )
     parser.add_argument(
-        "--require-a",
+        "--require-l5",
         action="store_true",
         help="L5 Sidecar 不可达时返回非零",
     )
@@ -87,9 +87,9 @@ def main() -> int:
     if code not in (200, 503):
         msg = f"L5 Sidecar health 不可达 (HTTP {code})"
         print(f"SKIP: {msg}")
-        return 1 if args.require_a else 0
+        return 1 if args.require_l5 else 0
     if code == 503:
-        print("WARN: L5 Sidecar 已启动但 OmniParser 未就绪 (503 degraded)")
+        print("WARN: L5 Sidecar 已启动但依赖未完全就绪 (503 degraded)")
 
     code, execute_body = _post(
         "/api/demo/execute",

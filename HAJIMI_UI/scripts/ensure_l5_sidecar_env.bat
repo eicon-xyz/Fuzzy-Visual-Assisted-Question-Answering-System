@@ -28,7 +28,7 @@ if not exist "%L5_VENV%" (
 
 if "%NEED_SETUP%"=="1" (
     if "%RECREATE_VENV%"=="1" (
-        echo [HAJIMI] Broken L5 venv detected â€” full recreate ^(fastapi/_compat layout conflict^) ...
+        echo [HAJIMI] Broken L5 venv detected ¡ª full recreate ^(fastapi/_compat layout conflict^) ...
     ) else (
         echo [HAJIMI] First run: configuring 8011 L5 Sidecar environment ^(about 1-3 min^) ...
     )
@@ -47,7 +47,7 @@ if "%NEED_SETUP%"=="1" (
 if not exist "%L5_ROOT%\server\.env" (
     if exist "%L5_ROOT%\server\.env.example" (
         copy /y "%L5_ROOT%\server\.env.example" "%L5_ROOT%\server\.env" >nul
-        echo [HAJIMI] WARN: created L5 server\.env from example â€” set OMNIPARSER_URL=http://127.0.0.1:9800
+        echo [HAJIMI] WARN: created L5 server\.env from example - run scripts\apply_l5_settings.py to configure
     )
 )
 

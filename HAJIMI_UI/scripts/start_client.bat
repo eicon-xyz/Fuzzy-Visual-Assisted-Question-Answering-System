@@ -2,10 +2,10 @@
 setlocal EnableExtensions
 cd /d %~dp0..
 
-if not defined HAJIMI_PORT set HAJIMI_PORT=8010
-set HAJIMI_API_URL=http://127.0.0.1:%HAJIMI_PORT%
+if not defined L5_API_PORT set L5_API_PORT=8011
+set L5_API_URL=http://127.0.0.1:%L5_API_PORT%
 
-echo [HAJIMI] Starting B-end client (A-end: %HAJIMI_API_URL%) ...
+echo [HAJIMI] Starting B-end client (L5 Sidecar: %L5_API_URL%) ...
 
 REM Optional B-only proxy for Google ASR (from model settings; default off)
 call "%~dp0apply_proxy_env.bat"

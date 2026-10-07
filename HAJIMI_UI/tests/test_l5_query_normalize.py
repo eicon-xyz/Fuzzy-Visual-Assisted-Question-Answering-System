@@ -1,7 +1,16 @@
 # -*- coding: utf-8 -*-
 """L5 query 归一化 — 绕过 physical_operation 红线。"""
+from pathlib import Path
+
+import pytest
+
 from core.l5_query_normalize import normalize_l5_execute_query
-from server.services.redline_service import check_redline
+from core.sidecar_modules import get_redline_check
+
+
+_check = get_redline_check()
+pytestmark = pytest.mark.skipif(_check is None, reason="server_A redline_service 不可达")
+check_redline = _check
 
 
 def _physical_blocked(query: str) -> bool:
