@@ -1,7 +1,7 @@
 """
-规划路由层 — 红线检测 → 意图分类 → Planning Agent → 首帧截图
+规划路由层 — 红线检测 → 意图分类 → 复杂度路由（L2 本地模板 / L3 LLM 规划）→ 首帧截图
 
-Runway: redline → intent → plan → screenshot (display-only).
+Runway: redline → intent → complexity routing → (L2: local template steps | L3: LLM plan + first screenshot).
 Execution happens later via ExecutionAgent in the engine.
 """
 
@@ -157,8 +157,9 @@ def process_query(
     screen_height: int = 1080,
 ) -> ProcessResponse:
     """
-    Planning phase: redline → intent → Planning Agent → first screenshot.
-    Execution happens in engine via ExecutionAgent.
+    Planning phase: redline → intent → complexity routing → plan → first screenshot.
+    L2（复杂度<30 且模板命中）：本地模板步骤，不调用 LLM、不扫描 OmniParser；
+    否则 L3：Planning Agent + OmniParser。Execution happens in engine via ExecutionAgent.
     """
     # 0. Redline check (unchanged)
     redline = check_redline(query)
@@ -204,67 +205,93 @@ def process_query(
         needs_clarification=confidence < 0.80,
     )
 
-    # 2. Planning Agent + OmniParser run in parallel (they are independent)
-    import concurrent.futures
+    # 2. 复杂度路由（L2 快路径 / L3 全流程）
+    from server.services.planning.complexity_router import (
+        generate_l2_steps,
+        route_complexity,
+        score_complexity,
+    )
 
-    from server.services.planning.planner import PlanningResult, plan_steps
-
-    plan_result = None
-
-    def _call_planner():
-        nonlocal plan_result
-        try:
-            plan_result = plan_steps(query)
-        except Exception as e:
-            logger.error(f"Planning Agent failed: {e}")
-            plan_result = PlanningResult(
-                goal=query,
-                steps=[PlanningStep(step_index=1, instruction=query)],
-            )
-
-    planner_future = None
+    complexity = score_complexity(query)
+    route = route_complexity(query)
+    omni_enabled = bool(getattr(settings, "OMNIPARSER_ENABLED", True))
+    detection_meta: dict = {
+        "backend": "omniparser" if omni_enabled else "uia_execution",
+        "route": route,
+        "complexity": complexity,
+    }
     ui_elements: List[UIElement] = []
     annotated_image: Optional[str] = image_base64
-    omni_enabled = bool(getattr(settings, "OMNIPARSER_ENABLED", True))
-    detection_meta: dict = (
-        {"backend": "omniparser", "route": "L3"}
-        if omni_enabled
-        else {"backend": "uia_execution", "route": "L4", "omniparser": "not_required"}
-    )
-    parse_result_temp = None
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        planner_future = executor.submit(_call_planner)
-        # While Planning Agent runs, start OmniParser in main thread
-        # 无 :9800 纯视觉模式（OMNIPARSER_ENABLED=false）：跳过，避免阻塞 /execute
-        if image_base64 and omni_enabled:
+
+    l2_steps = generate_l2_steps(query) if route == "L2" else None
+    if route == "L2" and l2_steps is None:
+        # 无 L2 模板命中 → 降级 L3；route 记录实际执行路径（原分值保留在 complexity）
+        route = "L3"
+        detection_meta["route"] = "L3"
+
+    if l2_steps is not None:
+        # L2 快路径：本地模板步骤直接成型；不调用 LLM 规划，跳过 OmniParser 扫描
+        detection_meta["backend"] = "template"
+        goal = query
+        executed_steps: List[ExecutedStep] = [
+            ExecutedStep(
+                step_index=i + 1,
+                instruction=step.get("description", ""),
+                status="pending",
+            )
+            for i, step in enumerate(l2_steps)
+        ]
+    else:
+        # L3：Planning Agent + OmniParser run in parallel (they are independent)
+        if not omni_enabled:
+            detection_meta["omniparser"] = "not_required"
+        import concurrent.futures
+
+        from server.services.planning.planner import PlanningResult, plan_steps
+
+        plan_result = None
+
+        def _call_planner():
+            nonlocal plan_result
             try:
-                from server.services.omniparser_client import parse_screenshot_full
-
-                parse_result_temp = parse_screenshot_full(image_base64)
-                ui_elements = parse_result_temp.elements
-                annotated_image = parse_result_temp.annotated_image or image_base64
-                detection_meta.update(parse_result_temp.detection_meta or {})
+                plan_result = plan_steps(query)
             except Exception as e:
-                logger.error(f"OmniParser initial scan failed: {e}")
-        planner_future.result(timeout=30)
+                logger.error(f"Planning Agent failed: {e}")
+                plan_result = PlanningResult(
+                    goal=query,
+                    steps=[PlanningStep(step_index=1, instruction=query)],
+                )
 
-    goal = plan_result.goal
-    planning_steps = plan_result.steps
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            planner_future = executor.submit(_call_planner)
+            # While Planning Agent runs, start OmniParser in main thread
+            # 无 :9800 纯视觉模式（OMNIPARSER_ENABLED=false）：跳过，避免阻塞 /execute
+            if image_base64 and omni_enabled:
+                try:
+                    from server.services.omniparser_client import parse_screenshot_full
 
-    # 3. Convert PlanningStep → ExecutedStep (all pending)
-    executed_steps: List[ExecutedStep] = []
-    for ps in planning_steps:
-        executed_steps.append(
+                    parse_result_temp = parse_screenshot_full(image_base64)
+                    ui_elements = parse_result_temp.elements
+                    annotated_image = parse_result_temp.annotated_image or image_base64
+                    detection_meta.update(parse_result_temp.detection_meta or {})
+                except Exception as e:
+                    logger.error(f"OmniParser initial scan failed: {e}")
+            planner_future.result(timeout=30)
+
+        goal = plan_result.goal
+        planning_steps = plan_result.steps
+
+        # 3. Convert PlanningStep → ExecutedStep (all pending)
+        executed_steps = [
             ExecutedStep(
                 step_index=ps.step_index,
                 instruction=ps.instruction,
                 status="pending",
             )
-        )
+            for ps in planning_steps
+        ]
 
-    # 4. These are populated during the parallel section above
-
-    # 5. Build response
+    # 4. Build response
     blueprint = Blueprint(
         name=goal[:40] if goal else summary,
         total_steps=len(executed_steps),
