@@ -75,12 +75,15 @@ def test_direct_path_click_and_type(monkeypatch):
         ck.pydirectinput, "click",
         lambda button="left": calls.append(("click", button)),
     )
+    # 真 pydirectinput 缺 hotkey/scroll 属性（在此环境下）：raising=False 兼容真模块与桩
     monkeypatch.setattr(
         ck.pydirectinput, "hotkey",
         lambda *keys: calls.append(("hotkey", keys)),
+        raising=False,
     )
     monkeypatch.setattr(
         ck.pydirectinput, "scroll", lambda amount: calls.append(("scroll", amount)),
+        raising=False,
     )
     # 点击：direct 用循环 click（不用 pyautogui 的 clicks 参数）
     r = ck.click_at([100, 200], clicks=2)
@@ -123,7 +126,7 @@ def test_direct_path_hotkey_fallback(monkeypatch):
     monkeypatch.setattr(ck, "_USE_DIRECT", True)
     monkeypatch.setattr(ck, "_HAS_PYAUTOGUI", True)
     pdi = ck.pydirectinput
-    monkeypatch.setattr(pdi, "hotkey", _no_attr)
+    monkeypatch.setattr(pdi, "hotkey", _no_attr, raising=False)
     monkeypatch.setattr(pdi, "keyDown", lambda k: calls.append(("down", k)))
     monkeypatch.setattr(pdi, "keyUp", lambda k: calls.append(("up", k)))
     r = ck.press_keys("a", "b")

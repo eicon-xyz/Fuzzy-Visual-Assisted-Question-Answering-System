@@ -19,6 +19,7 @@ import asyncio
 import json
 import threading
 import time
+from functools import lru_cache
 from unittest.mock import MagicMock, patch, AsyncMock
 
 from server.services.browser.launch_helpers import browser_available_for_e2e
@@ -76,8 +77,14 @@ def agent_with_real_browser():
 
 # ── Skip conditions ─────────────────────────────────────────────────────────
 
+@lru_cache(maxsize=None)
+def _browser_stack_available() -> bool:
+    """惰性 + 会话内缓存（配合字符串跳过条件：过滤运行时零收集期浏览器探测）。"""
+    return _try_import_playwright() and browser_available_for_e2e()
+
+
 pytestmark_skip = pytest.mark.skipif(
-    not (_try_import_playwright() and browser_available_for_e2e()),
+    "not _browser_stack_available()",
     reason="playwright + launchable browser required (Edge/Chrome or playwright install chromium)",
 )
 

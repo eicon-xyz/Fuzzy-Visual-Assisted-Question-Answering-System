@@ -6,6 +6,7 @@ Requires playwright pip package and a launchable Edge/Chrome (or bundled Chromiu
 
 import pytest
 import pytest_asyncio
+from functools import lru_cache
 
 from server.services.browser.launch_helpers import browser_available_for_e2e
 
@@ -18,6 +19,12 @@ def _try_import_playwright():
         return True
     except ImportError:
         return False
+
+
+@lru_cache(maxsize=None)
+def _browser_stack_available() -> bool:
+    """惰性 + 会话内缓存（配合字符串跳过条件：过滤运行时零收集期浏览器探测）。"""
+    return _try_import_playwright() and browser_available_for_e2e()
 
 
 @pytest_asyncio.fixture
@@ -35,7 +42,7 @@ async def browser():
     reason="playwright not installed",
 )
 @pytest.mark.skipif(
-    not browser_available_for_e2e(),
+    "not _browser_stack_available()",
     reason="no launchable browser (install Edge/Chrome or playwright install chromium)",
 )
 class TestBrowserE2E:

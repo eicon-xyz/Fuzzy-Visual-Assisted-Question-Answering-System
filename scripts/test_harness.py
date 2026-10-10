@@ -122,9 +122,15 @@ def level_L0() -> int:
 def _load_preset_failures() -> list:
     """读基线快照（test_reports/preset_failed.txt，FAILED+ERROR 集合）。
 
-    快照由环境变化时人工重生成（如新装 pytest 插件/修复环境依赖后）：
+    快照由环境变化时人工重生成（如新装 pytest 插件/修复环境依赖后），
+    口径必须与 level_L1 的过滤一致（-m "not e2e and not real_llm"）：
         pytest server/tests -q --continue-on-collection-errors --tb=no \
+          -m "not e2e and not real_llm" \
           | grep -E '^(FAILED|ERROR)' | sed 's/ - .*//' | sort > test_reports/preset_failed.txt
+    Windows 本机 coreutils 不可用：输出落文件后用 python 提取 FAILED/ERROR 行。
+    当前快照（2026-10-10）环境指纹：Windows + anaconda py3.12.4 + pytest 9.1.1（用户级
+    site-packages）；真 pydirectinput 在册（无 hotkey/scroll）；playwright+Edge 可启动；
+    OMNIPARSER_ENABLED=false。
     """
     fp = ROOT / "test_reports" / "preset_failed.txt"
     if not fp.exists():
@@ -135,6 +141,8 @@ def _load_preset_failures() -> list:
 def level_L1() -> int:
     """单元/组件层：server_A 全量（Linux，mock 桩）+ 基线快照门禁。
 
+    口径：`-m "not e2e and not real_llm"` 排除真实浏览器/真实 LLM 依赖用例
+    （两标记已在 pyproject 定义；e2e 文件的浏览器探测为惰性字符串条件，过滤时零代价）。
     门禁：当前 FAILED+ERROR 集合 ⊆ test_reports/preset_failed.txt 基线快照
     （子集判定：环境改善自动放宽，快照外任何新失败/新错误=门禁失败）。
     """
@@ -144,7 +152,8 @@ def level_L1() -> int:
         return 1
     p = subprocess.run(
         _py() + ["-m", "pytest", "server/tests", "-q",
-                 "--continue-on-collection-errors", "--tb=no"],
+                 "--continue-on-collection-errors", "--tb=no",
+                 "-m", "not e2e and not real_llm"],
         cwd=str(SERVER_A), capture_output=True, text=True,
         env=_clean_env(dict(os.environ, QT_QPA_PLATFORM="offscreen")),
     )
