@@ -153,7 +153,7 @@ HAJIMI_UI\scripts\start_l5_sidecar.bat
 
 ### Issue tracker
 
-Issues and specs live as local markdown under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+Issues and specs live as local markdown under `.scratch/<feature>/` (no network, no credentials). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
