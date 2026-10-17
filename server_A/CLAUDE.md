@@ -8,10 +8,10 @@
 ## 现状
 
 - FastAPI 后端，**唯一端口 :8011**：`python3 -m uvicorn server.main:app --port 8011`（工作目录 = `server_A/`）。
-- **:8010 旧 A 端 / OmniParser / GPU 隧道 / 内网联调 / Mock 已整体删除，禁止复活。** L4 史料归档于 `server/docs/archive/legacy-L4/`，只可查阅、禁止照做。
+- **:8010 旧 A 端 / OmniParser / GPU 隧道 / 内网联调 / Mock 已整体删除，禁止复活。** L4 史料已移出主线，存于 git 分支 `docs/archive`（原 `server_A/server/docs/archive/legacy-L4/`），只可查阅、禁止照做。
 - 模型 key 唯一存放 `server/.env`（安装脚本创建；B 端设置页经 env_sync 同步写入），不入 git。
 - 分支口径：`master` = PyQt B 端（`HAJIMI_UI/`）；`front` = 并行的 Electron B 端（`desktop/`，验收后切换）——**master 上不存在 desktop/ 目录与红线只读评估端点（`/api/demo/redline/evaluate`，front 独有）**，跨端契约变更需两分支同步。
-- `server_A` 顶层的 `core/`、`ui/`、`main.py` 是 L4 死 fork（台账 R5 待清理），勿新增引用、勿当作运行时代码阅读。
+- `server_A` 顶层的 `core/`、`ui/`、`main.py`、`config.py` 是 L4 死 fork，**已于 2026-10-17 删除**（台账 R5 收口）；`scripts/gates.py` 的 refs 层会拦住它们复活。
 
 ## 路由（server/routes/）
 

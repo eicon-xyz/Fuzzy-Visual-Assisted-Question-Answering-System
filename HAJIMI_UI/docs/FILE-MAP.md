@@ -1,7 +1,7 @@
 # HAJIMI 文件分级地图
 
 > **用途**：根项目 AI / 新成员快速判断「该读哪、该改哪、该跑哪」。  
-> **策略**：2026-09 重构已**物理删除** L4 指引模式全部文件（`HAJIMI_UI/server/`、`OmniParser/` 子模块、L4 worker/overlay/标注/Mock/联调脚本等），唯一模式 = **L5 自动执行**（后端 `../server_A` Sidecar :8011）。历史归档说明见 [`ARCHIVE-MANIFEST.md`](ARCHIVE-MANIFEST.md)。
+> **策略**：2026-09 重构已**物理删除** L4 指引模式全部文件（`HAJIMI_UI/server/`、`OmniParser/` 子模块、L4 worker/overlay/标注/Mock/联调脚本等），唯一模式 = **L5 自动执行**（后端 `../server_A` Sidecar :8011）。历史文档已移出主线，存于 git 分支 `docs/archive`。
 
 ---
 
@@ -192,23 +192,21 @@ cd ../server_A/server && python -m pytest tests/ -q
 | 文档 | 说明 |
 |------|------|
 | 根 `CLAUDE.md` / `AGENTS.md` | 仓库级 AI 指南（L5 架构、启动链、约束） |
-| [`AI-操作指南.md`](AI-操作指南.md) | 详细操作手册 |
 | [`FILE-MAP.md`](FILE-MAP.md) | 本文档 |
 | [`B端-组员快速启动.md`](B端-组员快速启动.md) | 组员 onboarding |
 | [`UI协作规范.md`](UI协作规范.md) | Layout / Style 边界 |
 | [`L5-SSE-契约扩展.md`](L5-SSE-契约扩展.md) | L5 SSE 事件契约 |
 | [`语音集成操作手册.md`](语音集成操作手册.md) | C 端语音接入 |
 
-> 旧 `HANDOFF.md`、`项目结构.md`、`design-spec.md`、`b-c-api-contract.md` 条目指向的文件已不存在（根目录改用 `项目结构速查.md`；`UI-SPEC.md` 仍在）。
+> 旧 `HANDOFF.md`、`项目结构.md`、`design-spec.md`、`b-c-api-contract.md` 条目指向的文件已不存在（根目录改用 `项目结构速查.md`）。
 
 ### `[DOC-REF]` 按需
 
-| 文档 | 说明 |
-|------|------|
-| [`UI-SPEC.md`](UI-SPEC.md) | UI 规格 |
-| [`P1-可移植性改动与使用指南.md`](P1-可移植性改动与使用指南.md) | 可移植性历史（多模式部分已过时） |
-| [`api-auth.md`](api-auth.md) | 鉴权说明 |
-| [`repo外改动与边界登记.md`](repo外改动与边界登记.md) | 仓外改动登记 |
+2026-10-17 起，以下 5 份随 `docs/archive` 分支移出主线（内容描述的是已删的 A 端 / GPU 隧道 / L4 界面，
+留在仓库里会被 agent 当成现行规范抄）：`UI-SPEC.md`、`P1-可移植性改动与使用指南.md`、`api-auth.md`、
+`repo外改动与边界登记.md`、`AI-操作指南.md`。
+
+取回：`git checkout docs/archive -- HAJIMI_UI/docs/<文件名>`
 
 ### `[DOC-HISTORY]` 日志（只读）
 

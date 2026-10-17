@@ -27,9 +27,6 @@ EXCLUDE_DIR_NAMES = {
     "agent-transcripts",    # Historical chat transcripts
     "dist",                 # Previous zip outputs, avoid nesting
     "new_JIMI",             # Deprecated alternate branch
-    "项目文档",              # Defense PPT + design docs, delivered separately
-    "工作进度",              # Internal daily progress logs
-    "参考文档",              # Non-canonical reference docs
     "server",               # Root legacy dir (L4 A-end removed; runtime backend is server_A)
     "terminals",            # IDE terminal session logs
 }
