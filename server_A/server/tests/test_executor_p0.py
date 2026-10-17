@@ -2332,8 +2332,8 @@ def test_p05_a3_schema_prompt_config_wiring():
     }
     prompt = agent_mod.EXECUTION_SYSTEM_PROMPT
     assert "下钻" in prompt and "expandable" in prompt  # 策略行入 prompt
-    from server.config import settings
-    assert settings.SCREEN_SEMANTIC_FILTER is False  # embedding 层默认关
+    # P0-4：embedding 二次过滤已整层删除（含 SCREEN_SEMANTIC_FILTER 配置项），
+    # 原断言 `settings.SCREEN_SEMANTIC_FILTER is False` 随之下线。
 
 
 # ═══════════════════════════════════════════════════════════════════════════

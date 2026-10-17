@@ -425,7 +425,10 @@ class TestSafetyResultDataclass:
 # 0.6 Tool definitions
 # ============================================================================
 
-from server.services.executor.agent import _build_tool_definitions
+from server.services.executor.agent import (
+    _build_all_tool_definitions,
+    _build_tool_definitions,
+)
 
 
 class TestBuildToolDefinitions:
@@ -452,9 +455,10 @@ class TestBuildToolDefinitions:
                 assert r in properties, f"{t['function']['name']}: required '{r}' not in properties"
 
     def test_browser_tools_count_is_8(self):
+        # P0-3：browser_* 默认不发给 LLM，但 schema 本身仍在（BROWSER_TOOLS_ENABLED=1 时发送）
         browser = [
             t["function"]["name"]
-            for t in _build_tool_definitions()
+            for t in _build_all_tool_definitions()
             if t["function"]["name"].startswith("browser_")
         ]
         assert len(browser) == 8
