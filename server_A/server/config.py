@@ -1,7 +1,12 @@
 """
-HAJIMI Server 配置文件 — OmniParser + 视觉 LLM 混合版本
+HAJIMI L5 Sidecar 配置。
 
-远程 GPU OmniParser 做元素检测，多模态 LLM 做规划与验证。
+唯一后端进程（:8011）。模型 key 与运行开关都由 server/.env 提供，
+本模块只做「环境变量 → 带类型常量」的一次性读取。
+
+本文件曾经 import server_A/core/defaults.py 来取默认端口，而那里写的是
+A 端已删端口 8010 —— 一个死文件决定活服务的默认端口。现在默认值就地声明，
+依赖边为零。
 """
 
 import os
@@ -9,7 +14,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from core.defaults import DEFAULT_A_PORT, DEFAULT_DEMO_KEY
+# 与 HAJIMI_UI/core/defaults.py 的 DEFAULT_L5_PORT / DEFAULT_DEMO_KEY 必须一致：
+# B 端按这个端口探活、用这个 key 打 X-Demo-Key。不一致会在首次请求时立刻失败。
+_DEFAULT_L5_PORT = 8011
+_DEFAULT_DEMO_KEY = "hajimi-demo-2026"
 
 # 加载 .env 文件 — 先检查 server/.env，再检查项目根目录
 _env_path = Path(__file__).parent / ".env"
@@ -24,11 +32,11 @@ class Config:
 
     # 服务
     HOST: str = os.getenv("HAJIMI_HOST", "0.0.0.0")
-    PORT: int = int(os.getenv("HAJIMI_PORT", str(DEFAULT_A_PORT)))
+    PORT: int = int(os.getenv("HAJIMI_PORT", str(_DEFAULT_L5_PORT)))
     DEBUG: bool = os.getenv("HAJIMI_DEBUG", "true").lower() == "true"
 
     # Demo 认证
-    DEMO_KEY: str = os.getenv("HAJIMI_DEMO_KEY", DEFAULT_DEMO_KEY)
+    DEMO_KEY: str = os.getenv("HAJIMI_DEMO_KEY", _DEFAULT_DEMO_KEY)
 
     # ═════════════════════════════════════════════════════════════════════
     # OmniParser 远程 GPU

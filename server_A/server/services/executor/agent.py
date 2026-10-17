@@ -14,7 +14,7 @@ import logging
 import re
 import threading
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import pyautogui
 import pyperclip
@@ -30,6 +30,9 @@ from server.services.omniparser_client import (
     parse_screenshot_full,
 )
 from server.services.memory.retriever import get_retriever
+
+if TYPE_CHECKING:
+    from server.services.executor.uia_bridge import UIABridge
 
 logger = logging.getLogger(__name__)
 
@@ -1553,7 +1556,7 @@ class ExecutionAgent:
                     result["focused"] = fout
                 # 附带截图供前端展示视觉更新（无标注框）
                 try:
-                    from core.screen_capture import capture_to_base64
+                    from server.services.executor.screen_capture import capture_to_base64
 
                     result["annotated_image"] = capture_to_base64(
                         exclude_self=True, fmt="JPEG"
@@ -1575,7 +1578,7 @@ class ExecutionAgent:
         # 2) OmniParser 兜底（仅 OMNIPARSER_ENABLED=true 时）
         if getattr(settings, "OMNIPARSER_ENABLED", True):
             try:
-                from core.screen_capture import capture_to_base64
+                from server.services.executor.screen_capture import capture_to_base64
 
                 image_b64 = capture_to_base64(exclude_self=True, fmt="JPEG")
             except ImportError:
