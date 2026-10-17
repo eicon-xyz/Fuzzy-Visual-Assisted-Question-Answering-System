@@ -429,9 +429,11 @@ from server.services.executor.agent import _build_tool_definitions
 
 
 class TestBuildToolDefinitions:
-    def test_total_count_is_26(self):
+    def test_default_schema_excludes_browser_tools(self):
+        # P0-3：browser_* 是第二套执行基座，默认不发；桌面工具仍是 18 个
         tools = _build_tool_definitions()
-        assert len(tools) == 26  # P0.5-B4 四件套 +4；P0.5-B1 perform_batch +1
+        assert len(tools) == 18
+        assert not [t for t in tools if t["function"]["name"].startswith("browser_")]
 
     def test_all_have_type_function(self):
         for t in _build_tool_definitions():

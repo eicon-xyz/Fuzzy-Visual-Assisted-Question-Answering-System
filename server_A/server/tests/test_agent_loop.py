@@ -11,7 +11,7 @@ import threading
 import json
 from unittest.mock import MagicMock, patch, AsyncMock
 
-from server.services.executor.agent import ExecutionAgent
+from server.services.executor.agent import TERM_KEY, ExecutionAgent, Termination, TermKind
 from server.models.schemas import ExecutedStep
 
 
@@ -54,9 +54,19 @@ def _mock_dispatch(agent):
         elif tool_name == "wait":
             return {"success": True, "action_summary": "waited"}
         elif tool_name == "mark_step_done":
-            return {"__step_complete__": True, "success": True, "reason": tool_args.get("reason", "")}
+            return {
+                TERM_KEY: Termination(
+                    kind=TermKind.DONE, reason=tool_args.get("reason", "")
+                ),
+                "success": True,
+            }
         elif tool_name == "mark_step_failed":
-            return {"__step_failed__": True, "reason": tool_args.get("reason", "")}
+            return {
+                TERM_KEY: Termination(
+                    kind=TermKind.FAILED, reason=tool_args.get("reason", "")
+                ),
+                "success": True,
+            }
         elif tool_name.startswith("browser_"):
             return {"success": True, "action_summary": f"{tool_name} done"}
         elif tool_name == "launch_app":

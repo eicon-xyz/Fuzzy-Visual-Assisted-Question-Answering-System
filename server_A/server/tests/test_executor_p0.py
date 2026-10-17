@@ -772,7 +772,8 @@ def test_dispatch_success_contract_and_control_signal_passthrough():
     f1 = a.dispatch_tool("mark_step_failed", {"reason": "尽力了"})
     assert f1["ok"] is False and f1["error_code"] == "giveup_refused_retry"
     f2 = a.dispatch_tool("mark_step_failed", {"reason": "尽力了"})
-    assert f2["__step_failed__"] is True and f2["error_code"] is None
+    assert f2[agent_mod.TERM_KEY].kind is agent_mod.TermKind.FAILED
+    assert f2["error_code"] is None
 
 
 def test_dispatch_exception_becomes_tool_exception_contract(monkeypatch):
@@ -1896,7 +1897,7 @@ def test_p05_b1_batch_evidence_feeds_done_gate(monkeypatch):
 def test_p05_b1_batch_schema_and_prompt_wiring():
     """⑧ schema 形状与 prompt 接线：工具数钉 18/26、maxItems/enum/required、纪律文案。"""
     tfns = {t["function"]["name"]: t["function"] for t in agent_mod._build_tool_definitions()}
-    assert len(tfns) == 26  # 25 → 26（test_pure_functions 双钉同步 18/26）
+    assert len(tfns) == 18  # P0-3：browser_* 默认不发（开启 BROWSER_TOOLS_ENABLED 时 26）
     desktop = [n for n in tfns if not n.startswith("browser_")]
     assert len(desktop) == 18 and "perform_batch" in desktop
     p = tfns["perform_batch"]["parameters"]

@@ -261,12 +261,12 @@ async def cancel_task(
 
     ok = engine_cancel(request.task_id)
 
-    # 同时清理 task_store
+    # 同时清理 task_store。
+    # 这里原有一句 BlueprintEngine().terminate(state) —— 取消一个 L5 任务却去改
+    # 蓝图状态机，而 L5 主链从不读 blueprint.state。跨子系统写一个没人读的字段，
+    # 只会让"取消"看起来依赖蓝图。删掉。
     state = task_store.get(request.task_id)
     if state:
-        from server.services.planning.blueprint_engine import BlueprintEngine
-
-        BlueprintEngine().terminate(state)
         task_store.update(state)
 
     return {

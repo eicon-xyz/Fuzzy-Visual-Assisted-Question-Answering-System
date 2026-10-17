@@ -15,7 +15,7 @@ This verifies:
 import pytest
 from unittest.mock import MagicMock, patch
 
-from server.services.executor.agent import ExecutionAgent
+from server.services.executor.agent import TERM_KEY, ExecutionAgent, TermKind
 from server.models.schemas import UIElement
 
 
@@ -144,17 +144,17 @@ class TestDesktopToolsRealDispatch:
     def test_mark_step_done(self, agent):
         # 0.7：无独立证据的首次 done 被拒收，第二次带自证放行
         r1 = agent.dispatch_tool("mark_step_done", {"reason": "ok"})
-        assert r1.get("__step_complete__") is None
+        assert r1.get(TERM_KEY) is None
         assert r1["error_code"] == "done_without_evidence"
         r2 = agent.dispatch_tool("mark_step_done", {"reason": "ok"})
-        assert r2["__step_complete__"] is True
+        assert r2[TERM_KEY].kind is TermKind.DONE
 
     def test_mark_step_failed(self, agent):
         r1 = agent.dispatch_tool("mark_step_failed", {"reason": "broken"})
-        assert r1.get("__step_failed__") is None
+        assert r1.get(TERM_KEY) is None
         assert r1["error_code"] == "giveup_refused_retry"
         r2 = agent.dispatch_tool("mark_step_failed", {"reason": "broken"})
-        assert r2["__step_failed__"] is True
+        assert r2[TERM_KEY].kind is TermKind.FAILED
 
     def test_unknown_tool(self, agent):
         result = agent.dispatch_tool("fly_to_moon", {})

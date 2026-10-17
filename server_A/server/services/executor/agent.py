@@ -14,6 +14,8 @@ import logging
 import re
 import threading
 import time
+from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, Optional
 
 import pyautogui
@@ -57,6 +59,263 @@ _BATCH_ALLOWED_TOOLS = (
     "wait",
 )
 _BATCH_MAX_ACTIONS = 8
+
+
+class TermKind(str, Enum):
+    """一步如何结束。曾是 4 个散落在 dict 里的魔法键，现在是一个类型。"""
+
+    DONE = "done"
+    FAILED = "failed"
+    INFEASIBLE = "infeasible"
+    ASK_USER = "ask_user"
+
+
+@dataclass(frozen=True)
+class Termination:
+    """终止指令。dispatch 产出一个，execute_step 只认这四种。
+
+    为什么不是"工具结果里某个 key 为 True"：
+    魔法键让控制流藏在数据里——工具可以意外终止一步，读代码的人看不到分支，
+    新增工具必须知道有这个约定。类型化后，终止是一等返回值。
+    """
+
+    kind: TermKind
+    reason: str = ""
+    evidence: str = ""
+    question: str = ""
+    tried: str = ""
+    unverified: bool = False
+
+
+TERM_KEY = "__termination__"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 工具注册表 —— 加一个工具只改这里 + schema
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# 以前加一个工具要同步四处：schema、_dispatch_tool_inner 的 if/elif、_do_*、
+# _MUTATING_TOOLS。漏第四处不会报错，但证据账本不记 → done gate 误判成"没做"。
+# 现在只有一张表：名字 → (适配器, 是否改变状态)。
+
+_TOOL_HANDLERS: dict = {}
+
+
+def _tool(name: str, mutating: bool = False):
+    def deco(fn):
+        _TOOL_HANDLERS[name] = (fn, mutating)
+        return fn
+
+    return deco
+
+
+@_tool("get_screen_info")
+def _t_get_screen_info(ag, a):
+    # 仅实传参时带 kwargs，保持 _do_get_screen_info 零参可调的既有语义
+    kw = {k: a[k] for k in ("scope", "depth", "filter") if a.get(k) is not None}
+    return ag._do_get_screen_info(**kw)
+
+
+@_tool("launch_app", mutating=True)
+def _t_launch_app(ag, a):
+    return ag._do_launch_app(a.get("app_name", ""))
+
+
+@_tool("click", mutating=True)
+def _t_click(ag, a):
+    return ag._do_click(
+        a.get("element_id", ""),
+        expect=a.get("expect"),
+        name=a.get("name"),
+        via=a.get("via"),
+    )
+
+
+@_tool("double_click", mutating=True)
+def _t_double_click(ag, a):
+    return ag._do_click(
+        a.get("element_id", ""),
+        double=True,
+        expect=a.get("expect"),
+        name=a.get("name"),
+    )
+
+
+@_tool("type_text", mutating=True)
+def _t_type_text(ag, a):
+    return ag._do_type_text(
+        a.get("element_id", ""),
+        a.get("text", ""),
+        expect=a.get("expect"),
+        name=a.get("name"),
+    )
+
+
+@_tool("right_click", mutating=True)
+def _t_right_click(ag, a):
+    return ag._do_right_click(
+        a.get("element_id", ""),
+        expect=a.get("expect"),
+        name=a.get("name"),
+    )
+
+
+@_tool("set_range", mutating=True)
+def _t_set_range(ag, a):
+    return ag._do_set_range(
+        a.get("element_id", ""),
+        value=a.get("value"),
+        expect=a.get("expect"),
+        name=a.get("name"),
+    )
+
+
+@_tool("select_menu_path", mutating=True)
+def _t_select_menu_path(ag, a):
+    return ag._do_select_menu_path(a.get("items") or [], expect=a.get("expect"))
+
+
+@_tool("window_action", mutating=True)
+def _t_window_action(ag, a):
+    return ag._do_window_action(
+        a.get("op", ""), title=a.get("title", ""), element_id=a.get("element_id")
+    )
+
+
+@_tool("paste_text", mutating=True)
+def _t_paste_text(ag, a):
+    return ag._do_paste_text(
+        a.get("text", ""),
+        expect=a.get("expect"),
+        expect_focus=a.get("expect_focus"),
+    )
+
+
+@_tool("press_key", mutating=True)
+def _t_press_key(ag, a):
+    return ag._do_press_key(a.get("keys", "enter"))
+
+
+@_tool("scroll", mutating=True)
+def _t_scroll(ag, a):
+    return ag._do_scroll(a.get("direction", "down"), a.get("amount", 3))
+
+
+@_tool("wait")
+def _t_wait(ag, a):
+    secs = float(a.get("seconds", 1.0))
+    time.sleep(secs)
+    return {"success": True, "waited": secs, "action_summary": f"waited {secs}s"}
+
+
+@_tool("perform_batch")
+def _t_perform_batch(ag, a):
+    return ag._do_perform_batch(a.get("actions") or [])
+
+
+@_tool("mark_step_done")
+def _t_mark_step_done(ag, a):
+    reject = ag._gate_mark_step_done(a.get("reason", ""), a.get("evidence", ""))
+    if reject is not None:
+        return reject
+    strong = ag._strong_evidence()
+    return {
+        "success": True,
+        TERM_KEY: Termination(
+            kind=TermKind.DONE,
+            reason=a.get("reason", ""),
+            evidence=a.get("evidence", ""),
+            unverified=(
+                getattr(ag, "_done_attempts", 0) >= 2
+                and (
+                    strong is None
+                    or not (strong.get("state_changed") or strong.get("verified"))
+                )
+            ),
+        ),
+    }
+
+
+@_tool("mark_step_failed")
+def _t_mark_step_failed(ag, a):
+    reject = ag._gate_mark_step_failed(a.get("reason", ""))
+    if reject is not None:
+        return reject
+    return {
+        "success": True,
+        TERM_KEY: Termination(kind=TermKind.FAILED, reason=a.get("reason", "")),
+    }
+
+
+@_tool("report_infeasible")
+def _t_report_infeasible(ag, a):
+    return {
+        "success": True,
+        TERM_KEY: Termination(
+            kind=TermKind.INFEASIBLE, reason=a.get("reason", ""), tried=a.get("tried", "")
+        ),
+    }
+
+
+@_tool("ask_user")
+def _t_ask_user(ag, a):
+    return {
+        "success": True,
+        TERM_KEY: Termination(kind=TermKind.ASK_USER, question=a.get("question", "")),
+    }
+
+
+@_tool("browser_navigate", mutating=True)
+def _t_browser_navigate(ag, a):
+    ag._ensure_browser_started()
+    return ag._run_async(ag.browser.navigate(a.get("url", "")))
+
+
+@_tool("browser_snapshot")
+def _t_browser_snapshot(ag, a):
+    ag._ensure_browser_started()
+    return ag._run_async(ag.browser.get_snapshot())
+
+
+@_tool("browser_click", mutating=True)
+def _t_browser_click(ag, a):
+    ag._ensure_browser_started()
+    return ag._run_async(ag.browser.click(a.get("selector", "")))
+
+
+@_tool("browser_type", mutating=True)
+def _t_browser_type(ag, a):
+    ag._ensure_browser_started()
+    return ag._run_async(ag.browser.type(a.get("selector", ""), a.get("text", "")))
+
+
+@_tool("browser_scroll", mutating=True)
+def _t_browser_scroll(ag, a):
+    ag._ensure_browser_started()
+    return ag._run_async(
+        ag.browser.scroll(a.get("direction", "down"), a.get("amount", 300))
+    )
+
+
+@_tool("browser_close")
+def _t_browser_close(ag, a):
+    if ag._browser is not None and ag._browser.is_started:
+        ag._run_async(ag.browser.close())
+    return {"success": True, "action_summary": "browser closed"}
+
+
+@_tool("browser_screenshot")
+def _t_browser_screenshot(ag, a):
+    ag._ensure_browser_started()
+    return ag._run_async(ag.browser.screenshot())
+
+
+@_tool("browser_press_key", mutating=True)
+def _t_browser_press_key(ag, a):
+    ag._ensure_browser_started()
+    return ag._run_async(ag.browser.press_key(a.get("keys", "Enter")))
+
+
 
 
 def _strip_for_llm(result: dict) -> dict:
@@ -176,7 +435,7 @@ element_id 是稳定的：控件存活期间跨观察有效——重新 get_scre
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _build_tool_definitions() -> list[dict]:
+def _build_all_tool_definitions() -> list[dict]:
     return [
         {
             "type": "function",
@@ -730,6 +989,19 @@ def _build_tool_definitions() -> list[dict]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def _build_tool_definitions() -> list[dict]:
+    """发给 LLM 的工具 schema（默认不含 browser_*，见 config.BROWSER_TOOLS_ENABLED）。
+
+    桌面执行与 DOM 执行是两套基座：动作语义、寻址方式（element_id vs selector）、
+    生命周期都不同。混在一张表里，模型会在桌面步骤里调 browser_snapshot，
+    也会对着浏览器窗口调 click(element_id)。默认只给桌面那一套。
+    """
+    tools = _build_all_tool_definitions()
+    if getattr(settings, "BROWSER_TOOLS_ENABLED", False):
+        return tools
+    return [t for t in tools if not t["function"]["name"].startswith("browser_")]
+
+
 def _build_context_for_llm(
     goal: str,
     current_step: dict,
@@ -828,9 +1100,9 @@ class _LoopDetector:
         self._fail_streak = self._fail_streak + 1 if not success else 0
 
     def record_observation(self, elements: Optional[list]) -> None:
-        if not elements:
-            return
-        fp = self.observation_fingerprint(elements)
+        # 空投影也要计入：感知不到东西时，反复观察同样无效，
+        # 但旧的 `if not elements: return` 让空屏永远不触发停滞提示。
+        fp = self.observation_fingerprint(elements or [])
         if fp == self._last_fp:
             self._same_obs += 1
         else:
@@ -1031,23 +1303,9 @@ class ExecutionAgent:
     # ── 0.7 done 证据化：步骤级证据账本 ──
 
     # 动作类工具：成功执行即记入证据账本（browser_* 同权）
-    _MUTATING_TOOLS = (
-        "click",
-        "double_click",
-        "right_click",
-        "set_range",
-        "select_menu_path",
-        "window_action",
-        "type_text",
-        "paste_text",
-        "press_key",
-        "scroll",
-        "launch_app",
-        "browser_navigate",
-        "browser_click",
-        "browser_type",
-        "browser_press_key",
-        "browser_scroll",
+    # 由注册表推导：加工具时只标一次 mutating，账本不会漏记
+    _MUTATING_TOOLS = tuple(
+        name for name, (_fn, mut) in _TOOL_HANDLERS.items() if mut
     )
 
     def _reset_step_ledger(self) -> None:
@@ -1154,6 +1412,42 @@ class ExecutionAgent:
                 "若你仍坚持，再调一次 mark_step_failed 即生效。"
             ),
         }
+
+    def _apply_termination(
+        self, step: ExecutedStep, term: Termination, action_summary: Optional[str]
+    ) -> ExecutedStep:
+        """把 Termination 落到 ExecutedStep —— 一步只有这一个出口。"""
+        if term.kind is TermKind.DONE:
+            step.status = "done"
+            step.action_summary = action_summary or term.reason or "step completed"
+            strong = self._strong_evidence()
+            if strong is not None:
+                auto_ev = (
+                    f"{strong['tool']}→{strong['target']}"
+                    f" state_changed={strong.get('state_changed')}"
+                    f" verified={strong.get('verified')}"
+                )
+                step.evidence = f"{auto_ev}; {term.evidence}".strip("; ")
+            else:
+                step.evidence = term.evidence
+            if term.unverified:
+                step.evidence = (step.evidence or "") + " [unverified_done]"
+                step.action_summary = (step.action_summary or "") + "（未独立验证）"
+            return step
+
+        step.status = "failed"
+        if term.kind is TermKind.FAILED:
+            step.action_summary = term.reason or "step failed"
+        elif term.kind is TermKind.INFEASIBLE:
+            step.terminal_kind = "infeasible"
+            step.action_summary = f"[不可行] {term.reason}" + (
+                f"｜已尝试: {term.tried}" if term.tried else ""
+            )
+        elif term.kind is TermKind.ASK_USER:
+            step.terminal_kind = "ask_user"
+            step.user_question = term.question
+            step.action_summary = f"[需用户决策] {term.question}"
+        return step
 
     # ── Tool implementations ──
 
@@ -1280,46 +1574,6 @@ class ExecutionAgent:
                 hits += 1
         return hits
 
-    def _embedding_relevance(self, proj: list, query: str) -> list:
-        """A3 第二层钩子：embedding 余弦（仅词法全 0 命中时被调用，权重同词法）。
-
-        settings.SCREEN_SEMANTIC_FILTER 默认 false。TODO(Windows)：安装
-        sentence-transformers 并在 server/.env 配 SCREEN_SEMANTIC_FILTER=true
-        启用（get_embedding 在模型缺失时返回 None → 全 0，行为等同关闭）；
-        Linux 测试环境不装依赖、不启用，此路径常态静默。
-        """
-        zeros = [0] * len(proj)
-        if not getattr(settings, "SCREEN_SEMANTIC_FILTER", False):
-            return zeros
-        try:
-            from server.services.context.embedding_matcher import (
-                cosine_similarity,
-                get_embedding,
-            )
-
-            qv = get_embedding(query)
-            if qv is None:
-                return zeros
-            out = []
-            for item in proj[:60]:  # 成本上限：只嵌入 top-60（此路径本就截断场景）
-                hay = " ".join(
-                    str(item.get(k) or "")
-                    for k in ("name", "class")
-                    if item.get(k)
-                ).strip()
-                v = get_embedding(hay) if hay else None
-                try:
-                    out.append(
-                        1 if (v is not None and cosine_similarity(qv, v) >= 0.35) else 0
-                    )
-                except Exception:
-                    out.append(0)
-            out += [0] * (len(proj) - len(out))
-            return out
-        except Exception:
-            logger.debug("embedding relevance hook failed", exc_info=True)
-            return zeros
-
     def _prioritize_projection(self, proj: list[dict], query: Optional[str] = None) -> list[dict]:
         """0.1 感知序列化：投影字段替代旧 {id,content}×30 截断。
 
@@ -1327,7 +1581,7 @@ class ExecutionAgent:
           词法相关度 ×8（高于可交互的 ×4；query 缺省用本步 instruction，
           filter 显式字符串覆盖，"-" / "off" 关闭）→ 可交互 patterns →
           白名单可用状态 → 有名字。词法对全部条目 0 命中时尝试 embedding
-          钩子（默认关，见 _embedding_relevance）。
+          （第二层 embedding 钩子已删：默认关的代码不产生行为，只产生阅读成本）
         截断后按快照（DFS）顺序重排（A4 seq 字段），保持空间阅读顺序。
         护栏：语义层只改排序权重、不隐藏任何条目（含大纲计数），
         filter 可能漏目标时 LLM 可传 filter="-" 重取纯结构排序。
@@ -1341,8 +1595,6 @@ class ExecutionAgent:
             query = ""
         tokens = self._query_tokens(query)
         relevance = [self._lexical_relevance(it, tokens) for it in proj]
-        if tokens and not any(relevance):
-            relevance = self._embedding_relevance(proj, query)
 
         scored = []
         for i, item in enumerate(proj):
@@ -1648,10 +1900,12 @@ class ExecutionAgent:
         return {
             "success": True,
             "source": "none",
+            "perception": "unavailable",
             "elements": [],
             "element_count": 0,
-            "warning": "无法获取屏幕元素：UIA 无可用控件，且 OmniParser/视觉兜底未配置。"
-            "可尝试 launch_app / press_key / wait，或 mark_step_done / mark_step_failed。",
+            "warning": "无法获取屏幕元素：UIA 无可用控件，且 OmniParser/视觉兜底未开启"
+            "（OMNIPARSER_ENABLED 默认 false）。可尝试 launch_app / press_key / wait，"
+            "或 mark_step_done / mark_step_failed。",
         }
 
     def _do_launch_app(self, app_name: str) -> dict:
@@ -2555,8 +2809,8 @@ class ExecutionAgent:
             result = {"success": True, "action_summary": str(result)[:300]}
         ok = bool(result.get("success"))
         result["ok"] = ok
-        # 控制信号（done/failed/infeasible/ask_user 判定等）不算错误
-        if ok or result.get("__step_failed__") or result.get("__step_infeasible__") or result.get("__ask_user__"):
+        # 控制信号（done/failed/infeasible/ask_user）不算错误
+        if ok or result.get(TERM_KEY) is not None:
             result.setdefault("error_code", None)
             result.setdefault("message", None)
             result.setdefault("hint", None)
@@ -2585,161 +2839,11 @@ class ExecutionAgent:
         return result
 
     def _dispatch_tool_inner(self, tool_name: str, tool_args: dict) -> dict:
-        if tool_name == "get_screen_info":
-            # A3：只在实际传参时带 kwargs（保持 _do_get_screen_info 零参可调
-            # 的既有 monkeypatch/直调语义）
-            _gk = {
-                k: tool_args[k]
-                for k in ("scope", "depth", "filter")
-                if tool_args.get(k) is not None
-            }
-            return self._do_get_screen_info(**_gk)
-        elif tool_name == "launch_app":
-            return self._do_launch_app(tool_args.get("app_name", ""))
-        elif tool_name == "click":
-            return self._do_click(
-                tool_args.get("element_id", ""),
-                expect=tool_args.get("expect"),
-                name=tool_args.get("name"),
-                via=tool_args.get("via"),
-            )
-        elif tool_name == "double_click":
-            return self._do_click(
-                tool_args.get("element_id", ""),
-                double=True,
-                expect=tool_args.get("expect"),
-                name=tool_args.get("name"),
-            )
-        elif tool_name == "type_text":
-            return self._do_type_text(
-                tool_args.get("element_id", ""),
-                tool_args.get("text", ""),
-                expect=tool_args.get("expect"),
-                name=tool_args.get("name"),
-            )
-        # ── B4 动作四件套 ──
-        elif tool_name == "right_click":
-            return self._do_right_click(
-                tool_args.get("element_id", ""),
-                expect=tool_args.get("expect"),
-                name=tool_args.get("name"),
-            )
-        elif tool_name == "set_range":
-            return self._do_set_range(
-                tool_args.get("element_id", ""),
-                value=tool_args.get("value"),
-                expect=tool_args.get("expect"),
-                name=tool_args.get("name"),
-            )
-        elif tool_name == "select_menu_path":
-            return self._do_select_menu_path(
-                tool_args.get("items") or [],
-                expect=tool_args.get("expect"),
-            )
-        elif tool_name == "window_action":
-            return self._do_window_action(
-                tool_args.get("op", ""),
-                title=tool_args.get("title", ""),
-                element_id=tool_args.get("element_id"),
-            )
-        elif tool_name == "paste_text":
-            return self._do_paste_text(
-                tool_args.get("text", ""),
-                expect=tool_args.get("expect"),
-                expect_focus=tool_args.get("expect_focus"),
-            )
-        elif tool_name == "press_key":
-            return self._do_press_key(tool_args.get("keys", "enter"))
-        elif tool_name == "scroll":
-            return self._do_scroll(
-                tool_args.get("direction", "down"),
-                tool_args.get("amount", 3),
-            )
-        elif tool_name == "wait":
-            secs = float(tool_args.get("seconds", 1.0))
-            time.sleep(secs)
-            return {
-                "success": True,
-                "waited": secs,
-                "action_summary": f"waited {secs}s",
-            }
-        # ── P0.5-B1 投机批量动作 ──
-        elif tool_name == "perform_batch":
-            return self._do_perform_batch(tool_args.get("actions") or [])
-        elif tool_name == "mark_step_done":
-            reject = self._gate_mark_step_done(
-                tool_args.get("reason", ""), tool_args.get("evidence", "")
-            )
-            if reject is not None:
-                return reject
-            return {
-                "__step_complete__": True,
-                "success": True,
-                "reason": tool_args.get("reason", ""),
-                "evidence": tool_args.get("evidence", ""),
-                "unverified_done": getattr(self, "_done_attempts", 0) >= 2
-                and (self._strong_evidence() is None
-                     or not (self._strong_evidence().get("state_changed")
-                             or self._strong_evidence().get("verified"))),
-            }
-        elif tool_name == "mark_step_failed":
-            reject = self._gate_mark_step_failed(tool_args.get("reason", ""))
-            if reject is not None:
-                return reject
-            return {"__step_failed__": True, "reason": tool_args.get("reason", "")}
-        elif tool_name == "report_infeasible":
-            return {
-                "__step_infeasible__": True,
-                "reason": tool_args.get("reason", ""),
-                "tried": tool_args.get("tried", ""),
-            }
-        elif tool_name == "ask_user":
-            return {
-                "__ask_user__": True,
-                "question": tool_args.get("question", ""),
-            }
-        # ── Browser tools ──
-        elif tool_name == "browser_navigate":
-            self._ensure_browser_started()
-            return self._run_async(self.browser.navigate(tool_args.get("url", "")))
-        elif tool_name == "browser_snapshot":
-            self._ensure_browser_started()
-            return self._run_async(self.browser.get_snapshot())
-        elif tool_name == "browser_click":
-            self._ensure_browser_started()
-            return self._run_async(
-                self.browser.click(tool_args.get("selector", ""))
-            )
-        elif tool_name == "browser_type":
-            self._ensure_browser_started()
-            return self._run_async(
-                self.browser.type(
-                    tool_args.get("selector", ""),
-                    tool_args.get("text", ""),
-                )
-            )
-        elif tool_name == "browser_scroll":
-            self._ensure_browser_started()
-            return self._run_async(
-                self.browser.scroll(
-                    tool_args.get("direction", "down"),
-                    tool_args.get("amount", 300),
-                )
-            )
-        elif tool_name == "browser_close":
-            if self._browser is not None and self._browser.is_started:
-                self._run_async(self.browser.close())
-            return {"success": True, "action_summary": "browser closed"}
-        elif tool_name == "browser_screenshot":
-            self._ensure_browser_started()
-            return self._run_async(self.browser.screenshot())
-        elif tool_name == "browser_press_key":
-            self._ensure_browser_started()
-            return self._run_async(
-                self.browser.press_key(tool_args.get("keys", "Enter"))
-            )
-        else:
+        entry = _TOOL_HANDLERS.get(tool_name)
+        if entry is None:
             return {"success": False, "error": f"Unknown tool: {tool_name}"}
+        fn, _mutating = entry
+        return fn(self, tool_args or {})
 
     # ── Single-step execution ──
 
@@ -2956,46 +3060,10 @@ class ExecutionAgent:
             if isinstance(result, dict):
                 result.pop("annotated_image", None)
 
-            # Check for step completion signals
-            if result and result.get("__step_complete__"):
-                step.status = "done"
-                step.action_summary = action_summary or result.get(
-                    "reason", "step completed"
-                )
-                # 0.7：done 必须带可核查证据（gate 已在 dispatch 层把关）
-                strong = self._strong_evidence()
-                ev_text = (result.get("evidence") or "").strip()
-                if strong is not None:
-                    auto_ev = (
-                        f"{strong['tool']}→{strong['target']}"
-                        f" state_changed={strong.get('state_changed')}"
-                        f" verified={strong.get('verified')}"
-                    )
-                    step.evidence = f"{auto_ev}; {ev_text}".strip("; ")
-                else:
-                    step.evidence = ev_text
-                if result.get("unverified_done"):
-                    step.evidence = (step.evidence or "") + " [unverified_done]"
-                    step.action_summary = (step.action_summary or "") + "（未独立验证）"
-                return step
-            if result and result.get("__step_failed__"):
-                step.status = "failed"
-                step.action_summary = result.get("reason", "step failed")
-                return step
-            if result and result.get("__step_infeasible__"):
-                step.status = "failed"
-                step.terminal_kind = "infeasible"
-                step.action_summary = (
-                    f"[不可行] {result.get('reason', '')}"
-                    + (f"｜已尝试: {result.get('tried')}" if result.get("tried") else "")
-                )
-                return step
-            if result and result.get("__ask_user__"):
-                step.status = "failed"
-                step.terminal_kind = "ask_user"
-                step.user_question = result.get("question", "")
-                step.action_summary = f"[需用户决策] {result.get('question', '')}"
-                return step
+            # 终止判定：dispatch 产出的 Termination 是唯一出口（曾为 4 个魔法键分支）
+            term = result.get(TERM_KEY) if isinstance(result, dict) else None
+            if term is not None:
+                return self._apply_termination(step, term, action_summary)
 
             # Accumulate action_summary from tool returns
             if result and result.get("action_summary"):

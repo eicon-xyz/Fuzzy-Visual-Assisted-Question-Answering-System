@@ -45,9 +45,10 @@ class Config:
     OMNIPARSER_TIMEOUT: int = int(os.getenv("OMNIPARSER_TIMEOUT", "30"))
     OMNIPARSER_RETRY: int = int(os.getenv("OMNIPARSER_RETRY", "1"))
     OMNIPARSER_RETRY_DELAY: float = float(os.getenv("OMNIPARSER_RETRY_DELAY", "3.0"))
-    # 无 :9800 纯视觉模式：OMNIPARSER_ENABLED=false 时跳过一切 OmniParser 探测/调用
+    # 默认关：OmniParser 已于 2026-09 退役。开启会让无 UIA 时去打 :9800，
+    # timeout 30s × retry 1 = 60s 静默卡顿（用户视角是“卡住”）。
     OMNIPARSER_ENABLED: bool = (
-        os.getenv("OMNIPARSER_ENABLED", "true").lower() not in ("0", "false", "no")
+        os.getenv("OMNIPARSER_ENABLED", "false").lower() in ("1", "true", "yes")
     )
 
     # ═════════════════════════════════════════════════════════════════════
@@ -116,16 +117,17 @@ class Config:
         "INTENT_MODEL_PATH", "server/services/intent/model"
     )
 
+    # 浏览器工具是否发给 LLM。browser_* 是第二套执行基座（Playwright DOM），
+    # 与桌面 UIA 动作混在同一张工具表里。默认不发：省 8 份 schema（约 7K 字符/轮），
+    # 也避免桌面任务里误调 DOM 工具。需要浏览器任务时置 1。
+    BROWSER_TOOLS_ENABLED: bool = (
+        os.getenv("BROWSER_TOOLS_ENABLED", "false").lower() == "true"
+    )
+
     # Agent loop tuning
     MAX_TOOL_CALL_ROUNDS: int = int(os.getenv("MAX_TOOL_CALL_ROUNDS", "50"))
     STEP_RETRY_LIMIT: int = int(os.getenv("STEP_RETRY_LIMIT", "3"))
 
-    # A3 语义过滤第二层（embedding 余弦）开关：默认关——需 sentence-transformers
-    # 与 all-MiniLM-L6-v2 模型文件（Windows 侧安装后在 .env 置 true 启用；
-    # Linux 测试环境不装依赖，词法层 0 命中时静默跳过，见 agent 钩子注释）。
-    SCREEN_SEMANTIC_FILTER: bool = (
-        os.getenv("SCREEN_SEMANTIC_FILTER", "false").lower() == "true"
-    )
 
 
 settings = Config()

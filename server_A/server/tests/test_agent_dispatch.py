@@ -10,7 +10,7 @@ import pytest
 import time
 from unittest.mock import MagicMock, patch
 
-from server.services.executor.agent import ExecutionAgent
+from server.services.executor.agent import TERM_KEY, ExecutionAgent, TermKind
 from server.models.schemas import UIElement
 
 
@@ -150,9 +150,10 @@ class TestDispatchStepControl:
         assert r1["ok"] is False
         assert r1["error_code"] == "done_without_evidence"
         r2 = agent.dispatch_tool("mark_step_done", {"reason": "completed"})
-        assert r2["__step_complete__"] is True
-        assert r2["reason"] == "completed"
-        assert r2["unverified_done"] is True
+        term = r2[TERM_KEY]
+        assert term.kind is TermKind.DONE
+        assert term.reason == "completed"
+        assert term.unverified is True
 
     def test_mark_step_failed(self, agent):
         # 0.7 防过早放弃：首调拦一次要求换策略，二次生效
@@ -160,8 +161,9 @@ class TestDispatchStepControl:
         assert r1["ok"] is False
         assert r1["error_code"] == "giveup_refused_retry"
         r2 = agent.dispatch_tool("mark_step_failed", {"reason": "not found"})
-        assert r2["__step_failed__"] is True
-        assert "not found" in r2["reason"]
+        term = r2[TERM_KEY]
+        assert term.kind is TermKind.FAILED
+        assert "not found" in term.reason
 
 
 class TestDispatchUnknownTool:
