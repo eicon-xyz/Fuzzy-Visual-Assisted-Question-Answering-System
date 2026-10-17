@@ -136,6 +136,12 @@ python main.py
 
 # L5 Sidecar alone
 HAJIMI_UI\scripts\start_l5_sidecar.bat
+
+# Static gates — compile + ruff ratchet + dependency-edge check (<5s, no pytest)
+python -m venv .venv-tools && .venv-tools\Scripts\pip install -r requirements-dev.txt   # once
+.venv-tools\Scripts\python scripts/gates.py      # must be green before every commit
+python scripts/gates.py --install-hooks          # make .githooks/pre-commit active
+python scripts/gates.py --update-baseline        # after fixing debt (lower-only)
 ```
 
 ## Important Constraints
@@ -148,6 +154,30 @@ HAJIMI_UI\scripts\start_l5_sidecar.bat
 - **Redline is two-layered**: B-end `l5_query_normalize` first, Sidecar `redline_service`/`executor/safety` second; both must stay in sync (B-end loads rules from server_A source).
 - **Task storage is in-memory**: tasks/steps/state are lost on Sidecar restart (demo phase).
 - **.bat files**: must be GBK-encoded or pure ASCII, CRLF endings; never `echo` unescaped `( )` inside `if`/`for` parenthesized blocks (`HAJIMI_UI/scripts/dev/check_bat_parens.py` checks this).
+
+## 规则与执行者
+
+**每条规则都必须说得出「违反了谁会红」。** 没有执行者的规则不是规则，是愿望 ——
+它在赶进度时会被跳过，而且跳过时没有任何反馈。下表按执行强度排序，末段是当前
+**无执行者**的规则，属于已知风险。
+
+| 规则 | 执行者 | 强度 |
+|---|---|---|
+| 活代码不得 import `core.*` / `ui.*`；`server_A/{core,ui}`、`main.py`、`config.py` 不得复活 | `scripts/gates.py` 的 refs 层（AST 依赖边 + 路径存在性） | 确定性，无豁免 |
+| 不得新增 pyflakes/ruff 违规（未定义名、未用变量、重定义…） | `gates.py` 的 lint 层：48 条规则 / 764 项存量债入基线，任何计数上涨即红 | 确定性，只降不升 |
+| 所有跟踪的 `.py` 必须可 compile | `gates.py` 的 compile 层 | 确定性 |
+| 提交前必须过上面三层 | `.githooks/pre-commit`（`git config core.hooksPath .githooks`） | 确定性（`--no-verify` 可破，需在 message 说明） |
+| 测试不得出现基线清单之外的新失败 | `scripts/test_harness.py` L1/L2 子集判定（`test_reports/preset_failed.txt`） | 确定性，需手动跑 |
+| `.bat` 块内不得出现未转义 `( )` | `HAJIMI_UI/scripts/dev/check_bat_parens.py`（harness L0 调用） | 确定性 |
+| `.bat` 必须 CRLF | `.gitattributes`（`*.bat text eol=crlf`） | 确定性 |
+| lint/format 配置只存在于根 `ruff.toml` | 无自动检查；子目录 pyproject 若再加 `[tool.*]` 无人拦（**待补**） | 无 |
+| `.bat` 必须 GBK 或纯 ASCII | 无检查（**待补**：只在中文 Windows 崩溃时才暴露） | 无 |
+| 模型 key 只存 `server_A/server/.env` | 无检查（**待补**：可写脚本断言源码无 `sk-` 字面量） | 无 |
+| 红线两层（B 端 `l5_query_normalize` / Sidecar `redline_service`）必须同步 | 无检查（**待补**：可断言两侧规则表哈希一致） | 无 |
+| 不得重新引入 OmniParser | 无检查；`OMNIPARSER_ENABLED` 仍存在于 `server/config.py`，与「已移除」的叙述矛盾（**待裁决**） | 无 |
+
+新增规则时的顺序：先问「能不能让这种代码写不出来」（删旧路径 / 收敛成唯一入口），
+再问「能不能让工具报错」（gates 加一条 / 基线加一条规则），最后才写进这张表。
 
 ## Agent skills
 
