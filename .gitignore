@@ -19,6 +19,7 @@ build/
 # ==================== 虚拟环境 ====================
 venv/
 .venv/
+.venv-tools/
 env/
 ENV/
 env.bak/

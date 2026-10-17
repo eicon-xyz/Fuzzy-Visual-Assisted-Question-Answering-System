@@ -1,0 +1,56 @@
+# HAJIMI 唯一 lint/format 配置源。
+#
+# 为什么在根目录而不是各子目录的 pyproject.toml：
+#   ruff 按文件就近查找配置。子目录 pyproject.toml 里若残留 [tool.black] /
+#   [tool.isort] / [tool.flake8] 段落，它们是**死配置**——flake8 根本不读
+#   pyproject.toml，black/isort 也没人跑。留着会让 agent 以为"已经有 lint 了"。
+#   所以：一处配置，一个工具。子目录只管 pytest 标记。
+#
+# 存量债不靠 ignore 清单，靠 scripts/gates.py 的计数棘轮：
+#   新增违规 = 失败；修掉一条 = 提示收紧基线。
+#   这样存量不阻塞，增量被确定性拦住。
+
+target-version = "py311"
+line-length = 110
+
+extend-exclude = [
+    ".venv-tools",
+    ".git",
+    "__pycache__",
+    "node_modules",
+    # 非代码物料
+    "项目文档",
+    "工作进度",
+    "参考文档",
+    "models",
+    "test_reports",
+]
+
+[lint]
+# 只选"违规=可能是缺陷"的族，不选 D(文档)/COM(逗号)/ANN(注解)/T20(print)
+# 这类风格族——本仓 435 处 print 是日志体系，不是缺陷。
+select = [
+    "E4", "E7", "E9",   # import 位置 / 语句结构 / 语法
+    "F",                # pyflakes：未定义名、未用变量、重复定义
+    "B",                # bugbear：可变默认参数、循环闭包、裸 except
+    "RUF",              # ruff 自带：真 bug 与一致性
+    "PLE", "PLW",       # pylint 的 error / warning 子集
+    "ASYNC",            # 异步误用（本项目 SSE + 线程混杂，高发）
+    "PT",               # pytest 误用（测试占全部文件的 1/6）
+    "S1", "S2", "S3",   # bandit 安全子集：硬编码口令、命令注入、弱哈希
+]
+ignore = [
+    # 中文源码的全角标点，3500+ 处，纯噪声：这条规则假定源码是英文。
+    "RUF001", "RUF002", "RUF003",
+]
+
+[lint.per-file-ignores]
+# 测试文件允许 assert（S101）——这是 pytest 的本体，不是缺陷。
+"**/tests/**" = ["S101", "S105", "S106", "PT011", "PT018"]
+"**/conftest.py" = ["S101"]
+
+[lint.isort]
+known-first-party = ["server", "core", "ui"]
+
+[format]
+quote-style = "double"

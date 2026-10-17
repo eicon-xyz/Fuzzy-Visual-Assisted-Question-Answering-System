@@ -1,21 +1,7 @@
-# HAJIMI_UI — PEP 8 / PageEyes Agent code style configuration
-[tool.black]
-line-length = 88
-target-version = ['py312']
-
-[tool.isort]
-profile = "black"
-line_length = 88
-
-[tool.flake8]
-max-line-length = 88
-extend-ignore = ["E203", "W503"]
-
-[tool.mypy]
-python_version = "3.12"
-warn_return_any = true
-warn_unused_configs = true
-ignore_missing_imports = true
+# lint/format 配置**不在这里**：见仓库根 ruff.toml（唯一配置源）。
+# 这里曾经有 [tool.black] / [tool.isort] / [tool.flake8] / [tool.mypy] 四段，
+# 全是死配置：flake8 不读 pyproject.toml，black/isort/mypy 也没有任何入口会跑。
+# 留着只会让 agent 以为"已经有 lint 了"，所以删掉，只留 pytest 标记。
 
 [tool.pytest.ini_options]
 markers = [

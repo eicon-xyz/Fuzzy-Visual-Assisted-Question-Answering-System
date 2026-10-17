@@ -1,0 +1,19 @@
+#!/bin/sh
+# 提交前闸门。由 `python scripts/gates.py --install-hooks` 启用（core.hooksPath=.githooks）。
+#
+# 为什么用 hook 而不是写进 AGENTS.md：
+#   规则写在散文里，agent 会在赶进度时跳过；hook 跳过不了（除非 --no-verify，那是显式行为）。
+#   这里只跑秒级的静态检查，不跑 pytest —— 提交不该被慢测试拖住。
+#
+# 手工跳过：git commit --no-verify（请在 commit message 里说明为什么）。
+
+ROOT=$(git rev-parse --show-toplevel) || exit 0
+
+for PY in "$ROOT/.venv-tools/Scripts/python.exe" "$ROOT/.venv-tools/bin/python" python3 python; do
+    if command -v "$PY" >/dev/null 2>&1 || [ -x "$PY" ]; then
+        exec "$PY" "$ROOT/scripts/gates.py" --only compile,lint,refs
+    fi
+done
+
+echo "gates: 找不到 python，跳过检查（请先建 .venv-tools）" >&2
+exit 0

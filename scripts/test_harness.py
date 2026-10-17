@@ -71,32 +71,23 @@ def _py():
     return [sys.executable]
 
 
-# 已知编译例外（L4 时代死 fork 残留，审查 R5 已点名清理——清理批次落地后移除）
-# style_preview_demo.py 用了 Python3.12 才允许的 f-string 反斜杠语法（当前 3.10 编译不过）
-COMPILE_EXCEPTIONS = {
-    "server_A/ui/style_preview_demo.py",
-    "server_A/ui/#step_list.py",
-    "server_A/core/#screen_capturer.py",
-}
+# L0 的 py_compile 现在由 scripts/gates.py 的 compile 层覆盖（更快、无例外清单）。
+# 原来的 3 条 COMPILE_EXCEPTIONS 全部指向 L4 死 fork，已随该目录一起删除。
 
 
 def level_L0() -> int:
     """静态门：py_compile（仅 git 跟踪的 .py）+ bat 括号 + eval schema。"""
     rc = 0
-    # 只编译 git 跟踪的 Python 文件：死 fork 垃圾文件（如 L4 遗留的
-    # server_A/ui/#step_list.py / style_preview_demo.py）不在跟踪集内就不误伤。
-    ls = subprocess.run(["git", "ls-files", "*.py"], capture_output=True, text=True)
+    # 只编译 git 跟踪的 Python 文件：未跟踪的本地垃圾不误伤。
+    ls = subprocess.run(["git", "ls-files", "*.py"], capture_output=True, text=True, check=False)
     tracked = [ln for ln in ls.stdout.splitlines() if ln.strip()]
-    py_files = [
-        str(ROOT / f) for f in tracked
-        if (ROOT / f).exists() and f not in COMPILE_EXCEPTIONS
-    ]
+    py_files = [str(ROOT / f) for f in tracked if (ROOT / f).exists()]
     # 逐文件编译（静默，只报错）：单条命令行避免超长参数与"一个坏文件拖垮整批"
     bad = []
     for fp in py_files:
         r = subprocess.run(
             [sys.executable, "-m", "py_compile", fp],
-            capture_output=True, text=True, cwd=str(ROOT),
+            capture_output=True, text=True, cwd=str(ROOT), check=False,
         )
         if r.returncode != 0:
             err = [l for l in (r.stderr or "").splitlines() if "Error" in l or "error" in l][:2]
@@ -107,8 +98,7 @@ def level_L0() -> int:
             print(f"   {b}")
         rc |= 1
     else:
-        print(f"✓ py_compile: {len(py_files)} 个跟踪文件全部通过"
-              f"（例外 {len(COMPILE_EXCEPTIONS)} 个 R5 清理项跳过）")
+        print(f"✓ py_compile: {len(py_files)} 个跟踪文件全部通过")
     # bat 括号检查
     checker = ROOT / "HAJIMI_UI" / "scripts" / "dev" / "check_bat_parens.py"
     if checker.exists():

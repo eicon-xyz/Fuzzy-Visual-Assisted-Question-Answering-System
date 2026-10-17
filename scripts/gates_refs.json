@@ -1,0 +1,28 @@
+{
+  "note": "结构性禁用：不是禁用'某个词'，而是禁用'某条依赖边'与'某个目录存在'。词面扫描会产生大量假阳性（本仓有 60+ 处注释在说明这些概念已被删除），而依赖边与路径存在性是二值的，无需豁免。",
+  "forbidden_imports": [
+    {
+      "scope": "server_A/server",
+      "roots": ["core", "ui"],
+      "why": "server_A/core 与 server_A/ui 是 L4 时代死 fork（:8010 / deployment_mode / OmniParser 的实现）。活代码从它们 import 会把死概念重新拉进运行期，agent 也会照着旧实现抄。"
+    }
+  ],
+  "forbidden_paths": [
+    {
+      "path": "server_A/core",
+      "why": "L4 死 fork：A 端后端整棵树（a_end_launcher / deployment_resolver / api_client 等），已无活引用"
+    },
+    {
+      "path": "server_A/ui",
+      "why": "L4 死 fork：旧 PyQt 面板（main_widget / agent_panel / glass_demo 等），UI 只剩 HAJIMI_UI"
+    },
+    {
+      "path": "server_A/main.py",
+      "why": "L4 死 fork 的独立入口，已被 server_A/server/main.py 取代，零引用"
+    },
+    {
+      "path": "server_A/config.py",
+      "why": "L4 死 fork 的配置（DEFAULT_A_PORT=8010），只被已删的 server_A/main.py 使用"
+    }
+  ]
+}
