@@ -46,6 +46,36 @@ for _mod_name in ("pyautogui", "pygetwindow", "mouseinfo", "pydirectinput"):
         sys.modules[_mod_name] = _stub
 
 
+@pytest.fixture(autouse=True)
+def _never_touch_real_input(monkeypatch):
+    """Phase 1 安全网：任何测试都不许真的动键鼠或写剪贴板。
+
+    把 hid 的设备库整体换成记录器，而不是依赖每个测试自己 patch——
+    新增测试即使忘了打桩，也不会在开发者机器上产生桌面副作用。
+    需要断言"确实调用了设备"的测试，改为 patch `hid.click` / `hid.paste`
+    这类公开函数（它们的签名里带 permit，断言更有意义）。
+    """
+    import server.services.executor.hid as hid_mod
+
+    class _DeviceStub:
+        FAILSAFE = False
+        PAUSE = 0.0
+
+        def __getattr__(self, _name):
+            def _noop(*_a, **_k):
+                return None
+
+            return _noop
+
+    monkeypatch.setattr(hid_mod, "pydirectinput", _DeviceStub(), raising=False)
+    monkeypatch.setattr(hid_mod, "pyautogui", _DeviceStub(), raising=False)
+    monkeypatch.setattr(hid_mod, "pyperclip", _DeviceStub(), raising=False)
+    monkeypatch.setattr(hid_mod, "_USE_DIRECT", True, raising=False)
+    monkeypatch.setattr(hid_mod, "_HAS_PYAUTOGUI", True, raising=False)
+    monkeypatch.setattr(hid_mod, "_HAS_PYPERCLIP", True, raising=False)
+    yield
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _eval_telemetry_tmpdir(tmp_path_factory):
     """T1：全部测试的评测遥测落盘统一到 session tmp，不污染真实 data/eval。"""
