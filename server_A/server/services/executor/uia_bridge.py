@@ -72,6 +72,47 @@ def _import_auto():
         return None
 
 
+def _win32gui():
+    """pywin32 的 win32gui；不可用返回 None。
+
+    只用于"窗口输入可达性分类"这种纯查询，不碰输入（输入统一在 hid.py）。
+    """
+    try:
+        import win32gui  # type: ignore
+
+        return win32gui
+    except Exception:  # pragma: no cover
+        return None
+
+
+# M2：已知会把 posted 消息吞掉的窗口类（Chromium 系 / XAML-UWP 宿主）。
+# 这是**启发式**：Tauri/WebView2 会挂自己的类名伪装成 classic，因此结果只能
+# 当"给模型的提示"，真正的判据是"发一次消息看状态变不变"。
+_CHROMIUM_CLASSES = frozenset(
+    {
+        "Chrome_WidgetWin_0",
+        "Chrome_WidgetWin_1",
+        "Chrome_WidgetWin_2",
+        "CefBrowserWindow",
+        "CEF-OSC-WIDGET",
+        "SunAwtFrame",
+    }
+)
+_XAML_CLASSES = frozenset(
+    {
+        "ApplicationFrameWindow",
+        "Windows.UI.Core.CoreWindow",
+        "WinUIDesktopWin32WindowClass",
+    }
+)
+
+_INPUT_MODE_HINT = {
+    "message": "可投递窗口消息（不搬光标、不抢焦点）",
+    "foreground": "该窗口会吞掉投递消息，只能走 UIA 或显式坐标点击（会抢光标）",
+    "unknown": "未识别：优先用 UIA pattern；确需像素点击时先试 via='message'",
+}
+
+
 def _control_bbox(control) -> Optional[List[int]]:
     try:
         rect = control.BoundingRectangle
@@ -204,6 +245,8 @@ class UIABridge:
         self._last_window_title: str = ""
         self._last_window_rect: Optional[List[int]] = None
         self._last_root_hwnd: int = 0  # 最近一次观察根窗口句柄（抓图用）
+        # M2：窗口输入可达性分类缓存 {(hwnd, class): {mode, why}}
+        self._input_mode_cache: Dict[tuple, dict] = {}
         self._last_focused: Optional[dict] = None  # B3: 快照时焦点控件 {name,type,class,bbox}
         # ── A4: 跨快照存活的持久句柄表（clear() 才全清）──
         self._handles: Dict[str, object] = {}  # eid → UIA control（act/verify 消费）
@@ -393,6 +436,112 @@ class UIABridge:
 
     def unpin_target(self) -> None:
         self._target = None
+
+    # ── M2：窗口输入可达性分类（给模型选路用，不是硬门）──
+
+    def input_mode(self, hwnd: int) -> dict:
+        """判断这个窗口能不能"后台投递消息"。
+
+        Returns: {"mode": "message"|"foreground"|"unknown", "minimized": bool,
+                  "why": str, "hint": str}
+
+        - ``message``：经典 Win32 窗口（有真实子 HWND）→ PostMessage 大概率被处理
+        - ``foreground``：Chromium / XAML-UWP → 投递会被吞，只能 UIA 或真点击
+        - ``unknown``：类名不识别且无子控件 → 先 UIA，再试 message
+
+        ``minimized`` 是**独立维度**：最小化不影响投递消息，只影响像素（抓图必空、
+        且 restore 会改屏幕状态）。把两者混成一个 mode 会把"能发消息但没像素"
+        误判成"必须抢前台"。
+
+        类名是启发式（Tauri/WebView2 会伪装成 classic），所以这只是**提示**；
+        真判据是投递后看状态变化。
+        """
+        if not hwnd:
+            return {
+                "mode": "unknown",
+                "minimized": False,
+                "why": "no_hwnd",
+                "hint": _INPUT_MODE_HINT["unknown"],
+            }
+        gui = _win32gui()
+        if gui is None:  # pragma: no cover
+            return {
+                "mode": "unknown",
+                "minimized": False,
+                "why": "win32gui_unavailable",
+                "hint": _INPUT_MODE_HINT["unknown"],
+            }
+        minimized = False
+        try:
+            if not gui.IsWindow(hwnd):
+                return {
+                    "mode": "unknown",
+                    "minimized": False,
+                    "why": "not_a_window",
+                    "hint": _INPUT_MODE_HINT["unknown"],
+                }
+            minimized = bool(gui.IsIconic(hwnd))
+            cls = gui.GetClassName(hwnd) or ""
+        except Exception:
+            return {
+                "mode": "unknown",
+                "minimized": False,
+                "why": "query_failed",
+                "hint": _INPUT_MODE_HINT["unknown"],
+            }
+
+        cached = self._input_mode_cache.get((hwnd, cls))
+        if cached is not None:
+            res = dict(cached)
+            res["minimized"] = minimized
+            return res
+
+        if cls in _CHROMIUM_CLASSES:
+            res = {
+                "mode": "foreground",
+                "why": f"class:{cls}",
+                "hint": "Chromium 系窗口会吞掉投递的坐标消息：用 UIA 元素操作，或显式 via='coordinate'。",
+            }
+        elif cls in _XAML_CLASSES or "Windows.UI" in cls:
+            res = {
+                "mode": "foreground",
+                "why": f"class:{cls}",
+                "hint": "XAML/UWP 是单个 DirectX 画布，投递消息不被处理：用 UIA 元素操作。",
+            }
+        else:
+            children = 0
+            try:
+
+                def _cb(_h, _l):
+                    nonlocal children
+                    children += 1
+                    return True
+
+                gui.EnumChildWindows(hwnd, _cb, None)
+            except Exception:
+                children = 0
+            if children > 0:
+                res = {
+                    "mode": "message",
+                    "why": f"classic:{cls}:children={children}",
+                    "hint": _INPUT_MODE_HINT["message"],
+                }
+            else:
+                res = {
+                    "mode": "unknown",
+                    "why": f"no_child:{cls}",
+                    "hint": _INPUT_MODE_HINT["unknown"],
+                }
+        self._input_mode_cache[(hwnd, cls)] = res
+        out = dict(res)
+        out["minimized"] = minimized
+        if minimized:
+            out["hint"] = (
+                res["hint"]
+                + "；该窗口已最小化：投递消息仍可能生效，但抓图必空，需要像素时先 "
+                "window_action(op='restore')。"
+            )
+        return out
 
     def _target_control(self):
         """钉住的窗口还活着就返回它，否则清空钉住并回退前台（fail-soft）。"""
@@ -1036,16 +1185,16 @@ class UIABridge:
         before = self._props(ctrl)
 
         if action == "click":
-            if via == "coordinate":
-                # B2 最小逃生舱：显式声明坐标点击（自绘/无 pattern 控件）
-                r = self._act_coord(ctrl, element_id, clicks=1)
+            if via in ("coordinate", "message"):
+                # 显式声明像素路（坐标=抢光标；message=投递消息）
+                r = self._act_coord(ctrl, element_id, clicks=1, via=via)
             else:
                 r = self._act_click(ctrl, element_id)
         elif action == "double_click":
-            r = self._act_coord(ctrl, element_id, clicks=2)
+            r = self._act_coord(ctrl, element_id, clicks=2, via=via)
         elif action == "right_click":
             # B4: 右键语义=像素事件（弹系统上下文菜单），不走决策表选模式
-            r = self._act_coord(ctrl, element_id, clicks=1, button="right")
+            r = self._act_coord(ctrl, element_id, clicks=1, button="right", via=via)
         elif action == "set_range":
             r = self._act_set_range(ctrl, element_id, value)
         elif action == "type":
@@ -1077,6 +1226,17 @@ class UIABridge:
         diff = self._prop_diff(before, after)
         r["state_changed"] = bool(diff["changed"])
         r["prop_diff"] = diff
+
+        # W 档专属提示：投递成功但控件属性零变化，最常见的原因是目标窗口把消息
+        # 吞了（Chromium/XAML）。这里**不**自动降级到坐标（那会双触发），只把
+        # 下一步该做什么交给模型。
+        if r.get("via") == "message" and not r["state_changed"] and not expect:
+            r["hint"] = (
+                "消息已投递，但控件属性没有变化——目标窗口可能吞掉了投递（Chromium/"
+                "XAML 常见），也可能动作生效在别处（弹窗/新窗口）。先 get_screen_info "
+                "确认界面；确无变化再显式传 via='coordinate'（会搬光标）。"
+            )
+            r["next_via"] = "coordinate"
 
         if expect:
             w = self.wait_for_text(expect, timeout=expect_timeout)
@@ -1381,15 +1541,27 @@ class UIABridge:
                         "active": active,
                         "items": n if n <= 200 else "200+",
                         "expandable": True,
+                        "hwnd": self._hwnd_of(w),
                     },
                 )
             )
         return out
 
     def list_windows(self) -> List[dict]:
-        """可见顶层窗口摘要（active 置首，其余桌面序）。只数不做 pattern 探测。"""
+        """可见顶层窗口摘要（active 置首，其余桌面序）。只数不做 pattern 探测。
+
+        M2：每个窗口附 ``input_mode``（message/foreground/unknown），让模型在
+        选路前就知道"这个窗口能不能后台点"，而不是试错一轮才发现。
+        """
         pairs = self._scan_top_windows()
         infos = [info for _, info in pairs]
+        for info in infos:
+            mode = self.input_mode(info.get("hwnd") or 0)
+            info["input_mode"] = mode["mode"]
+            if mode.get("minimized"):
+                info["minimized"] = True
+            # 句柄对模型没有意义，且会诱导它编造 hwnd —— 不进投影
+            info.pop("hwnd", None)
         infos.sort(key=lambda i: 0 if i["active"] else 1)  # 稳定排序：active 前置
         return infos
 
@@ -1528,11 +1700,69 @@ class UIABridge:
             "action_summary": f"window {op} '{win_name or title}'（{method}）",
         }
 
-    def _act_coord(self, ctrl, element_id: str, clicks: int = 1, button: str = "left") -> dict:
+    def _act_coord(
+        self,
+        ctrl,
+        element_id: str,
+        clicks: int = 1,
+        button: str = "left",
+        via: Optional[str] = None,
+    ) -> dict:
+        """像素级动作。两档实现，按 via 选：
+
+        - ``"message"``：投递窗口消息（不搬光标、不抢焦点），失败**不**降级
+        - ``"coordinate"``：SendInput 真点击（搬光标），要 POINTER 许可
+        - ``None``：按目标窗口的 input_mode 选侵入性更低的一档，并把实际用的
+          档位回在 ``via`` 里（可观测，不是静默降级——降级指"失败后换条路"）
+        """
         bbox = _control_bbox(ctrl)
         if bbox is None:
             return {"success": False, "error": "uia element has no bbox", "via": None}
         cx, cy = (bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2
+
+        hwnd = self._hwnd_of(ctrl) if hasattr(self, "_hwnd_of") else 0
+        mode = self.input_mode(hwnd)["mode"] if hwnd else "unknown"
+
+        use_message = via == "message" or (
+            via is None and mode == "message" and button in ("left", "right", "middle")
+        )
+        if via == "message" and not hwnd:
+            return {
+                "success": False,
+                "via": None,
+                "error_code": "path_unavailable",
+                "error": "element has no window handle for message delivery",
+                "hint": (
+                    "该控件取不到 HWND（自绘/XAML 常见），无法投递消息。"
+                    "改传 via='coordinate' 显式要像素点击（会搬光标），或换有模式的控件。"
+                ),
+            }
+
+        if use_message:
+            from server.services.executor.hid import post_click
+
+            r = post_click(self._permit, hwnd, (cx, cy), clicks=clicks, button=button)
+            if not r.ok:
+                return {
+                    "success": False,
+                    "via": None,
+                    "input_mode": mode,
+                    **r.to_dict(),
+                }
+            return {
+                "success": True,
+                "via": "message",
+                "input_mode": mode,
+                "element": element_id,
+                "hwnd": hwnd,
+                "x": cx,
+                "y": cy,
+                "clicks": clicks,
+                "button": button,
+                # 投递成功 ≠ 应用照做：状态没变时靠调用方看 state_changed
+                "posted": True,
+            }
+
         from server.services.executor.hid import click as hid_click
 
         r = hid_click(self._permit, (cx, cy), clicks=clicks, button=button)
@@ -1540,11 +1770,13 @@ class UIABridge:
             return {
                 "success": False,
                 "via": None,
+                "input_mode": mode,
                 **r.to_dict(),
             }
         return {
             "success": True,
             "via": "coord",
+            "input_mode": mode,
             "element": element_id,
             "x": cx,
             "y": cy,

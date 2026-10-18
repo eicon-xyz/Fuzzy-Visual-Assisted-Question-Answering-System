@@ -51,6 +51,7 @@ class ForegroundAction(str, Enum):
     CLIPBOARD = "clipboard"    # 全局剪贴板被改写（并还原）
     ACTIVATE = "activate"      # 前台窗口被切换 / 控件被 SetFocus
     FULLSCREEN_GRAB = "fullscreen_grab"  # 抓整屏像素（会看到窗口之外的东西）
+    WINDOW_MESSAGE = "window_message"    # 向别的进程窗口投递输入消息（不搬光标）
 
 
 _MINT = object()  # 唯一种子；不进 __all__
@@ -184,6 +185,9 @@ _VERBS: dict[ForegroundAction, tuple[str, ...]] = {
     ForegroundAction.FULLSCREEN_GRAB: (
         "截图", "全屏", "整屏", "screenshot", "fullscreen", "full screen",
     ),
+    # 没有"计划里会说 WindowMessage"的动词——它是实现档位，不是用户意图。
+    # 由 derive_policy 从 POINTER/KEYBOARD 隐含派生（见下）。
+    ForegroundAction.WINDOW_MESSAGE: (),
 }
 
 
@@ -213,6 +217,17 @@ def derive_policy(task_id: str, goal: str, steps: list[dict]) -> TaskPolicy:
         if hit:
             actions.add(action)
             reasons.append(f"{action.value}←«{hit}»")
+
+    # 消息投递是"操作该控件"的严格子集：允许搬光标/发按键，就允许给它发窗口消息
+    # （不搬光标、不抢焦点，侵入性更低）。反过来不成立——只允许发消息≠允许搬光标。
+    # 不这么派生的话，W 档永远拿不到许可，系统会退回"每次都搬光标"，比现状更差。
+    implied = actions & {ForegroundAction.POINTER, ForegroundAction.KEYBOARD}
+    if implied and ForegroundAction.WINDOW_MESSAGE not in actions:
+        actions.add(ForegroundAction.WINDOW_MESSAGE)
+        reasons.append(
+            "window_message←隐含于:"
+            + "+".join(sorted(a.value for a in implied))
+        )
 
     return TaskPolicy(
         task_id=task_id,

@@ -370,7 +370,7 @@ element_id 是稳定的：控件存活期间跨观察有效——重新 get_scre
 - 找不到时，先 wait(2) 再重新 get_screen_info
 - 调用 click/double_click/type_text 时必须同时传 name 参数（你选定条目的 name 值）：服务端会拿它与快照核对，若该 id 实际不是你说的控件会拒绝执行并回报真实名称——按真名重新决策，不要重复同一个错误 id
 - 菜单/下拉框（type=menu/menuitem/combobox，或 patterns 含 expandcollapse）：**多级菜单优先 select_menu_path 一次走完**（服务端每级自动重观察，比逐级 click 省轮次）；失败按返回的 visible_at_level 修正路径，或退回逐级 click——直接 click 菜单头会自动走 ExpandCollapse 展开并返回新选项列表（new_elements 为展开新增项；存活旧 id 仍有效，销毁项重用时报 element_stale），从中选下一级再 click；禁止用坐标盲点菜单
-- click 返回 action_ambiguous/pattern_failed 时：pattern_failed 说明动作可能已部分生效，先观察再决策，严禁原样补刀；action_ambiguous 说明选错控件类型，换 type_text/press_key 或换控件，最后手段才是显式传 via="coordinate"
+- click 返回 action_ambiguous/pattern_failed 时：pattern_failed 说明动作可能已部分生效，先观察再决策，严禁原样补刀；action_ambiguous 说明选错控件类型，换 type_text/press_key 或换控件，最后手段才是显式传 via="message"（投递消息，不搬光标）或 via="coordinate"（真点击，抢光标）。windows 里的 input_mode=message 表示该窗口可投递；=foreground 表示投递会被吞，只能坐标点击。via="message" 返回 state_changed=false 时先观察，确无变化再改 via="coordinate"。
 
 ## 验证标准
 - 动作下发前服务端自动做 actionability 预检（可见/启用/位置稳定/不被遮挡，在超时内轮询等待条件而非固定等待）；预检不过返回 error_code=not_actionable + missing_predicates——界面在加载就 wait 后重试，控件不可用就换 enabled 的同功能控件，不要硬点同一个 id
@@ -497,8 +497,14 @@ def _build_all_tool_definitions() -> list[dict]:
                         },
                         "via": {
                             "type": "string",
-                            "enum": ["coordinate"],
-                            "description": "仅在目标控件无任何交互模式且确需像素点击时传 'coordinate'（自绘/游戏类 UI）。默认禁止——自动坐标回退已移除。",
+                            "enum": ["coordinate", "message"],
+                            "description": (
+                                "目标控件无任何交互模式时的显式像素路。"
+                                "'message'=投递窗口消息（不搬光标、不抢焦点，classic Win32 有效）；"
+                                "'coordinate'=真点击（搬光标、必抢前台）。"
+                                "不传则按目标窗口的 input_mode 自动选侵入性更低的一档，"
+                                "实际用的档位回在返回的 via 字段里。"
+                            ),
                         },
                     },
                     "required": ["element_id", "name"],
@@ -2760,7 +2766,9 @@ class ExecutionAgent:
         "action_ambiguous": (
             "该控件类型没有可用的交互模式（按钮/菜单等语义不适用），点不动。"
             "输入框改用 type_text；菜单/下拉先尝试展开；确属自绘/无 pattern 控件"
-            "且必须像素点击时，才显式传 via='coordinate'；或重新观察换目标。"
+            "且必须像素操作时，先看 windows 里的 input_mode：message → 传 via='message'"
+            "（投递消息，不搬光标）；foreground/unknown → 传 via='coordinate'（抢光标）。"
+            "或重新观察换目标。"
         ),
         "pattern_failed": (
             "选定交互模式执行失败，且动作可能已部分生效。严禁原样补刀重试——"

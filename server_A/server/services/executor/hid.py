@@ -34,6 +34,8 @@ __all__ = [
     "hotkey",
     "move",
     "paste",
+    "post_click",
+    "post_text",
     "precheck",
     "press_key",
     "screen_size",
@@ -69,6 +71,40 @@ try:
     _HAS_PYPERCLIP = True
 except ImportError:  # pragma: no cover
     _HAS_PYPERCLIP = False
+
+
+def _win32gui():
+    """pywin32 的 win32gui；不可用返回 None（Linux/CI 上测试会 mock 掉它）。"""
+    try:
+        import win32gui  # type: ignore
+
+        return win32gui
+    except Exception:  # pragma: no cover
+        return None
+
+
+# ── 窗口消息（W 档）────────────────────────────────────────────────────────
+# 投递给目标窗口自己的消息队列：不移动光标、不抢焦点。代价是"投递成功"不等于
+# "应用照做"——Chromium/XAML 会把消息吞掉，所以调用方必须看状态变化。
+
+WM_LBUTTONDOWN = 0x0201
+WM_LBUTTONUP = 0x0202
+WM_RBUTTONDOWN = 0x0204
+WM_RBUTTONUP = 0x0205
+WM_MBUTTONDOWN = 0x0207
+WM_MBUTTONUP = 0x0208
+WM_CHAR = 0x0102
+
+_BUTTON_MSGS = {
+    "left": (WM_LBUTTONDOWN, WM_LBUTTONUP, 0x0001),
+    "right": (WM_RBUTTONDOWN, WM_RBUTTONUP, 0x0002),
+    "middle": (WM_MBUTTONDOWN, WM_MBUTTONUP, 0x0010),
+}
+
+
+def _makelparam(x: int, y: int) -> int:
+    """MAKELONG(x, y)：低 16 位 x、高 16 位 y。不用 win32api，避免多一个依赖。"""
+    return ((int(y) & 0xFFFF) << 16) | (int(x) & 0xFFFF)
 
 
 @dataclass(frozen=True)
@@ -258,6 +294,132 @@ def click(
         ok=True,
         actions=(ForegroundAction.POINTER,),
         detail={"via": "coord", "x": x, "y": y, "button": button, "clicks": clicks},
+    )
+
+
+def post_click(
+    permit: Optional[ForegroundPermit],
+    hwnd: int,
+    point: tuple[int, int],
+    *,
+    button: str = "left",
+    clicks: int = 1,
+) -> HIDResult:
+    """把点击**投递**给目标窗口（WM_*BUTTONDOWN/UP），不移动光标、不抢焦点。
+
+    ``point`` 仍是屏幕绝对坐标（I4）：内部换算成窗口客户区。
+    返回 ``ok=True`` 只代表"消息已入队"，不代表应用照做——Chromium/XAML 会吞掉，
+    所以调用方必须用状态变化判断，并且**不许因此自动降级到 SendInput**（双触发）。
+    """
+    denied = _guard(permit, (ForegroundAction.WINDOW_MESSAGE,), "hid.post_click")
+    if denied is not None:
+        return denied
+    gui = _win32gui()
+    if gui is None:  # pragma: no cover
+        return HIDResult(
+            ok=False,
+            actions=(ForegroundAction.WINDOW_MESSAGE,),
+            error_code="path_unavailable",
+            error="win32gui unavailable",
+            hint="pywin32 缺失，无法投递窗口消息。",
+        )
+    if not hwnd:
+        return HIDResult(
+            ok=False,
+            actions=(ForegroundAction.WINDOW_MESSAGE,),
+            error_code="path_unavailable",
+            error="no target hwnd",
+            hint="该控件取不到窗口句柄（自绘/XAML 常见），只能走坐标点击。",
+        )
+    down, up, mk = _BUTTON_MSGS.get(button, _BUTTON_MSGS["left"])
+    try:
+        cx, cy = gui.ScreenToClient(hwnd, (int(point[0]), int(point[1])))
+    except Exception as exc:
+        return HIDResult(
+            ok=False,
+            actions=(ForegroundAction.WINDOW_MESSAGE,),
+            error_code="path_unavailable",
+            error=f"ScreenToClient failed: {exc}",
+            hint="窗口可能已销毁；重新观察后再决策。",
+        )
+    lparam = _makelparam(cx, cy)
+    posted = 0
+    for _ in range(max(1, clicks)):
+        try:
+            if gui.PostMessage(hwnd, down, mk, lparam):
+                posted += 1
+            if gui.PostMessage(hwnd, up, 0, lparam):
+                posted += 1
+        except Exception as exc:
+            return HIDResult(
+                ok=False,
+                actions=(ForegroundAction.WINDOW_MESSAGE,),
+                error_code="path_unavailable",
+                error=f"PostMessage failed: {exc}",
+                hint="跨会话/跨权限级别的窗口无法投递消息；改走 UIA 或显式 via='coordinate'。",
+            )
+    if posted == 0:
+        return HIDResult(
+            ok=False,
+            actions=(ForegroundAction.WINDOW_MESSAGE,),
+            error_code="path_unavailable",
+            error="PostMessage returned 0",
+            hint="目标窗口不接受投递消息（可能已销毁或权限不足）；改走 UIA 或显式坐标点击。",
+        )
+    logger.info("hid.post_click hwnd=%s client=(%s,%s) %s x%s", hwnd, cx, cy, button, clicks)
+    return HIDResult(
+        ok=True,
+        actions=(ForegroundAction.WINDOW_MESSAGE,),
+        detail={
+            "via": "message",
+            "hwnd": hwnd,
+            "client": [int(cx), int(cy)],
+            "button": button,
+            "clicks": clicks,
+        },
+    )
+
+
+def post_text(
+    permit: Optional[ForegroundPermit],
+    hwnd: int,
+    text: str,
+) -> HIDResult:
+    """把字符**投递**给目标控件（WM_CHAR），不抢焦点。
+
+    只对经典 Win32 控件（EDIT 等）有意义；XAML/Chromium 会吞掉。
+    同样是"入队即成功"，是否真的输入由调用方的状态变化判定。
+    """
+    denied = _guard(permit, (ForegroundAction.WINDOW_MESSAGE,), "hid.post_text")
+    if denied is not None:
+        return denied
+    if not text:
+        return HIDResult(
+            ok=True, actions=(ForegroundAction.WINDOW_MESSAGE,), detail={"via": "message"}
+        )
+    gui = _win32gui()
+    if gui is None or not hwnd:  # pragma: no cover
+        return HIDResult(
+            ok=False,
+            actions=(ForegroundAction.WINDOW_MESSAGE,),
+            error_code="path_unavailable",
+            error="win32gui unavailable or no hwnd",
+            hint="该控件取不到窗口句柄，只能走「焦点+剪贴板」或 ValuePattern。",
+        )
+    try:
+        for ch in text:
+            gui.PostMessage(hwnd, WM_CHAR, ord(ch), 1)
+    except Exception as exc:
+        return HIDResult(
+            ok=False,
+            actions=(ForegroundAction.WINDOW_MESSAGE,),
+            error_code="path_unavailable",
+            error=f"PostMessage(WM_CHAR) failed: {exc}",
+        )
+    return HIDResult(
+        ok=True,
+        actions=(ForegroundAction.WINDOW_MESSAGE,),
+        detail={"via": "message", "hwnd": hwnd, "length": len(text)},
     )
 
 

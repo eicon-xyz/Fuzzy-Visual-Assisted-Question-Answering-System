@@ -87,6 +87,10 @@ _DEVICE_TOKENS = {
     "_click_raw",
     "_hotkey_raw",
     "SetFocus",
+    # W 档：投递窗口消息同样是"向别的进程注入输入"，必须持许可
+    "PostMessage",
+    "PostMessageW",
+    "SendMessage",
 }
 
 
