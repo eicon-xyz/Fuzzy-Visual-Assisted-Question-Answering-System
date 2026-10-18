@@ -34,6 +34,20 @@ from server.models.schemas import UIElement  # noqa: E402
 from server.services.executor import agent as agent_mod  # noqa: E402
 from server.services.executor.uia_bridge import UIABridge  # noqa: E402
 
+# Phase 1：这些 P0 用例验证的是桥的动作语义，不是许可拦截。
+# 统一发一张全域名测试许可，避免 40 处构造各写一遍。
+from server.services.executor.permit import (  # noqa: E402
+    ForegroundAction,
+    PermitBroker,
+    TaskPolicy,
+)
+
+_TEST_PERMIT = PermitBroker().resolve(
+    TaskPolicy(task_id="p0-tests", actions=frozenset(ForegroundAction)),
+    consent=True,
+)
+
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Fake UIA 控件树
@@ -258,7 +272,7 @@ def test_act_returns_verification_fields(monkeypatch):
     btn._patterns["invoke"] = _FakeInvokePattern(btn, _rename)
     root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(btn,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     el = find_el(els, "连接")
     r = b.act(el.element_id, action="click", verify_timeout=0.5)
@@ -276,7 +290,7 @@ def test_act_state_unchanged_flags_noop(monkeypatch):
     btn._patterns["invoke"] = _FakeInvokePattern(btn)
     root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(btn,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     r = b.act(find_el(els, "按钮").element_id, verify_timeout=0.3)
     assert r["action_ok"] and r["state_changed"] is False
@@ -287,7 +301,7 @@ def test_wait_for_text_polls_without_touching_id_map(monkeypatch):
     btn = FakeControl("确定", patterns={})
     root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(btn,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     eid = find_el(els, "确定").element_id
     before_map = dict(b._last_controls)
@@ -306,7 +320,7 @@ def test_act_expect_fail_marks_expect_ok(monkeypatch):
     btn._patterns["invoke"] = _FakeInvokePattern(btn)
     root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(btn,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     r = b.act(
         find_el(els, "按钮").element_id,
@@ -321,7 +335,7 @@ def test_act_expect_fail_marks_expect_ok(monkeypatch):
 
 
 def _make_agent_with_fake_bridge(fake_bridge):
-    a = agent_mod.ExecutionAgent()
+    a = agent_mod.ExecutionAgent(permit=_TEST_PERMIT)
     a._uia = fake_bridge
     a.screen_source = "uia"
     el = UIElement(
@@ -429,7 +443,7 @@ def test_projection_fields_and_whitelist(monkeypatch):
     无交互纯文本与布局 Pane 被过滤。"""
     root, btn, edit = _projection_tree()
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     b.snapshot()
     proj = b.last_projection()
     ids = {p["id"]: p for p in proj}
@@ -665,7 +679,7 @@ def test_click_on_expandcollapse_control_expands(monkeypatch):
     root = FakeControl("记事本", ctype="WindowControl", rect=(0, 0, 800, 600),
                        children=(header,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     r = b.act(find_el(els, "文件").element_id, action="click", verify_timeout=0.3)
     assert r["success"] and r["via"] == "uia_expand"
@@ -685,7 +699,7 @@ def test_act_explicit_expand_and_collapse(monkeypatch):
     root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 400, 300),
                        children=(combo, plain))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     combo_el = next(e for e in els if e.element_type == "dropdown")
     r = b.act(combo_el.element_id, action="expand", verify_timeout=0.2)
@@ -982,7 +996,7 @@ def test_actionability_rejects_disabled(monkeypatch):
     btn._patterns["invoke"] = _FakeInvokePattern(btn)
     root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 400, 300), children=(btn,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     r = b.act(find_el(els, "按钮").element_id, action_timeout=0.5)
     assert r["success"] is False
@@ -997,7 +1011,7 @@ def test_actionability_rejects_unstable_bbox(monkeypatch):
     moving._patterns["invoke"] = _FakeInvokePattern(moving)
     root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 400, 300), children=(moving,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     r = b.act(els[0].element_id, action_timeout=0.5)
     assert r["success"] is False and "stable" in r["missing_predicates"]
@@ -1008,7 +1022,7 @@ def test_actionability_rejects_obscured_click(monkeypatch):
     obscured._patterns["invoke"] = _FakeInvokePattern(obscured)
     root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 400, 300), children=(obscured,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     r = b.act(els[0].element_id, action_timeout=0.4)
     assert r["success"] is False and "receives_events" in r["missing_predicates"]
@@ -1020,7 +1034,7 @@ def test_actionability_waits_for_condition_not_time(monkeypatch):
     loading._patterns["invoke"] = _FakeInvokePattern(loading)
     root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 400, 300), children=(loading,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     r = b.act(els[0].element_id, action_timeout=2.5)
     assert r["success"] is True and r["via"] == "uia_invoke"
@@ -1035,7 +1049,7 @@ def test_ambiguous_same_name_flagged_not_blocked(monkeypatch):
     b2._patterns["invoke"] = _FakeInvokePattern(b2)
     root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 400, 300), children=(b1, b2))
     install_fake_uia(monkeypatch, root)
-    br = UIABridge()
+    br = UIABridge(permit=_TEST_PERMIT)
     els = br.snapshot()
     r = br.act(els[0].element_id, action_timeout=0.4)
     assert r["success"] is True
@@ -1208,9 +1222,15 @@ class _ProbeCountingControl(FakeControl):
 
 
 def _monkeypatch_click_at(monkeypatch, calls):
-    import server.services.executor.clicker as _clicker_mod
+    """拦截 hid.click（_act_coord 运行时从 hid 模块取函数）。"""
+    import server.services.executor.hid as _hid_mod
+    from server.services.executor.hid import HIDResult
 
-    monkeypatch.setattr(_clicker_mod, "click_at", lambda *a, **k: calls.append(a))
+    def _fake(permit, pt, button="left", clicks=1):
+        calls.append((pt,))
+        return HIDResult(ok=True, detail={"via": "coord", "x": pt[0], "y": pt[1]})
+
+    monkeypatch.setattr(_hid_mod, "click", _fake)
 
 
 def test_p05_b2_menuitem_table_expand_over_invoke(monkeypatch):
@@ -1221,7 +1241,7 @@ def test_p05_b2_menuitem_table_expand_over_invoke(monkeypatch):
     header._patterns["expand"] = _FakeExpandPattern(header, children=[submenu])
     root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 800, 600), children=(header,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     r = b.act(find_el(els, "文件").element_id, action="click", verify_timeout=0.3)
     assert r["success"] is True
@@ -1238,7 +1258,7 @@ def test_p05_b2_edit_no_candidates_action_ambiguous_no_dispatch(monkeypatch):
     install_fake_uia(monkeypatch, root)
     calls = []
     _monkeypatch_click_at(monkeypatch, calls)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     r = b.act(find_el(els, "搜索").element_id, action="click", action_timeout=0.4)
     assert r["success"] is False
@@ -1254,7 +1274,7 @@ def test_p05_b2_pane_out_of_table_default_candidates_invoke(monkeypatch):
     pane._patterns["invoke"] = _FakeInvokePattern(pane)
     root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 800, 600), children=(pane,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     r = b.act(find_el(els, "自定义区域").element_id, action="click", verify_timeout=0.3)
     assert r["success"] is True
@@ -1271,7 +1291,7 @@ def test_p05_b2_fail_closed_pattern_failed_no_coord_no_retry(monkeypatch):
     install_fake_uia(monkeypatch, root)
     calls = []
     _monkeypatch_click_at(monkeypatch, calls)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     r = b.act(find_el(els, "确定").element_id, action="click", action_timeout=0.4)
     assert r["success"] is False
@@ -1301,7 +1321,7 @@ def test_p05_b2_exec_no_reprobe_uses_cached(monkeypatch):
     btn._patterns["invoke"] = _FakeInvokePattern(btn)
     root = FakeControl("w", ctype="WindowControl", rect=(0, 0, 800, 600), children=(btn,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()  # 快照期探测 1 次
     before = btn.invoke_probes
     r = b.act(find_el(els, "确定").element_id, action="click", verify_timeout=0.3)
@@ -1360,7 +1380,7 @@ def test_p05_b3_snapshot_captures_focused_and_agent_surfaces_it(monkeypatch):
     root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(btn,))
     _focused_auto(monkeypatch, root, focused)
 
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     assert els, "snapshot 应有控件"
     f = b.last_focused()
@@ -1384,14 +1404,10 @@ def test_p05_b3_paste_expect_focus_match_allows_and_pastes(monkeypatch):
     """② expect_focus 匹配（双向包含）→ 放行且粘贴执行。"""
     focused = FakeControl("全局搜索框", ctype="EditControl", rect=(100, 10, 300, 40))
     _focused_auto(monkeypatch, None, focused)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     a = _make_agent_with_fake_bridge(b)
     pasted = []
-    import pyautogui as _pag
-
-    monkeypatch.setattr(_pag, "hotkey", lambda *a, **k: pasted.append(a))
-    monkeypatch.setattr(agent_mod.pyperclip, "paste", lambda: "")
-    monkeypatch.setattr(agent_mod.pyperclip, "copy", lambda v: None)
+    _capture_hid_paste(monkeypatch, pasted)
     r = a._do_paste_text("你好", expect_focus="搜索框")  # "搜索框" 真含于 "全局搜索框"（双向包含放行）
     assert r["success"] is True
     assert pasted  # ctrl+v 已执行
@@ -1401,14 +1417,10 @@ def test_p05_b3_paste_expect_focus_mismatch_rejects(monkeypatch):
     """③ 不匹配 → focus_mismatch、不粘贴、actual_focus 回报真名。"""
     focused = FakeControl("地址栏", ctype="EditControl", rect=(100, 10, 300, 40))
     _focused_auto(monkeypatch, None, focused)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     a = _make_agent_with_fake_bridge(b)
     pasted = []
-    import pyautogui as _pag
-
-    monkeypatch.setattr(_pag, "hotkey", lambda *a, **k: pasted.append(a))
-    monkeypatch.setattr(agent_mod.pyperclip, "paste", lambda: "")
-    monkeypatch.setattr(agent_mod.pyperclip, "copy", lambda v: None)
+    _capture_hid_paste(monkeypatch, pasted)
     r = a._do_paste_text("你好", expect_focus="搜索框")
     assert r["success"] is False
     assert r["error_code"] == "focus_mismatch"
@@ -1421,14 +1433,10 @@ def test_p05_b3_paste_expect_focus_mismatch_rejects(monkeypatch):
 def test_p05_b3_paste_expect_focus_none_focus_conservative_reject(monkeypatch):
     """桥 available 但拿不到焦点（None）→ 保守按不匹配拒发。"""
     _focused_auto(monkeypatch, None, None)  # GetFocusedControl 返回 None
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     a = _make_agent_with_fake_bridge(b)
     pasted = []
-    import pyautogui as _pag
-
-    monkeypatch.setattr(_pag, "hotkey", lambda *a, **k: pasted.append(a))
-    monkeypatch.setattr(agent_mod.pyperclip, "paste", lambda: "")
-    monkeypatch.setattr(agent_mod.pyperclip, "copy", lambda v: None)
+    _capture_hid_paste(monkeypatch, pasted)
     r = a._do_paste_text("你好", expect_focus="搜索框")
     assert r["success"] is False
     assert r["error_code"] == "focus_mismatch"
@@ -1441,11 +1449,7 @@ def test_p05_b3_paste_expect_focus_skipped_when_bridge_unavailable(monkeypatch):
     bridge = _UnavailableBridge({"success": True})
     a = _make_agent_with_fake_bridge(bridge)
     pasted = []
-    import pyautogui as _pag
-
-    monkeypatch.setattr(_pag, "hotkey", lambda *a, **k: pasted.append(a))
-    monkeypatch.setattr(agent_mod.pyperclip, "paste", lambda: "")
-    monkeypatch.setattr(agent_mod.pyperclip, "copy", lambda v: None)
+    _capture_hid_paste(monkeypatch, pasted)
     r = a._do_paste_text("你好", expect_focus="搜索框")
     assert r["success"] is True
     assert pasted
@@ -1478,17 +1482,34 @@ def test_p05_b3_paste_schema_has_expect_focus_and_dispatch_forwards(monkeypatch)
 
 
 def _capture_clicker(monkeypatch):
-    """拦截 clicker.click_at（_act_coord 运行时按模块属性取函数）。"""
-    import server.services.executor.clicker as clicker_mod
+    """拦截 hid.click（_act_coord 运行时从 hid 模块取函数）。"""
+    import server.services.executor.hid as hid_mod
+    from server.services.executor.hid import HIDResult
 
     calls = []
 
-    def _fake(pt, button="left", clicks=1):
+    def _fake(permit, pt, button="left", clicks=1):
         calls.append({"pt": pt, "button": button, "clicks": clicks})
-        return {"success": True, "x": pt[0], "y": pt[1], "button": button, "clicks": clicks}
+        return HIDResult(
+            ok=True,
+            detail={"via": "coord", "x": pt[0], "y": pt[1], "button": button, "clicks": clicks},
+        )
 
-    monkeypatch.setattr(clicker_mod, "click_at", _fake)
+    monkeypatch.setattr(hid_mod, "click", _fake)
     return calls
+
+
+def _capture_hid_paste(monkeypatch, pasted):
+    """拦截 hid.paste（_do_paste_text 运行时从 hid 模块取函数）。"""
+    import server.services.executor.hid as hid_mod
+    from server.services.executor.hid import HIDResult
+
+    def _fake(permit, text):
+        pasted.append(text)
+        return HIDResult(ok=True, detail={"via": "coord_clipboard", "length": len(text)})
+
+    monkeypatch.setattr(hid_mod, "paste", _fake)
+    return pasted
 
 
 def test_p05_b4_right_click_coord_event_and_actionability_gate(monkeypatch):
@@ -1500,7 +1521,7 @@ def test_p05_b4_right_click_coord_event_and_actionability_gate(monkeypatch):
     install_fake_uia(monkeypatch, root)
     calls = _capture_clicker(monkeypatch)
 
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     eid = find_el(els, "文件").element_id
     r = b.act(eid, action="right_click", action_timeout=0.2, verify_timeout=0.1)
@@ -1511,7 +1532,7 @@ def test_p05_b4_right_click_coord_event_and_actionability_gate(monkeypatch):
     disabled = FakeControl("灰条", ctype="MenuItemControl", rect=(10, 40, 60, 60), enabled=False)
     root2 = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(disabled,))
     install_fake_uia(monkeypatch, root2)
-    b2 = UIABridge()
+    b2 = UIABridge(permit=_TEST_PERMIT)
     els2 = b2.snapshot()
     eid2 = find_el(els2, "灰条").element_id
     r2 = b2.act(eid2, action="right_click", action_timeout=0.2, verify_timeout=0.1)
@@ -1530,7 +1551,7 @@ def test_p05_b4_set_range_success_and_no_range_pattern_failclosed(monkeypatch):
     root._patterns["window"] = _FakeWindowPattern(root)
     install_fake_uia(monkeypatch, root)
 
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     eid = find_el(els, "音量").element_id
     r = b.act(eid, action="set_range", value=55.5, action_timeout=0.2, verify_timeout=0.1)
@@ -1563,7 +1584,7 @@ def test_p05_b4_select_menu_path_two_levels(monkeypatch):
     header._patterns["expand"] = _FakeExpandPattern(header, children=[leaf])
     root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(header,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     a = _make_agent_with_fake_bridge(b)
 
     r = a._do_select_menu_path(["文件", "保存"])
@@ -1586,7 +1607,7 @@ def test_p05_b4_select_menu_path_mid_level_missing_reports_visible(monkeypatch):
     other = FakeControl("编辑", ctype="MenuItemControl", rect=(70, 10, 120, 30))
     root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(header, other))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     a = _make_agent_with_fake_bridge(b)
 
     r = a._do_select_menu_path(["文件", "打印", "不存在项"])
@@ -1606,7 +1627,7 @@ def test_p05_b4_window_action_activate_close_and_not_found(monkeypatch):
     win._children = [btn]
     root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600), children=(btn,))
     install_fake_uia(monkeypatch, root, roots=[win])
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     a = _make_agent_with_fake_bridge(b)
 
     r = a._do_window_action("activate", title="记事本")
@@ -1640,7 +1661,7 @@ def test_p05_b4_four_tools_dispatch_record_evidence_and_errors(monkeypatch):
     root._top_level = win
     install_fake_uia(monkeypatch, root, roots=[win])
     _capture_clicker(monkeypatch)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     a = _make_agent_with_fake_bridge(b)
     a._reset_step_ledger()
     els = a._do_get_screen_info()
@@ -2007,7 +2028,7 @@ def test_p05_a4_stable_eid_identical_across_snapshots(monkeypatch):
     """同一控件两次 snapshot → eid 相同，形状 e<10hex>（A4 核心契约）。"""
     root, a_btn, _ = _a4_tree()
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     e1 = find_el(b.snapshot(), "甲按钮").element_id
     e2 = find_el(b.snapshot(), "甲按钮").element_id
     assert e1 == e2
@@ -2024,7 +2045,7 @@ def test_p05_a4_fallback_u_n_without_runtime_id(monkeypatch):
     root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600),
                        children=(btn,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     eid = find_el(b.snapshot(), "确定").element_id
     assert _re.fullmatch(r"u\d+", eid)
     r = b.act(eid, action="click", verify_timeout=0.2)
@@ -2042,7 +2063,7 @@ def test_p05_a4_collision_same_traversal_appends_number(monkeypatch):
     root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600),
                        children=(c1, c2))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     ids = sorted(e.element_id for e in els)
     assert len(set(ids)) == 2  # 没有互相覆盖
@@ -2057,7 +2078,7 @@ def test_p05_a4_destroyed_control_act_stale_no_coord(monkeypatch):
     root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600),
                        children=(btn,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     eid = find_el(b.snapshot(), "确定").element_id
     btn.destroy()
     r = b.act(eid, action="click", action_timeout=0.2)
@@ -2074,7 +2095,7 @@ def test_p05_a4_clear_invalidates_all_ids(monkeypatch):
     """换步 clear() → 稳定 id 也全废：act 回到旧 element_not_found 语义。"""
     root, *_ = _a4_tree()
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     eid = find_el(b.snapshot(), "甲按钮").element_id
     b.clear()
     r = b.act(eid, action="click")
@@ -2087,7 +2108,7 @@ def test_p05_a4_surviving_handle_actable_when_absent_from_view(monkeypatch):
     """控件存活但掉出当次视图（树重排后不再被观察）→ 旧 id 仍可按句柄 act。"""
     root, a_btn, b_edit = _a4_tree()
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     edit_eid = find_el(els, "乙输入").element_id
     # 乙控件从树上移除（对象仍存活），重新观察
@@ -2183,7 +2204,7 @@ def test_p05_a3_default_shallow_emits_outline_entries(monkeypatch):
     深层控件不可见也不可 act；o{n} 不进句柄表。"""
     root, *_ = _a3_deep_tree()
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     assert {e.text for e in els} == {"浅层按钮"}  # depth 3 外的深层按钮不可见
     proj = b.last_projection()
@@ -2204,7 +2225,7 @@ def test_p05_a3_drill_additive_and_ids_survive(monkeypatch):
     """drill(大纲稳定id)：子树深扫增量、原有条目与句柄全部存活可 act。"""
     root, shallow, deep, _ = _a3_deep_tree()
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
     shallow_eid = find_el(els, "浅层按钮").element_id
     outline = next(p for p in b.last_projection() if p["name"] == "折叠容器")
@@ -2231,7 +2252,7 @@ def test_p05_a3_outline_merges_into_existing_entry(monkeypatch):
     root = FakeControl("窗口", ctype="WindowControl", rect=(0, 0, 800, 600),
                        children=(combo,))
     install_fake_uia(monkeypatch, root)
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     # combo 在 d1（默认 depth 3 内）→ 无折叠。压 depth=1 让它落在 d==max_depth：
     els = b.snapshot(max_depth=1)
     entries = [p for p in b.last_projection() if p["name"] == "下拉框"]
@@ -2383,7 +2404,7 @@ def test_p05_a2_list_windows_summary_active_first_no_probing(monkeypatch):
     """两窗（激活+弹窗）：active 置首、items 浅计、wid 稳定、零 pattern 探测。"""
     winA, winB, _, _ = _a2_two_windows()
     install_fake_uia(monkeypatch, winA, roots=[winA, winB])
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     before = winA.probes + winB.probes
     wins = b.list_windows()
     assert winA.probes + winB.probes == before  # 成本红线：只数不探测
@@ -2406,7 +2427,7 @@ def test_p05_a2_list_windows_filters_invisible_and_no_rid_wid(monkeypatch):
                              runtime_id=(8, 3))
     no_rid = FakeControl("旧窗口", ctype="WindowControl", rect=(0, 0, 90, 90))
     install_fake_uia(monkeypatch, ok, roots=[ok, ghost, flat, no_rid])
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     wins = b.list_windows()
     titles = [w["title"] for w in wins]
     assert "隐形窗" not in titles and "零尺寸窗" not in titles
@@ -2446,7 +2467,7 @@ def test_p05_a2_window_action_title_resolver_unchanged(monkeypatch):
     """window_action(title=) 走 list_windows 同源解析：B4 语义逐条不变。"""
     winA, winB, _, _ = _a2_two_windows()
     install_fake_uia(monkeypatch, winA, roots=[winA, winB])
-    b = UIABridge()
+    b = UIABridge(permit=_TEST_PERMIT)
     a = _make_agent_with_fake_bridge(b)
     r = a._do_window_action("activate", title="另存为")
     assert r["success"] is True and "focus" in winB.log

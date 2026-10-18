@@ -299,6 +299,16 @@ def process_query(
         state="generated",
     )
 
+    # Phase 1：exclusive 由确定性分类器派生（不让模型填），仅用于前端提示与遥测。
+    # 执行期不读它——真正的拦截在降级边界（hid.permit_required）。
+    from server.services.executor.permit import derive_policy
+
+    policy = derive_policy(
+        "plan",
+        goal,
+        [s.model_dump() if hasattr(s, "model_dump") else dict(s) for s in executed_steps],
+    )
+
     return ProcessResponse(
         task_id=str(uuid.uuid4()),
         success=True,
@@ -309,6 +319,7 @@ def process_query(
         blueprint=blueprint,
         steps=executed_steps,
         detection_meta=detection_meta,
+        exclusive=policy.exclusive,
     )
 
 

@@ -123,6 +123,11 @@ class Config:
     BROWSER_TOOLS_ENABLED: bool = (
         os.getenv("BROWSER_TOOLS_ENABLED", "false").lower() == "true"
     )
+    # Phase 1：/api/demo/debug/click 调试后门。默认关；开启后也走签发许可的
+    # 同一条 hid 路径，不存在"绕过许可的点击"。
+    HID_DEBUG_ALLOWED: bool = (
+        os.getenv("HID_DEBUG_ALLOWED", "false").lower() in ("1", "true", "yes")
+    )
 
     # Agent loop tuning
     MAX_TOOL_CALL_ROUNDS: int = int(os.getenv("MAX_TOOL_CALL_ROUNDS", "50"))

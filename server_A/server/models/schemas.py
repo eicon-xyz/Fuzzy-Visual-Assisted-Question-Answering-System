@@ -159,6 +159,14 @@ class ProcessRequest(BaseModel):
     )
     window_title: Optional[str] = Field(None, max_length=256)
     context: Optional[List[ChatTurn]] = Field(None, max_length=3)
+    takeover_consent: bool = Field(
+        False,
+        description=(
+            "Phase 1 接管许可授权位。默认 False = fail-closed：需要改光标/键盘焦点/"
+            "整屏抓取的降级路径会被拒绝（error_code=permit_required）。"
+            "B 端在用户完成知情确认后应显式传 true。"
+        ),
+    )
 
 
 class ProcessResponse(BaseModel):
@@ -175,6 +183,14 @@ class ProcessResponse(BaseModel):
     redline: Optional[RedlineInfo] = None
     detection_meta: Optional[dict] = Field(
         None, description="{latency_ms, element_count, backend}"
+    )
+    exclusive: bool = Field(
+        False,
+        description=(
+            "本任务可能侵占桌面资源（光标/键盘焦点/剪贴板/整屏）。"
+            "由确定性分类器从 goal+steps 派生，仅供前端提示与遥测；"
+            "执行期不读它——真正的拦截在降级边界。"
+        ),
     )
 
 

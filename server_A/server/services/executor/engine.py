@@ -146,17 +146,21 @@ def run_plan_agent_loop(
     goal: str,
     steps: list[dict],
     cancel_event: threading.Event,
+    consent: bool = False,
 ) -> None:
     """公开入口：崩溃保护壳。
 
     引擎线程此前任何未捕获异常（含依赖缺失如 pyautogui import 失败）都会让
     线程无声死亡：SSE 只见心跳、遥测零记录、B 端卡到超时。统一在壳内转成
     task_failed 事件 + fail 记录落盘，让失败可见、可统计。
+
+    consent: Phase 1 接管许可的授权位。False（默认）= fail-closed，
+    只有纯 UIA 任务能跑完；需要 HID 的降级路径会被拒并返回 permit_required。
     """
     t0 = time.perf_counter()
     register_task(task_id)
     try:
-        _run_plan_agent_loop(task_id, goal, steps, cancel_event)
+        _run_plan_agent_loop(task_id, goal, steps, cancel_event, consent=consent)
     except Exception as e:
         logger.exception("[engine] run_plan_agent_loop crashed for %s", task_id)
         try:
@@ -184,6 +188,12 @@ def run_plan_agent_loop(
         # 崩溃路径也要延迟清理（正常路径由内核的 _cleanup 负责）
         def _crash_cleanup():
             time.sleep(3)
+            try:
+                from server.services.executor.permit import BROKER
+
+                BROKER.revoke(task_id, "engine_crash")
+            except Exception:
+                logger.debug("permit revoke on crash failed", exc_info=True)
             unregister_task(task_id)
 
         threading.Thread(target=_crash_cleanup, daemon=True).start()
@@ -194,6 +204,7 @@ def _run_plan_agent_loop(
     goal: str,
     steps: list[dict],
     cancel_event: threading.Event,
+    consent: bool = False,
 ) -> None:
     """
     Execute a plan using the Execution Agent loop.
@@ -207,9 +218,20 @@ def _run_plan_agent_loop(
     """
     from server.models.schemas import ExecutedStep
     from server.services.executor.agent import ExecutionAgent
+    from server.services.executor.permit import BROKER, derive_policy
 
     register_task(task_id)
-    agent = ExecutionAgent()
+    # Phase 1：任务级接管许可。策略由确定性分类器从 goal+steps 派生（不让模型填），
+    # 无 consent 时只签发 None —— 纯 UIA 任务完全不受影响。
+    policy = derive_policy(task_id, goal, steps)
+    permit = BROKER.resolve(policy, consent=consent)
+    if policy.exclusive:
+        _push_event(
+            task_id,
+            "takeover_policy",
+            {"policy": policy.as_dict(), "granted": permit is not None},
+        )
+    agent = ExecutionAgent(permit=permit)
     previous_steps: list[dict] = []
     all_done = True
 
@@ -427,6 +449,10 @@ def _run_plan_agent_loop(
                 all_done = False
                 break
 
+    # Phase 1：任务主体结束即撤销接管许可（不等延迟清理，避免"僵尸授权"）。
+    # 放在这里而不是 _cleanup：_cleanup 延迟 3s，期间已无合法动作可做。
+    BROKER.revoke(task_id, "task_end")
+
     if all_done:
         _push_event(
             task_id,
@@ -462,6 +488,7 @@ def _run_plan_agent_loop(
             agent.close_browser()
         except Exception:
             pass
+        BROKER.revoke(task_id, "task_end")
         unregister_task(task_id)
 
     threading.Thread(target=_cleanup, daemon=True).start()

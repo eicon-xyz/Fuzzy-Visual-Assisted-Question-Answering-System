@@ -21,7 +21,6 @@ from server.models.schemas import (
     HealthResponse,
     ProcessRequest,
 )
-from server.services.executor.clicker import click_at
 from server.storage.memory import task_store
 
 router = APIRouter(prefix="/api/demo", tags=["Demo Core"])
@@ -182,6 +181,7 @@ async def execute_task(
     thread = threading.Thread(
         target=run_plan_agent_loop,
         args=(response.task_id, response.goal, steps_raw, cancel_event),
+        kwargs={"consent": bool(getattr(request, "takeover_consent", False))},
         daemon=True,
     )
     thread.start()
@@ -286,11 +286,41 @@ async def debug_click(
     request: DebugClickRequest,
     demo_key: str = Depends(verify_demo_key),
 ):
-    """在指定屏幕坐标执行 click_at，用于验证 8011 键鼠层，无需 OmniParser / LLM。"""
-    result = await asyncio.to_thread(
-        click_at,
-        [request.x, request.y],
-        button=request.button,
-        clicks=request.clicks,
+    """在指定屏幕坐标执行点击，用于验证 8011 键鼠层。
+
+    Phase 1：这是 HID 的**调试后门**，默认关闭（settings.HID_DEBUG_ALLOWED）。
+    开启时发一张单任务、短 TTL 的调试许可，走与生产完全相同的 hid 路径——
+    不存在"绕过许可的点击"。
+    """
+    if not getattr(settings, "HID_DEBUG_ALLOWED", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "HID_DEBUG_DISABLED",
+                    "message": "调试点击已关闭（HID_DEBUG_ALLOWED=false）",
+                }
+            },
+        )
+    from server.services.executor.hid import click as hid_click
+    from server.services.executor.permit import BROKER, TaskPolicy
+    from server.services.executor.permit import ForegroundAction
+
+    policy = TaskPolicy(
+        task_id="__debug_click__",
+        actions=frozenset({ForegroundAction.POINTER}),
+        reasons=("debug endpoint",),
+        source="debug",
     )
-    return result
+    permit = BROKER.resolve(policy, consent=True, ttl_s=10.0)
+    try:
+        result = await asyncio.to_thread(
+            hid_click,
+            permit,
+            (request.x, request.y),
+            button=request.button,
+            clicks=request.clicks,
+        )
+        return result.to_dict()
+    finally:
+        BROKER.revoke("__debug_click__", "debug_done")

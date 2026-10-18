@@ -18,9 +18,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Optional
 
-import pyautogui
-import pyperclip
-
 from server.config import settings
 from server.models.schemas import ExecutedStep, UIElement
 from server.services import eval_telemetry as et
@@ -1182,7 +1179,10 @@ class _LoopDetector:
 class ExecutionAgent:
     """LLM-driven execution loop for one step at a time."""
 
-    def __init__(self):
+    def __init__(self, permit=None):
+        # Phase 1：接管许可。默认 None = 无 X 档能力（fail-closed）。
+        # 由 engine 按任务策略签发；测试直接构造时也拿到 None，正是期望。
+        self._permit = permit
         self.element_map: dict[str, UIElement] = {}
         self.screen_elements: list[dict] = []
         self.tools = _build_tool_definitions()
@@ -1456,7 +1456,7 @@ class ExecutionAgent:
         if getattr(self, "_uia", None) is None:
             from server.services.executor.uia_bridge import UIABridge
 
-            self._uia = UIABridge()
+            self._uia = UIABridge(permit=self._permit)
         return self._uia
 
     @staticmethod
@@ -1806,15 +1806,45 @@ class ExecutionAgent:
                             fb[3] - fb[1],
                         ]
                     result["focused"] = fout
-                # 附带截图供前端展示视觉更新（无标注框）
+                # Phase 1 双通道观察：按窗口 PrintWindow（不碰用户屏幕）优先；
+                # 只有拿到全黑/失败帧才降级整屏，而整屏要 FULLSCREEN_GRAB 许可。
                 try:
-                    from server.services.executor.screen_capture import capture_to_base64
-
-                    result["annotated_image"] = capture_to_base64(
-                        exclude_self=True, fmt="JPEG"
+                    from server.services.executor.screen_capture import (
+                        CaptureFailure,
+                        capture_fullscreen,
+                        capture_window,
                     )
+
+                    tgt = uia.target_window() if hasattr(uia, "target_window") else None
+                    frame = None
+                    if tgt and tgt.get("rect") and tgt.get("hwnd"):
+                        frame = capture_window(tgt["rect"], tgt["hwnd"])
+                        if frame.failure in (
+                            CaptureFailure.PRINTWINDOW_FAILED,
+                            CaptureFailure.BLACK_FRAME,
+                        ):
+                            frame = capture_fullscreen(self._permit, tgt["rect"])
+                    if frame is not None and frame.available:
+                        result["annotated_image"] = frame.to_data_url(fmt="JPEG")
+                    elif frame is not None:
+                        result["visual"] = {
+                            "available": False,
+                            "reason": frame.failure,
+                            "error_code": "visual_unavailable",
+                            "hint": (
+                                "目标窗口像素不可读（GPU 合成/受保护/最小化）。"
+                                "UIA 投影仍然有效，继续用 element_id 操作，不要改用坐标点击。"
+                                "若窗口已最小化，先 window_action(op='restore')。"
+                                "若目标确为自绘控件且无任何 pattern，调用 mark_step_failed 说明需要像素。"
+                            ),
+                            "alternatives": [
+                                "window_action(op='restore')",
+                                "click(element_id=...)",
+                                "mark_step_failed",
+                            ],
+                        }
                 except Exception:
-                    pass
+                    logger.debug("observation capture failed", exc_info=True)
                 self._get_screen_call_count = getattr(
                     self, "_get_screen_call_count", 0
                 ) + 1
@@ -1829,28 +1859,23 @@ class ExecutionAgent:
 
         # 2) OmniParser 兜底（仅 OMNIPARSER_ENABLED=true 时）
         if getattr(settings, "OMNIPARSER_ENABLED", True):
-            try:
-                from server.services.executor.screen_capture import capture_to_base64
+            from server.services.executor.screen_capture import capture_fullscreen
 
-                image_b64 = capture_to_base64(exclude_self=True, fmt="JPEG")
-            except ImportError:
-                # Fallback: use mss directly
-                import base64
-                from io import BytesIO
-
-                import mss
-                from PIL import Image
-
-                with mss.mss() as sct:
-                    monitor = sct.monitors[1]
-                    img = sct.grab(monitor)
-                    pil = Image.frombytes("RGB", img.size, img.bgra, "raw", "BGRX")
-                    buf = BytesIO()
-                    pil.save(buf, format="JPEG", quality=70)
-                    image_b64 = (
-                        "data:image/jpeg;base64,"
-                        + base64.b64encode(buf.getvalue()).decode()
-                    )
+            # 整屏语义识别，天然要 FULLSCREEN_GRAB；无许可 → 明确拒绝而非静默拍屏
+            frame = capture_fullscreen(self._permit, None)
+            if not frame.available:
+                return {
+                    "success": False,
+                    "action_ok": False,
+                    "error_code": "permit_required",
+                    "error": "OmniParser 需要整屏抓取（fullscreen_grab），本任务未获许可",
+                    "hint": (
+                        "改用 UIA 观察：默认 get_screen_info 走结构化投影，无需像素。"
+                        "若确需视觉兜底，请让用户以 exclusive 模式重跑本任务。"
+                    ),
+                    "required_actions": ["fullscreen_grab"],
+                }
+            image_b64 = frame.to_data_url(fmt="JPEG")
 
             parse_result = parse_screenshot_full(image_b64, compute_spatial=False)
             self.element_map = {e.element_id: e for e in parse_result.elements}
@@ -1932,12 +1957,24 @@ class ExecutionAgent:
         if search_name != app_name:
             logger.info(f"App name mapped: '{app_name}' → '{search_name}'")
 
-        result = launch_app(search_name)
-        return {
+        result = launch_app(search_name, permit=self._permit)
+        base = {
             "success": result.get("success", False),
             "app_name": app_name,
             "action_summary": f"launched app '{app_name}' (tier {result.get('tier', '?')})",
         }
+        if not base["success"]:
+            # 把降级边界的拒绝原样交给模型：permit_required 必须能改道
+            for k in ("error_code", "error", "hint", "required_actions", "tier", "method"):
+                if result.get(k) is not None:
+                    base[k] = result[k]
+            base["action_ok"] = False
+        else:
+            if result.get("tier"):
+                base["tier"] = result["tier"]
+            if result.get("foreground"):
+                base["foreground"] = result["foreground"]
+        return base
 
     def _do_click(
         self,
@@ -2018,10 +2055,12 @@ class ExecutionAgent:
             }
 
         cx, cy = element.center
-        pyautogui.moveTo(cx, cy, duration=0.2)
-        time.sleep(0.1)
-        clicks = 2 if double else 1
-        pyautogui.click(clicks=clicks)
+        # 坐标点击属 X 档降级边界（无 UIA 树时才走到这里），要 POINTER 许可
+        from server.services.executor.hid import click as hid_click
+
+        r = hid_click(self._permit, (cx, cy), clicks=2 if double else 1)
+        if not r.ok:
+            return r.to_dict()
 
         label = "double-clicked" if double else "clicked"
         base = {
@@ -2085,14 +2124,12 @@ class ExecutionAgent:
                         "hint": "先 click 目标输入框再粘贴，或修正 expect_focus；禁止盲粘。",
                     }
 
-        old_clipboard = pyperclip.paste()
-        try:
-            pyperclip.copy(text)
-            time.sleep(0.1)
-            pyautogui.hotkey("ctrl", "v")
-            time.sleep(0.3)
-        finally:
-            pyperclip.copy(old_clipboard)
+        # 盲粘 = 改全局剪贴板 + 向当前焦点注入按键，双域许可
+        from server.services.executor.hid import paste as hid_paste
+
+        r = hid_paste(self._permit, text)
+        if not r.ok:
+            return r.to_dict()
 
         base = {
             "success": True,
@@ -2442,15 +2479,16 @@ class ExecutionAgent:
                 "hint": r.get("hint"),
             }
 
-        old_clipboard = pyperclip.paste()
-        try:
-            pyautogui.click(cx, cy)
-            time.sleep(0.2)
-            pyperclip.copy(text)
-            pyautogui.hotkey("ctrl", "v")
-            time.sleep(0.3)  # ensure paste completes (Electron/VM apps may be slow)
-        finally:
-            pyperclip.copy(old_clipboard)
+        from server.services.executor.hid import click as hid_click
+        from server.services.executor.hid import paste as hid_paste
+
+        r = hid_click(self._permit, (cx, cy))
+        if not r.ok:
+            return r.to_dict()
+        time.sleep(0.2)
+        r = hid_paste(self._permit, text)
+        if not r.ok:
+            return r.to_dict()
 
         base = {
             "success": True,
@@ -2485,15 +2523,21 @@ class ExecutionAgent:
                 "error": f"key requires confirmation (zone: yellow): {safety.reason}",
             }
         key_list = [k.strip() for k in keys.split("+")]
-        if len(key_list) == 1:
-            pyautogui.press(key_list[0])
-        else:
-            pyautogui.hotkey(*key_list)
+        from server.services.executor.hid import hotkey as hid_hotkey
+
+        r = hid_hotkey(self._permit, *key_list)
+        if not r.ok:
+            return r.to_dict()
         return {"success": True, "keys": keys, "action_summary": f"pressed '{keys}'"}
 
     def _do_scroll(self, direction: str, amount: int = 3) -> dict:
         amt = amount if direction == "up" else -amount
-        pyautogui.scroll(amt)
+        from server.services.executor.hid import scroll as hid_scroll
+
+        # 无坐标：滚轮落在当前光标处，不搬光标（旧行为保持一致）
+        r = hid_scroll(self._permit, None, amt)
+        if not r.ok:
+            return r.to_dict()
         return {
             "success": True,
             "direction": direction,

@@ -199,57 +199,63 @@ def _launch_direct(executable: str) -> bool:
         return False
 
 
-def _launch_win_search(app_name: str) -> bool:
+def _launch_win_search(app_name: str, permit=None) -> dict:
     """Layer 3 fallback: Win+Search keyboard simulation.
 
     Opens Start Menu, pastes the app name, presses Enter.
     Less reliable (especially in RDP sessions) but works for UWP apps
     and custom-installed apps not on PATH.
 
-    Uses pyautogui keyDown/keyUp instead of pydirectinput hotkey —
-    empirically more reliable on Windows 11 for the Win key.
+    Phase 1：这是 launch_app 的**降级边界**（会开开始菜单、写剪贴板、向前台发键），
+    所以整个函数要 KEYBOARD+CLIPBOARD+ACTIVATE 许可。无许可时返回拒绝，由
+    调用方决定是否改走 mark_step_failed——绝不静默降级。
     """
-    try:
-        import pyautogui
-        import pyperclip
+    from server.services.executor.hid import paste as hid_paste
+    from server.services.executor.hid import precheck, press_key
+    from server.services.executor.permit import ForegroundAction
 
-        pyautogui.FAILSAFE = False
+    required = (
+        ForegroundAction.KEYBOARD,
+        ForegroundAction.CLIPBOARD,
+        ForegroundAction.ACTIVATE,
+    )
+    denied = precheck(permit, required, "launcher.win_search")
+    if denied is not None:
+        return {
+            "ok": False,
+            "tier": 3,
+            **denied,
+            "hint": (
+                "启动应用的第 1/2 层（映射表/PATH）都没命中，第 3 层要模拟 Win+搜索按键，"
+                "需要接管许可。改用别的办法启动该应用，或调用 mark_step_failed 说明"
+                "需要用户手动打开。"
+            ),
+        }
 
-        # 1. Open Start Menu
-        pyautogui.keyDown("win")
-        time.sleep(0.2)
-        pyautogui.keyUp("win")
-        time.sleep(0.5)
+    # 1. Open Start Menu（Win 键必须 keyDown/keyUp，hotkey 在 Win11 上不可靠）
+    r = press_key(permit, "win", hold_ms=200)
+    if not r.ok:
+        return {"ok": False, "tier": 3, **r.to_dict()}
+    time.sleep(0.5)
 
-        # 2. Paste search query via clipboard (bypasses IME)
-        old_clipboard = pyperclip.paste()
-        pyperclip.copy(app_name)
-        time.sleep(0.1)
-        pyautogui.hotkey("ctrl", "v")
-        time.sleep(0.8)
+    # 2. Paste search query via clipboard (bypasses IME)
+    r = hid_paste(permit, app_name)
+    if not r.ok:
+        return {"ok": False, "tier": 3, **r.to_dict()}
+    time.sleep(0.8)
 
-        # Restore clipboard
-        try:
-            pyperclip.copy(old_clipboard)
-        except Exception:
-            pass
+    # 3. Press Enter to select the first search result
+    r = press_key(permit, "enter", hold_ms=80)
+    if not r.ok:
+        return {"ok": False, "tier": 3, **r.to_dict()}
+    time.sleep(0.5)
 
-        # 3. Press Enter to select the first search result
-        pyautogui.press("enter")
-        time.sleep(0.5)
+    # 4. Close Start Menu in case Enter didn't work
+    press_key(permit, "esc", hold_ms=60)
+    time.sleep(0.2)
 
-        # 4. Close Start Menu in case Enter didn't work
-        pyautogui.press("esc")
-        time.sleep(0.2)
-
-        logger.info(f"Layer 3 (Win+Search): launched '{app_name}'")
-        return True
-    except ImportError as e:
-        logger.error(f"Layer 3 unavailable — missing dependency: {e}")
-        return False
-    except Exception as e:
-        logger.error(f"Layer 3 failed for '{app_name}': {e}")
-        return False
+    logger.info(f"Layer 3 (Win+Search): launched '{app_name}'")
+    return {"ok": True, "tier": 3, "method": "win_search"}
 
 
 # ── App name extraction from user queries ──
@@ -323,19 +329,25 @@ def _extract_remaining_operation(query: str, app_name: str) -> Optional[str]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def launch_app(app_name: str) -> dict:
+def launch_app(app_name: str, permit=None) -> dict:
     """Launch an application using the 3-tier fallback strategy.
 
     Tier 1: Mapping table → subprocess/os.startfile (100% reliable)
     Tier 2: shutil.which() PATH lookup → subprocess (90%+ reliable)
     Tier 3: Win+Search keyboard simulation (fallback, ~80% reliable)
 
+    Phase 1：层 1/2 走 subprocess，不碰桌面，**不需要接管许可**；层 3 是
+    Win+搜索键盘模拟，属降级边界，需要 KEYBOARD+CLIPBOARD+ACTIVATE。
+    提前台是可选优化：无 ACTIVATE 许可时跳过，不影响"启动成功"这个结论。
+
     Args:
         app_name: The application name (Chinese or English, e.g. "记事本", "Chrome").
+        permit: 接管许可（Phase 1）。None = 只能用层 1/2。
 
     Returns:
-        {"success": True, "app_name": str, "method": "direct"|"win_search", "tier": int}
-        or {"success": False, "app_name": str, "error": str}
+        {"success": True, "app_name": str, "method": "direct"|"win_search",
+         "tier": int, "foreground": "ok"|"skipped(no permit)"|...}
+        or {"success": False, "app_name": str, "error": str, "error_code"?: str}
     """
     if not app_name:
         return {
@@ -344,45 +356,55 @@ def launch_app(app_name: str) -> dict:
             "error": "empty app name",
         }
 
-    logger.info(f"Launching '{app_name}' (3-tier strategy)")
+    logger.info("Launching '%s' (3-tier strategy)", app_name)
 
-    # ── Tier 1 + 2: Direct launch via mapping or PATH ──
+    def _fg_state(app: str) -> str:
+        fg = _force_window_foreground(app, permit=permit)
+        if fg["ok"]:
+            return "ok"
+        return "skipped(no permit)" if fg["skipped"] else fg["reason"]
+
+    # ── Tier 1 + 2: Direct launch via mapping or PATH（不碰桌面，无需许可）──
     executable = _resolve_executable(app_name)
     if executable:
         success = _launch_direct(executable)
         if success:
-            # Wait for app to render
-            time.sleep(3)
-            _force_window_foreground(app_name)
+            time.sleep(3)  # Wait for app to render
             return {
                 "success": True,
                 "app_name": app_name,
                 "method": "direct",
                 "tier": 1 if executable in APP_EXECUTABLE_MAP.values() else 2,
                 "executable": executable,
+                "foreground": _fg_state(app_name),
             }
         logger.warning(
-            f"Direct launch returned but process may not have started; "
-            f"falling through to Win+Search"
+            "Direct launch returned but process may not have started; "
+            "falling through to Win+Search"
         )
 
-    # ── Tier 3: Win+Search fallback ──
-    success = _launch_win_search(app_name)
-    if success:
+    # ── Tier 3: Win+Search fallback（降级边界，要许可）──
+    r3 = _launch_win_search(app_name, permit=permit)
+    if r3.get("ok"):
         time.sleep(3)
-        _force_window_foreground(app_name)
         return {
             "success": True,
             "app_name": app_name,
             "method": "win_search",
             "tier": 3,
+            "foreground": _fg_state(app_name),
         }
 
-    return {
+    out = {
         "success": False,
         "app_name": app_name,
-        "error": "all 3 launch tiers failed",
+        "error": r3.get("error") or "all 3 launch tiers failed",
+        "tier": 3,
     }
+    for k in ("error_code", "hint", "required_actions"):
+        if r3.get(k) is not None:
+            out[k] = r3[k]
+    return out
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -390,115 +412,34 @@ def launch_app(app_name: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _force_window_foreground(app_name: str) -> bool:
-    """Find the app window by fuzzy title match and force it to foreground.
+def _force_window_foreground(app_name: str, permit=None) -> dict:
+    """把应用窗口提到前台。
 
-    Uses pygetwindow for window enumeration and activation.
-    Falls back to pywinauto if pygetwindow's activate() fails (e.g. RDP).
+    Phase 1：提前台 = ACTIVATE，属 X 档。但它是**可选优化**——应用已经启动成功，
+    提前台失败不该让整个 launch 失败。所以无许可时返回 skipped 而不是报错。
+
+    Returns: {"ok": bool, "skipped": bool, "reason": str}
     """
-    try:
-        import pygetwindow as gw
-    except ImportError:
-        logger.warning("pygetwindow not installed — cannot force window foreground")
-        return False
+    from server.services.executor.hid import activate_window, precheck
+    from server.services.executor.permit import ForegroundAction
+
+    denied = precheck(permit, (ForegroundAction.ACTIVATE,), "launcher.foreground")
+    if denied is not None:
+        return {"ok": False, "skipped": True, "reason": "permit_required"}
 
     time.sleep(0.5)
-
-    # Collect candidates: exact title match first, then fuzzy
-    candidates = gw.getWindowsWithTitle(app_name)
-    if not candidates:
-        app_words = app_name.lower().split()
-        for win in gw.getAllWindows():
-            title = (win.title or "").lower()
-            if not title or title.startswith("_"):
-                continue
-            if any(word in title for word in app_words):
-                candidates.append(win)
-
-    if not candidates:
-        logger.warning(
-            f"_force_window_foreground: no window found matching '{app_name}'"
-        )
-        return False
-
-    # Pick the largest visible window
-    best = None
-    best_area = 0
-    for w in candidates:
-        area = w.width * w.height
-        if area > best_area and not w.title.startswith("_"):
-            best = w
-            best_area = area
-
-    if best is None:
-        return False
-
-    logger.info(
-        f"_force_window_foreground: activating '{best.title}' "
-        f"({best.width}x{best.height})"
-    )
-
-    try:
-        best.restore()
-        time.sleep(0.2)
-        best.activate()
-        time.sleep(0.3)
-
-        if best.isActive:
-            logger.info(f"_force_window_foreground: '{best.title}' is now active")
-            return True
-
-        # Fallback: pywinauto
-        logger.warning("pygetwindow activate failed, trying pywinauto fallback")
-        try:
-            from pywinauto import Desktop
-
-            dlg = Desktop(backend="win32").window(title=best.title)
-            dlg.set_focus()
-            time.sleep(0.2)
-            logger.info(
-                f"_force_window_foreground: pywinauto set_focus succeeded "
-                f"on '{best.title}'"
-            )
-            return True
-        except ImportError:
-            logger.warning("pywinauto not installed — window may not be in foreground")
-        except Exception as e:
-            logger.warning(f"pywinauto fallback also failed: {e}")
-
-        return best.isActive
-    except Exception as e:
-        logger.warning(f"_force_window_foreground error: {e}")
-        # Last resort: click center of window
-        try:
-            import pyautogui
-
-            cx, cy = best.left + best.width // 2, best.top + best.height // 2
-            pyautogui.click(cx, cy)
-            time.sleep(0.2)
-        except Exception:
-            pass
-        return False
+    r = activate_window(permit, app_name)
+    if not r.ok:
+        logger.warning("_force_window_foreground: %s", r.error)
+        return {"ok": False, "skipped": False, "reason": r.error_code or "failed"}
+    return {"ok": True, "skipped": False, "reason": "ok"}
 
 
-def _paste_text(text: str) -> None:
-    """Paste text via clipboard to avoid IME interference."""
-    try:
-        import pyperclip
+def _paste_text(text: str, permit=None) -> dict:
+    """Paste text via clipboard to avoid IME interference.
 
-        old = pyperclip.paste()
-        pyperclip.copy(text)
+    Phase 1：写全局剪贴板 + 向当前焦点发 ctrl+v，走 hid（CLIPBOARD+KEYBOARD）。
+    """
+    from server.services.executor.hid import paste as hid_paste
 
-        from server.services.executor.clicker import press_keys
-
-        press_keys("ctrl", "v")
-        time.sleep(0.2)
-
-        try:
-            pyperclip.copy(old)
-        except Exception:
-            pass
-    except ImportError:
-        from server.services.executor.clicker import type_text
-
-        type_text(text)
+    return hid_paste(permit, text).to_dict()

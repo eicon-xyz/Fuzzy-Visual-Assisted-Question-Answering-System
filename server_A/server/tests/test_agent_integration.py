@@ -16,7 +16,20 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from server.services.executor.agent import TERM_KEY, ExecutionAgent, TermKind
+
+
 from server.models.schemas import UIElement
+
+from server.services.executor.permit import (  # noqa: E402
+    ForegroundAction,
+    PermitBroker,
+    TaskPolicy,
+)
+
+# Phase 1：这些用例验证 dispatch 接线，不是许可拦截 → 统一给全域名许可。
+_FULL_PERMIT = PermitBroker().resolve(
+    TaskPolicy("dispatch-tests", frozenset(ForegroundAction)), consent=True
+)
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
@@ -25,7 +38,7 @@ from server.models.schemas import UIElement
 @pytest.fixture
 def agent():
     """Real ExecutionAgent with mocked side effects. Dispatch routing is REAL."""
-    a = ExecutionAgent()
+    a = ExecutionAgent(permit=_FULL_PERMIT)
     a.element_map = {}
     a.screen_elements = []
     a._browser = None

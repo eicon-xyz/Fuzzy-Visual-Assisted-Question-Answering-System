@@ -191,13 +191,19 @@ class UIABridge:
     # A4: 句柄表容量上限，超限按"最久未被观察"淘汰（FIFO）
     _HANDLE_CAP = 400
 
-    def __init__(self) -> None:
+    def __init__(self, permit: Optional[object] = None) -> None:
+        # Phase 1：接管许可。默认 None = 无 X 档能力（fail-closed）。
+        # 坐标点击、type 的焦点降级、窗口 activate 都要它。
+        self._permit = permit
+        # 目标窗口钉住：一旦钉住，观察不随前台漂移（否则人在前台打字会劫持观察）
+        self._target: Optional[dict] = None
         # ── 当次视图（每次 snapshot 重建，drill 增量）──
         self._last_controls: Dict[str, object] = {}
         self._last_meta: Dict[str, dict] = {}  # B2: {eid: {type, patterns}} 快照期缓存
         self._last_projection: List[dict] = []
         self._last_window_title: str = ""
         self._last_window_rect: Optional[List[int]] = None
+        self._last_root_hwnd: int = 0  # 最近一次观察根窗口句柄（抓图用）
         self._last_focused: Optional[dict] = None  # B3: 快照时焦点控件 {name,type,class,bbox}
         # ── A4: 跨快照存活的持久句柄表（clear() 才全清）──
         self._handles: Dict[str, object] = {}  # eid → UIA control（act/verify 消费）
@@ -305,7 +311,8 @@ class UIABridge:
 
         out: List[UIElement] = []
         try:
-            fg = auto.GetForegroundControl()
+            # 钉住目标优先；没有钉住才跟随前台（Phase 1：前台漂移不许劫持观察）
+            fg = self._target_control() or auto.GetForegroundControl()
             if fg is None:
                 return []
             try:
@@ -315,6 +322,7 @@ class UIABridge:
             win_rect = _control_bbox(fg)
             if store is self._last_controls:
                 self._last_window_rect = win_rect
+                self._last_root_hwnd = self._hwnd_of(fg)
             self._walk(fg, 0, depth, budget, out, store, win_rect)
         except Exception as exc:
             _log().debug("UIA snapshot failed: %s", exc)
@@ -323,6 +331,88 @@ class UIABridge:
     def last_projection(self) -> List[dict]:
         """最近一次 snapshot() 的投影字段列表（0.1 感知序列化）。"""
         return self._last_projection
+
+    # ── Phase 1：目标窗口钉住 ──
+
+    @staticmethod
+    def _hwnd_of(control) -> int:
+        """顶层窗口句柄（PrintWindow / ControlFromHandle 用）。取不到返回 0。"""
+        try:
+            top = control.GetTopLevelControl()
+            h = getattr(top, "NativeWindowHandle", None)
+            if h:
+                return int(h)
+        except Exception:
+            pass
+        try:
+            h = getattr(control, "NativeWindowHandle", None)
+            return int(h) if h else 0
+        except Exception:
+            return 0
+
+    def target_window(self) -> Optional[dict]:
+        """本次观察的目标窗口 {wid, hwnd, rect, title}。
+
+        钉住时返回钉住目标；否则返回最近一次观察实际用的顶层窗口
+        （= 前台窗口）。返回 None 表示无从得知，调用方应放弃抓图。
+        """
+        if self._target:
+            return dict(self._target)
+        if self._last_root_hwnd and self._last_window_rect:
+            return {
+                "wid": "",
+                "hwnd": self._last_root_hwnd,
+                "rect": list(self._last_window_rect),
+                "title": self._last_window_title,
+            }
+        return None
+
+    def pin_target(self, wid: str) -> Optional[dict]:
+        """把观察目标钉到指定窗口 id。
+
+        为什么需要钉住：不钉住时每次观察都取当前前台窗口，用户只要在前面打字，
+        观察目标就变成他的窗口，后续 element_id 全部错位（验收 d 不可能通过）。
+        """
+        ctrl = self._handles.get(wid)
+        if ctrl is None:
+            return None
+        try:
+            rect = _control_bbox(ctrl)
+            title = (ctrl.Name or "").strip()
+        except Exception:
+            rect, title = None, ""
+        hwnd = self._hwnd_of(ctrl)
+        if rect is None or not hwnd:
+            return None
+        self._target = {"wid": wid, "hwnd": hwnd, "rect": list(rect), "title": title}
+        _log().info(
+            "target pinned wid=%s hwnd=%s rect=%s title=%s",
+            wid, hwnd, rect, title,
+        )
+        return dict(self._target)
+
+    def unpin_target(self) -> None:
+        self._target = None
+
+    def _target_control(self):
+        """钉住的窗口还活着就返回它，否则清空钉住并回退前台（fail-soft）。"""
+        if not self._target:
+            return None
+        hwnd = self._target.get("hwnd")
+        from_handle = getattr(self._auto, "ControlFromHandle", None)
+        if from_handle is None:  # 老版本无此入口 → 放弃钉住，回退前台
+            _log().info("uiautomation lacks ControlFromHandle — unpin")
+            self._target = None
+            return None
+        try:
+            ctrl = from_handle(hwnd) if hwnd else None
+        except Exception:
+            ctrl = None
+        if ctrl is None or not self._control_alive(ctrl):
+            _log().info("pinned target gone hwnd=%s — unpin", hwnd)
+            self._target = None
+            return None
+        return ctrl
 
     # ── A4 稳定 id / 持久句柄 ──
 
@@ -462,6 +552,16 @@ class UIABridge:
                 self._last_window_title = (ctrl.Name or "").strip()
             except Exception:
                 pass
+            # Phase 1：同时钉住目标窗口。此后默认 snapshot() 走它而不是当前前台，
+            # 用户在别的窗口打字不会劫持观察（验收 d 的前提）。
+            self._last_root_hwnd = self._hwnd_of(ctrl)
+            if self._last_root_hwnd:
+                self._target = {
+                    "wid": element_id,
+                    "hwnd": self._last_root_hwnd,
+                    "rect": list(root_rect),
+                    "title": self._last_window_title,
+                }
         before = len(self._last_projection)
         self._walk(ctrl, 0, depth, budget, out, self._last_controls, win_rect)
         new_entries = self._last_projection[before:]
@@ -1118,17 +1218,33 @@ class UIABridge:
             except Exception:
                 pass
         # 2) 焦点 + 剪贴板粘贴（富文本/无 ValuePattern 的输入框）
-        try:
-            ctrl.SetFocus()
-        except Exception:
-            pass
-        try:
-            from server.services.executor.clicker import type_text
+        #    这是 type 的**降级边界**：要抢焦点 + 改全局剪贴板，故需许可。
+        #    先在动手前确认三域齐全，避免"抢完焦点才发现粘贴被拒"。
+        from server.services.executor.hid import (
+            paste as hid_paste,
+            precheck,
+            set_focus as hid_set_focus,
+        )
+        from server.services.executor.permit import ForegroundAction
 
-            type_text(text)
-            return {"success": True, "via": "coord_clipboard", "element": element_id}
-        except Exception as exc:
-            return {"success": False, "error": f"type failed: {exc}", "via": None}
+        denied = precheck(
+            self._permit,
+            (
+                ForegroundAction.ACTIVATE,
+                ForegroundAction.CLIPBOARD,
+                ForegroundAction.KEYBOARD,
+            ),
+            "uia.act.type_fallback",
+        )
+        if denied is not None:
+            return {"success": False, "via": None, **denied}
+        r = hid_set_focus(self._permit, ctrl)
+        if not r.ok:
+            return {"success": False, "via": None, **r.to_dict()}
+        r = hid_paste(self._permit, text)
+        if not r.ok:
+            return {"success": False, "via": None, **r.to_dict()}
+        return {"success": True, "via": "coord_clipboard", "element": element_id}
 
     def _act_set_range(self, ctrl, element_id: str, value) -> dict:
         """B4 set_range：RangeValuePattern.Value = float（滑杆/数值调节）。
@@ -1370,7 +1486,12 @@ class UIABridge:
 
         try:
             if op == "activate":
-                ctrl.SetFocus()
+                # 全仓唯一的 SetFocus 路径（经 hid）。属降级边界：要 ACTIVATE 许可。
+                from server.services.executor.hid import set_focus as hid_set_focus
+
+                r = hid_set_focus(self._permit, ctrl)
+                if not r.ok:
+                    return {"success": False, "via": None, **r.to_dict()}
                 method = "SetFocus"
             else:
                 method = None
@@ -1412,22 +1533,24 @@ class UIABridge:
         if bbox is None:
             return {"success": False, "error": "uia element has no bbox", "via": None}
         cx, cy = (bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2
-        try:
-            from server.services.executor.clicker import click_at
+        from server.services.executor.hid import click as hid_click
 
-            r = click_at((cx, cy), clicks=clicks, button=button)
+        r = hid_click(self._permit, (cx, cy), clicks=clicks, button=button)
+        if not r.ok:
             return {
-                "success": True,
-                "via": "coord",
-                "element": element_id,
-                "x": cx,
-                "y": cy,
-                "clicks": clicks,
-                "button": button,
-                "detail": r,
+                "success": False,
+                "via": None,
+                **r.to_dict(),
             }
-        except Exception as exc:
-            return {"success": False, "error": f"coord click failed: {exc}", "via": None}
+        return {
+            "success": True,
+            "via": "coord",
+            "element": element_id,
+            "x": cx,
+            "y": cy,
+            "clicks": clicks,
+            "button": button,
+        }
 
     # ── 校验 ──
 

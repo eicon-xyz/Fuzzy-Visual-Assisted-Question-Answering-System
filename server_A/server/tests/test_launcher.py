@@ -76,10 +76,14 @@ def test_launch_app_tier1_direct(monkeypatch):
     monkeypatch.setattr(lc.shutil, "which", lambda name: f"C:\\Windows\\{name}")
     monkeypatch.setattr(lc.subprocess, "Popen", lambda cmd, **k: started.append(cmd))
     monkeypatch.setattr(lc.time, "sleep", lambda s: None)
-    monkeypatch.setattr(lc, "_force_window_foreground", lambda name: True)
+    monkeypatch.setattr(
+        lc, "_force_window_foreground",
+        lambda name, permit=None: {"ok": True, "skipped": False, "reason": "ok"},
+    )
     r = lc.launch_app("记事本")
     assert r["success"] is True
     assert r["method"] == "direct" and r["tier"] == 1
+    assert r["foreground"] == "ok"
     assert started and "notepad.exe" in started[0][0].lower()
 
 
@@ -89,7 +93,10 @@ def test_launch_app_tier2_path(monkeypatch):
     monkeypatch.setattr(lc.shutil, "which", lambda name: "C:\\Tools\\blender.exe")
     monkeypatch.setattr(lc.subprocess, "Popen", lambda cmd, **k: started.append(cmd))
     monkeypatch.setattr(lc.time, "sleep", lambda s: None)
-    monkeypatch.setattr(lc, "_force_window_foreground", lambda name: True)
+    monkeypatch.setattr(
+        lc, "_force_window_foreground",
+        lambda name, permit=None: {"ok": True, "skipped": False, "reason": "ok"},
+    )
     r = lc.launch_app("blender")
     assert r["success"] is True and r["tier"] == 2
     assert r["method"] == "direct"
@@ -98,16 +105,25 @@ def test_launch_app_tier2_path(monkeypatch):
 def test_launch_app_tier3_win_search(monkeypatch):
     """direct 全部失败 → Win+Search 兜底。"""
     monkeypatch.setattr(lc.shutil, "which", lambda name: None)
-    monkeypatch.setattr(lc, "_launch_win_search", lambda name: True)
+    monkeypatch.setattr(
+        lc, "_launch_win_search", lambda name, permit=None: {"ok": True, "tier": 3}
+    )
     monkeypatch.setattr(lc.time, "sleep", lambda s: None)
-    monkeypatch.setattr(lc, "_force_window_foreground", lambda name: True)
+    monkeypatch.setattr(
+        lc, "_force_window_foreground",
+        lambda name, permit=None: {"ok": True, "skipped": False, "reason": "ok"},
+    )
     r = lc.launch_app("某个UWP应用")
     assert r["success"] is True and r["method"] == "win_search" and r["tier"] == 3
 
 
 def test_launch_app_all_tiers_fail(monkeypatch):
     monkeypatch.setattr(lc.shutil, "which", lambda name: None)
-    monkeypatch.setattr(lc, "_launch_win_search", lambda name: False)
+    monkeypatch.setattr(
+        lc,
+        "_launch_win_search",
+        lambda name, permit=None: {"ok": False, "error": "all 3 launch tiers failed"},
+    )
     r = lc.launch_app("绝对不存在的应用xyz")
     assert r["success"] is False
     assert "all 3 launch tiers failed" in r["error"]
