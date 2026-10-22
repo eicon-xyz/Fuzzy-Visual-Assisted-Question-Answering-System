@@ -88,7 +88,6 @@
 | `docs/L5-SSE-契约扩展.md` | DOC-PRIMARY | L5 SSE 事件契约（step_*/task_*/tool_*） |
 | `docs/api-auth.md` | DOC-PRIMARY | Demo Key / Auth 说明 |
 | `docs/api-contract-demo_v2.yaml` | LEGACY + DOC | ⚠️ 仍描述旧 A 端 process/inspect 端点，**待按 L5 重写**；以 `../server_A/server/routes/demo.py` + Swagger `:8011/docs` 为准 |
-| `docs/B端接口总结-对A与对C_v2.md` | DOC-REF | 历史 AB/BC 总结（L4 部分已过时） |
 | `core/defaults.py` | PRODUCTION | URL/端口默认值 |
 
 ---
@@ -215,7 +214,7 @@ cd ../server_A/server && python -m pytest tests/ -q
 
 | 文档 | 说明 |
 |------|------|
-| [`CHANGELOG-B端_v2.md`](CHANGELOG-B端_v2.md) | B 端变更史 |
+| `docs/archive` 分支 | A 端（Sidecar）与 L4 历史文档，取回见下 |
 | `../server_A/docs/`、`../server_A/server/docs/` | A 端（Sidecar）历史文档 |
 | 各类校园 GPU / OmniParser 联调手册 | L4 时代资料，仅作考古 |
 

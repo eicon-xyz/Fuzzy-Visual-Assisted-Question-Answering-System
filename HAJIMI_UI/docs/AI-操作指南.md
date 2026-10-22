@@ -92,7 +92,6 @@ scripts\stop_all.bat
 | 文档 | 内容 |
 |------|------|
 | [`docs/api-contract-demo_v2.yaml`](api-contract-demo_v2.yaml) | B→A Demo OpenAPI |
-| [`docs/B端接口总结-对A与对C_v2.md`](B端接口总结-对A与对C_v2.md) | 人类可读 AB/BC 总结 |
 | [`docs/b-c-api-contract.md`](b-c-api-contract.md) | B↔C 九个 Qt 交互点 |
 
 ### 4.2 B→A Demo API（摘要）
@@ -243,9 +242,8 @@ python -m pytest core/tests/
 2. **本文**（AI-操作指南）
 3. [`FILE-MAP.md`](FILE-MAP.md)
 4. [`ARCHIVE-MANIFEST.md`](ARCHIVE-MANIFEST.md) — 什么不要参考
-5. [`B端接口总结-对A与对C_v2.md`](B端接口总结-对A与对C_v2.md)
-6. [`项目结构.md`](项目结构.md) + [`P1-可移植性改动与使用指南.md`](P1-可移植性改动与使用指南.md)
-7. 接 C 时：[`b-c-api-contract.md`](b-c-api-contract.md)
+5. [`项目结构.md`](项目结构.md) + [`P1-可移植性改动与使用指南.md`](P1-可移植性改动与使用指南.md)
+6. 接 C 时：[`b-c-api-contract.md`](b-c-api-contract.md)
 8. 最新功能摘要：[`DAY7-工作内容_v2.md`](DAY7-工作内容_v2.md)
 9. DAY1–6：[`DOC-HISTORY`] 只读，见 FILE-MAP
 
