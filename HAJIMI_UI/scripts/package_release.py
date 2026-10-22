@@ -102,7 +102,6 @@ def _verify_package(files: list[tuple[Path, str]]) -> int:
         "client/voice_setup.py": "C-end voice verification",
         "安装全栈.bat": "Full stack install script",
         "启动全栈.bat": "Full stack launch script",
-        "打包说明.md": "Recipient README",
     }
     # Sidecar 本体必须入包（server_A/server/** 曾被 "server" 排除词整体误剪，
     # 2026-09 修复并升级为硬校验；桌面新端同理入包 desktop/electron/main.ts）
