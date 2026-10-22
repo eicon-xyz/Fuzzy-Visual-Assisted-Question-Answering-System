@@ -184,6 +184,12 @@ class CancelRequest(BaseModel):
     task_id: str = Field(..., description="任务 ID")
 
 
+class RedlineEvaluateRequest(BaseModel):
+    """红线只读评估请求（B 端第一层归一化的判定入口，Electron/客户端用）"""
+
+    query: str = Field(..., min_length=0, max_length=2000, description="待评估文本")
+
+
 class DebugClickRequest(BaseModel):
     """调试：固定坐标点击（localhost Sidecar 专用）"""
 

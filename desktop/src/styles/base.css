@@ -1,0 +1,97 @@
+:root {
+  /* 对齐 PyQt 暗色板（main._apply_dark_palette / theme_manager current 主题） */
+  --hm-bg: #0f172a;
+  --hm-panel: #1e293b;
+  --hm-text: #f1f5f9;
+  --hm-muted: #64748b;
+  --hm-accent: #f472b6;
+  --hm-danger: #ef4444;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  background: var(--hm-bg);
+  color: var(--hm-text);
+  font-family: 'Segoe UI', 'Microsoft YaHei UI', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  overflow: hidden;
+  user-select: none;
+}
+
+.titlebar {
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 34px;
+  padding: 0 10px;
+  background: rgba(30, 41, 59, 0.9);
+  border-bottom: 1px solid rgba(100, 116, 139, 0.25);
+}
+
+.titlebar .title {
+  font-size: 12px;
+  color: var(--hm-muted);
+  letter-spacing: 0.5px;
+}
+
+.titlebar .win-btns {
+  -webkit-app-region: no-drag;
+  display: flex;
+  gap: 6px;
+}
+
+.titlebar button {
+  width: 26px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--hm-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.titlebar button:hover {
+  background: rgba(100, 116, 139, 0.25);
+  color: var(--hm-text);
+}
+
+.titlebar button.close:hover {
+  background: var(--hm-danger);
+  color: #fff;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* 黑金轻奢近似版（PyQt luxury = 星空+金文字特效的 CSS 变量级复刻，M3 有意不做像素级还原） */
+:root[data-theme='variant_luxury'] {
+  --hm-bg: #060608;
+  --hm-panel: #131318;
+  --hm-text: #e8d9a0;
+  --hm-muted: #8a7a45;
+  --hm-accent: #d4af37;
+}
+
+:root[data-theme='variant_luxury'] body {
+  background:
+    radial-gradient(1px 1px at 20% 30%, rgba(232, 217, 160, 0.5) 50%, transparent 51%),
+    radial-gradient(1px 1px at 70% 15%, rgba(232, 217, 160, 0.35) 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 45% 70%, rgba(232, 217, 160, 0.3) 50%, transparent 51%),
+    radial-gradient(1px 1px at 85% 60%, rgba(232, 217, 160, 0.4) 50%, transparent 51%),
+    var(--hm-bg);
+}

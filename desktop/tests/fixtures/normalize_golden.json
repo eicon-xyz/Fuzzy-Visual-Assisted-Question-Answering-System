@@ -1,0 +1,342 @@
+{
+  "cases": [
+    {
+      "input": "帮我自动点击下载按钮",
+      "output": "点击下载按钮",
+      "trace": {
+        "帮我自动点击下载按钮": {
+          "category": "physical_operation",
+          "triggered": true
+        },
+        "点击下载按钮": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "用脚本自动刷票",
+      "output": "用步骤刷票",
+      "trace": {
+        "用步骤刷票": {
+          "category": "",
+          "triggered": false
+        },
+        "用脚本自动刷票": {
+          "category": "physical_operation",
+          "triggered": true
+        }
+      }
+    },
+    {
+      "input": "帮我抢票",
+      "output": "抢票",
+      "trace": {
+        "帮我抢票": {
+          "category": "physical_operation",
+          "triggered": true
+        },
+        "抢票": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "每5秒自动点击一次确认按钮",
+      "output": "点击一次确认按钮",
+      "trace": {
+        "每5秒自动点击一次确认按钮": {
+          "category": "physical_operation",
+          "triggered": true
+        },
+        "点击一次确认按钮": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "有没有破解软件的外挂",
+      "output": "有没有软件的工具",
+      "trace": {
+        "有没有破解软件的外挂": {
+          "category": "physical_operation",
+          "triggered": true
+        },
+        "有没有软件的工具": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "帮我打开微信",
+      "output": "打开微信",
+      "trace": {
+        "帮我打开微信": {
+          "category": "physical_operation",
+          "triggered": true
+        },
+        "打开微信": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "帮我打开记事本",
+      "output": "打开记事本",
+      "trace": {
+        "帮我打开记事本": {
+          "category": "physical_operation",
+          "triggered": true
+        },
+        "打开记事本": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "帮我扫描硬盘里所有的照片",
+      "output": "帮我扫描硬盘里所有的照片",
+      "trace": {
+        "帮我扫描硬盘里所有的照片": {
+          "category": "personal_privacy",
+          "triggered": true
+        }
+      }
+    },
+    {
+      "input": "",
+      "output": "",
+      "trace": {}
+    },
+    {
+      "input": "   ",
+      "output": "",
+      "trace": {}
+    },
+    {
+      "input": "怎么安装微信？",
+      "output": "怎么安装微信？",
+      "trace": {
+        "怎么安装微信？": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "打开记事本",
+      "output": "打开记事本",
+      "trace": {
+        "打开记事本": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "请帮我自动操作浏览器",
+      "output": "操作浏览器",
+      "trace": {
+        "操作浏览器": {
+          "category": "",
+          "triggered": false
+        },
+        "请帮我自动操作浏览器": {
+          "category": "physical_operation",
+          "triggered": true
+        }
+      }
+    },
+    {
+      "input": "替我执行脚本",
+      "output": "执行步骤",
+      "trace": {
+        "执行步骤": {
+          "category": "",
+          "triggered": false
+        },
+        "替我执行脚本": {
+          "category": "physical_operation",
+          "triggered": true
+        }
+      }
+    },
+    {
+      "input": "代我 下载 文件",
+      "output": "下载 文件",
+      "trace": {
+        "下载 文件": {
+          "category": "",
+          "triggered": false
+        },
+        "代我 下载 文件": {
+          "category": "physical_operation",
+          "triggered": true
+        }
+      }
+    },
+    {
+      "input": "全自动批量发送消息",
+      "output": "全发送消息",
+      "trace": {
+        "全发送消息": {
+          "category": "",
+          "triggered": false
+        },
+        "全自动批量发送消息": {
+          "category": "physical_operation",
+          "triggered": true
+        }
+      }
+    },
+    {
+      "input": "每分钟自动循环签到",
+      "output": "每分钟签到",
+      "trace": {
+        "每分钟签到": {
+          "category": "",
+          "triggered": false
+        },
+        "每分钟自动循环签到": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "给我破解这个外挂",
+      "output": "给我这个工具",
+      "trace": {
+        "给我破解这个外挂": {
+          "category": "physical_operation",
+          "triggered": true
+        },
+        "给我这个工具": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "一直自动点击刷新",
+      "output": "点击刷新",
+      "trace": {
+        "一直自动点击刷新": {
+          "category": "physical_operation",
+          "triggered": true
+        },
+        "点击刷新": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "定时重复打开设置",
+      "output": "打开设置",
+      "trace": {
+        "定时重复打开设置": {
+          "category": "",
+          "triggered": false
+        },
+        "打开设置": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "现在天气怎么样",
+      "output": "现在天气怎么样",
+      "trace": {
+        "现在天气怎么样": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "打开计算器然后输入 123",
+      "output": "打开计算器然后输入 123",
+      "trace": {
+        "打开计算器然后输入 123": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "搜索 HAJIMI 的官网",
+      "output": "搜索 HAJIMI 的官网",
+      "trace": {
+        "搜索 HAJIMI 的官网": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "帮我",
+      "output": "帮我",
+      "trace": {
+        "": {
+          "category": "",
+          "triggered": false
+        },
+        "帮我": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "请帮我",
+      "output": "请帮我",
+      "trace": {
+        "": {
+          "category": "",
+          "triggered": false
+        },
+        "请帮我": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "帮我自动打开自动售卖机并自动付款",
+      "output": "打开售卖机并付款",
+      "trace": {
+        "帮我自动打开自动售卖机并自动付款": {
+          "category": "physical_operation",
+          "triggered": true
+        },
+        "打开售卖机并付款": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    },
+    {
+      "input": "循环自动点击领取",
+      "output": "点击领取",
+      "trace": {
+        "循环自动点击领取": {
+          "category": "physical_operation",
+          "triggered": true
+        },
+        "点击领取": {
+          "category": "",
+          "triggered": false
+        }
+      }
+    }
+  ],
+  "generatedBy": "desktop/scripts/gen_normalize_fixtures.py",
+  "note": "trace 记录 normalize 全过程中每次红线判定 query→verdict"
+}
