@@ -73,7 +73,7 @@ def _never_touch_real_input(monkeypatch):
     monkeypatch.setattr(hid_mod, "_USE_DIRECT", True, raising=False)
     monkeypatch.setattr(hid_mod, "_HAS_PYAUTOGUI", True, raising=False)
     monkeypatch.setattr(hid_mod, "_HAS_PYPERCLIP", True, raising=False)
-    yield
+    return
 
 
 @pytest.fixture(scope="session", autouse=True)

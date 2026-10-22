@@ -303,7 +303,7 @@ def test_wait_for_text_polls_without_touching_id_map(monkeypatch):
     install_fake_uia(monkeypatch, root)
     b = UIABridge(permit=_TEST_PERMIT)
     els = b.snapshot()
-    eid = find_el(els, "确定").element_id
+    assert find_el(els, "确定") is not None  # 快照里能找到目标控件
     before_map = dict(b._last_controls)
 
     w = b.wait_for_text("确定", timeout=1.0, interval=0.2)

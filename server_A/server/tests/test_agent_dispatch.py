@@ -15,7 +15,7 @@ from server.services.executor.agent import TERM_KEY, ExecutionAgent, TermKind
 
 from server.models.schemas import UIElement
 
-from server.services.executor.permit import (  # noqa: E402
+from server.services.executor.permit import (
     ForegroundAction,
     PermitBroker,
     TaskPolicy,
@@ -255,7 +255,7 @@ class TestDispatchBrowserWithFakeBrowser:
         assert fake_browser._last_key == "Enter"
 
     def test_browser_close_when_started(self, agent, fake_browser):
-        result = fake_browser.close()
+        _result = fake_browser.close()
         assert fake_browser._closed is True
 
     def test_browser_close_when_not_started(self, agent):

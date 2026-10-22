@@ -20,7 +20,7 @@ from server.services.executor.agent import TERM_KEY, ExecutionAgent, TermKind
 
 from server.models.schemas import UIElement
 
-from server.services.executor.permit import (  # noqa: E402
+from server.services.executor.permit import (
     ForegroundAction,
     PermitBroker,
     TaskPolicy,
