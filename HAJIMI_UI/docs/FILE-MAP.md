@@ -86,7 +86,6 @@
 | 路径 | 标签 | 说明 |
 |------|------|------|
 | `docs/L5-SSE-契约扩展.md` | DOC-PRIMARY | L5 SSE 事件契约（step_*/task_*/tool_*） |
-| `docs/api-auth.md` | DOC-PRIMARY | Demo Key / Auth 说明 |
 | `docs/api-contract-demo_v2.yaml` | LEGACY + DOC | ⚠️ 仍描述旧 A 端 process/inspect 端点，**待按 L5 重写**；以 `../server_A/server/routes/demo.py` + Swagger `:8011/docs` 为准 |
 | `core/defaults.py` | PRODUCTION | URL/端口默认值 |
 
