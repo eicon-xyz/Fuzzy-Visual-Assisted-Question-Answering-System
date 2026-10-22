@@ -21,6 +21,7 @@ class ExecuteWorkerThread(QThread):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.query = ""
+        self._consent = False
         self._task_id: str | None = None
         self._running_sse = True
 
@@ -28,7 +29,9 @@ class ExecuteWorkerThread(QThread):
     def task_id(self) -> str | None:
         return self._task_id
 
-    def request_execute(self, query: str, *, force: bool = False) -> bool:
+    def request_execute(
+        self, query: str, *, force: bool = False, consent: bool = False
+    ) -> bool:
         if self.isRunning():
             if not force:
                 return False
@@ -40,6 +43,7 @@ class ExecuteWorkerThread(QThread):
                     pass
             self.wait(5000)
         self.query = query
+        self._consent = bool(consent)
         self._task_id = None
         self._running_sse = True
         self.start()
@@ -61,7 +65,12 @@ class ExecuteWorkerThread(QThread):
         try:
             self.sig_progress.emit(15, "L5 规划与提交执行…")
             with ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(api_execute_task, self.query, None)
+                future = pool.submit(
+                    api_execute_task,
+                    self.query,
+                    None,
+                    takeover_consent=self._consent,
+                )
                 waited = 0
                 while not future.done():
                     if waited >= 8:

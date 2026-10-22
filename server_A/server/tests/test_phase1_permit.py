@@ -176,6 +176,51 @@ def test_global_broker_grants_and_revokes():
     assert permit.live is False
 
 
+# ── consent 与签发域（consent 定范围，policy 定预测）──────────────────────
+
+
+def test_grant_all_covers_boundary_requirements():
+    """「打开 X」只派生出 activate，而 launch 层 3 要 keyboard+clipboard+activate。
+
+    欠授权不会减少打扰，只会让降级边界在真正需要时被拒，所以 consent 到手后
+    按全集签发；预测域保留下来供审计。
+    """
+    policy = derive_policy("t", "打开 Foxit Reader", [{"instruction": "打开 Foxit Reader"}])
+    assert policy.actions == frozenset({ForegroundAction.ACTIVATE})
+
+    permit = PermitBroker().resolve(policy, consent=True, grant_all=True)
+    assert permit is not None
+    for action in (
+        ForegroundAction.ACTIVATE,
+        ForegroundAction.KEYBOARD,
+        ForegroundAction.CLIPBOARD,
+    ):
+        assert permit.allows(action)
+    assert permit.as_list() == sorted(a.value for a in ForegroundAction)
+    # 审计仍能看出"预测"了什么
+    assert "activate" in permit.reason
+
+
+def test_grant_all_still_requires_exclusive():
+    """预测"不用碰桌面"的任务，即使 consent 也不签发——这是唯一保留的硬门。"""
+    policy = derive_policy("t", "查看当前列表内容", [{"instruction": "读取标题文本"}])
+    assert policy.exclusive is False
+    assert PermitBroker().resolve(policy, consent=True, grant_all=True) is None
+
+
+def test_grant_all_still_requires_consent():
+    policy = derive_policy("t", "打开记事本", [])
+    assert PermitBroker().resolve(policy, consent=False, grant_all=True) is None
+
+
+def test_grant_all_is_opt_in():
+    """默认仍按预测域签发：per-domain 机制留给单测与将来更细的授权。"""
+    policy = derive_policy("t", "打开 Foxit Reader", [{"instruction": "打开 Foxit Reader"}])
+    permit = PermitBroker().resolve(policy, consent=True)
+    assert permit is not None
+    assert permit.as_list() == ["activate"]
+
+
 # ── 坐标钳制（修掉旧 clicker 的 1920×1080 硬编码）─────────────────────────
 
 

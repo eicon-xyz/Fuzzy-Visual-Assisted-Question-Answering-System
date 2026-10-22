@@ -1410,7 +1410,9 @@ class MediumPanel(QWidget):
             parent or self,
             "L5 自动执行 — 知情确认",
             "您已选择 L5 自动执行模式。\n\n"
-            "HAJIMI 将通过本机 Sidecar (server_A) 自动操作鼠标与键盘完成步骤。"
+            "HAJIMI 将通过本机 Sidecar (server_A) 自动操作鼠标与键盘完成步骤；"
+            "遇到无法用界面语义接口完成的动作时，可能移动光标、切换前台窗口/"
+            "抢占键盘焦点、临时改写系统剪贴板（事后还原），或对整屏截图。"
             "请确保屏幕无敏感内容，且可随时按 J 或「停止」终止任务。",
             theme_id=theme_id,
         )

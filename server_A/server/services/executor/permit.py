@@ -104,8 +104,10 @@ class ForegroundPermit:
 class TaskPolicy:
     """任务级策略：这个任务**可能需要**侵占哪些桌面资源。
 
-    只是"可能"——真正的拦截发生在降级边界。``exclusive`` 用于遥测与前端提示，
-    执行期不读它（两处都从 ``derive_policy`` 派生，避免漂移）。
+    只是"可能"——真正的拦截发生在降级边界。``exclusive`` 与 ``actions`` 都只描述
+    预测，供遥测、前端提示与审计使用；**签发什么域**由 ``PermitBroker.resolve()``
+    在任务启动时按 consent 决定（生产路径 ``grant_all=True`` 签发全集），**放不放行**
+    由 ``hid._guard`` 在动作前按令牌域判定。三处职责不同，不要互相替代。
     """
 
     task_id: str
@@ -254,12 +256,20 @@ class PermitBroker:
         *,
         consent: bool,
         ttl_s: float = 1800.0,
+        grant_all: bool = False,
     ) -> Optional[ForegroundPermit]:
         """按策略签发。
 
         - ``exclusive=False`` → 直接 None，**不询问用户**（不诱导扩大授权）
-        - ``exclusive=True`` 且 ``consent`` → 签发策略里那些域
+        - ``exclusive=True`` 且 ``consent`` → 签发；``grant_all=True`` 时签发全集
         - ``exclusive=True`` 且无 consent → None，记 DECLINED（动作会被拒，可改道 UIA）
+
+        ``grant_all`` 的语义：``consent`` 是用户给出的**范围**，``policy.actions``
+        只是"会用到哪些域"的**预测**。预测偏窄不会减少打扰，只会让降级边界在
+        真正需要时被拒（例："打开某冷门应用"只派生出 activate，而 launch 层 3
+        要 keyboard+clipboard+activate），所以生产路径在 consent 到手后按全集
+        签发，预测域仅留作遥测与审计。默认 False 保持按域签发，per-domain 机制
+        仍是唯一的放行判据（``hid._guard``）。
         """
         with self._lock:
             if not policy.exclusive:
@@ -273,10 +283,13 @@ class PermitBroker:
                     sorted(a.value for a in policy.actions),
                 )
                 return None
+            granted = (
+                frozenset(ForegroundAction) if grant_all else policy.actions
+            )
             permit = ForegroundPermit(
                 _MINT,
                 policy.task_id,
-                policy.actions,
+                granted,
                 ttl_s=ttl_s,
                 reason="; ".join(policy.reasons),
             )

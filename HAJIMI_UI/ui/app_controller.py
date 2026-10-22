@@ -103,6 +103,8 @@ class AppController(QObject):
             self.message_added.emit("已取消 L5 自动执行", "system")
             self.status_updated.emit("idle", "准备就绪")
             return
+        # 无 panel 时无从取得知情确认 → 不授权，Sidecar 侧保持 fail-closed。
+        takeover_consent = panel is not None
 
         if self.execute_worker and self.execute_worker.isRunning():
             self.message_added.emit("已取消上一 L5 任务，开始新任务", "system")
@@ -123,7 +125,12 @@ class AppController(QObject):
             self.status_updated.emit("idle", "准备就绪")
             self._l5_mode = False
             return
-        if not self.execute_worker.request_execute(text):
+        # 有 panel 时走到这里，说明 ensure_l5_consent() 已返回 True（本次弹窗确认，
+        # 或此前已勾「不再提示」持久化）。没有这一步，launch 层 3 / 按键 / 粘贴 /
+        # 坐标点击会按默认 fail-closed 被拒。
+        if not self.execute_worker.request_execute(
+            text, consent=takeover_consent
+        ):
             self.message_added.emit("请等待当前任务完成", "system")
             self.status_updated.emit("processing", "处理中...")
 

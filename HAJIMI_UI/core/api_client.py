@@ -169,8 +169,14 @@ def execute_task(
     *,
     screen_width: int = 1920,
     screen_height: int = 1080,
+    takeover_consent: bool = False,
 ) -> dict:
-    """L5：提交自动执行任务到 server_A Sidecar (:8011)，返回 plan + task_id。"""
+    """L5：提交自动执行任务到 server_A Sidecar (:8011)，返回 plan + task_id。
+
+    ``takeover_consent`` 是 Phase 1 接管许可的授权位，**默认 False（fail-closed）**：
+    只有调用方在用户完成知情确认后才能传 True。当前唯一调用方
+    ``ExecuteWorkerThread`` 的授权来源是 ``ensure_l5_consent()``。
+    """
     ok, reason = _ensure_l5_ready()
     if not ok:
         raise ApiError(reason or f"L5 Sidecar 未就绪，请先运行: {config.L5_START_HINT}")
@@ -195,6 +201,7 @@ def execute_task(
         "context": [],
         "screen_width": screen_width,
         "screen_height": screen_height,
+        "takeover_consent": bool(takeover_consent),
     }
     data = _request_json("/api/demo/execute", payload, timeout=config.EXECUTE_TIMEOUT)
     if not data.get("success"):

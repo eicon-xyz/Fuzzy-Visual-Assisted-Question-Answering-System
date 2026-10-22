@@ -223,13 +223,20 @@ def _run_plan_agent_loop(
     register_task(task_id)
     # Phase 1：任务级接管许可。策略由确定性分类器从 goal+steps 派生（不让模型填），
     # 无 consent 时只签发 None —— 纯 UIA 任务完全不受影响。
+    # consent 到手后按全集签发：预测偏窄（"打开某应用"只派生 activate）会让
+    # launch 层 3 / type 降级在真正需要时被拒，欠授权并不减少打扰。预测域仍进审计。
     policy = derive_policy(task_id, goal, steps)
-    permit = BROKER.resolve(policy, consent=consent)
+    permit = BROKER.resolve(policy, consent=consent, grant_all=True)
     if policy.exclusive:
         _push_event(
             task_id,
             "takeover_policy",
-            {"policy": policy.as_dict(), "granted": permit is not None},
+            {
+                "policy": policy.as_dict(),  # 预测域
+                "granted": permit is not None,
+                # 实际签发域（grant_all 后是全集）——两个口径分开写，避免遥测误读
+                "granted_actions": permit.as_list() if permit else [],
+            },
         )
     agent = ExecutionAgent(permit=permit)
     previous_steps: list[dict] = []
