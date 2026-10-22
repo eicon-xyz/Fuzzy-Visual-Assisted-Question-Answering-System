@@ -199,7 +199,7 @@ cd ../server_A/server && python -m pytest tests/ -q
 | [`L5-SSE-契约扩展.md`](L5-SSE-契约扩展.md) | L5 SSE 事件契约 |
 | [`语音集成操作手册.md`](语音集成操作手册.md) | C 端语音接入 |
 
-> 旧 `HANDOFF.md`、`项目结构.md`、`design-spec.md`、`b-c-api-contract.md` 条目指向的文件已不存在（根目录改用 `项目结构速查.md`；`UI-SPEC.md` 仍在）。
+> 旧 `HANDOFF.md`、`项目结构.md`、`design-spec.md`、`b-c-api-contract.md`、`项目结构速查.md` 指向的文件已不存在（目录结构以 `AGENTS.md` 为准）。
 
 ### `[DOC-REF]` 按需
 

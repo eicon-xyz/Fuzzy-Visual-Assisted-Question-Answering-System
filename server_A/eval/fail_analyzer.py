@@ -5,7 +5,7 @@
   * defects.jsonl —— 每条失败实例一张缺陷票（含归因类别+证据+建议优化项）
   * 终端摘要 —— 失败模式聚合 + 建议优先级
 
-映射表（对齐调研报告 §四 P1/P2）：
+映射表（失败类别 → 建议优化项；report_ref 只留决议编号，源文档已归档至 git 历史）：
   grounding → 0.1 感知投影 / 0.3 id×name / A3 语义过滤
   perceptual → A2 多窗口 / A3 下钻 / 0.8 actionability
   progress-perception → 0.4 卡死检测 / P1-1.1 stall 账本
@@ -18,32 +18,32 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-# 失败类别 → 建议优化项（含验证手段与对应报告条目）
+# 失败类别 → 建议优化项（含验证手段与决议编号）
 CATEGORY_ADVICE = {
     "grounding": {
         "advice": "选错/选不到控件：优先验证 A3 语义过滤（词法 top-k）与 0.1 投影",
         "verify": "观察 errors.element_not_found/name_mismatch 是否在 filter 生效后下降",
-        "report_ref": "§四 P0-0.1/0.3, P0.5 批次 A3",
+        "report_ref": "P0-0.1/0.3, P0.5-A3",
     },
     "perceptual": {
         "advice": "看不见关键状态：优先验证 A2 多窗口感知与 A3 按需下钻",
         "verify": "观察 snapshots 延迟与 not_actionable 分布是否改善",
-        "report_ref": "§四 P0-0.8, P0.5 批次 A2/A3",
+        "report_ref": "P0-0.8, P0.5-A2/A3",
     },
     "progress-perception": {
         "advice": "卡死不自知：优先 P1-1.1 stall 账本（清历史强制重规划）",
         "verify": "观察 loops.repeat5/8/12 后行为是否改变（nudge 后仍失败=检测只说话不拔电）",
-        "report_ref": "§四 P1-1.1, 审查台账 E1/E2",
+        "report_ref": "P1-1.1, E1/E2",
     },
     "recovery": {
         "advice": "执行偏航不恢复：优先 P1-1.2 proactive replan",
         "verify": "失败步数 > 3 且 errors 无 grounding/perceptual 特征时命中此档",
-        "report_ref": "§四 P1-1.2, 审查台账 E1",
+        "report_ref": "P1-1.2, E1",
     },
     "environment": {
         "advice": "环境/超时类：先修机器（锁屏/弹窗/网络），不改代码",
         "verify": "cancelled=true 或 wall_s 逼近 max_wall_s",
-        "report_ref": "评测台 HOWTO §6",
+        "report_ref": "—（环境/机器类，无对应代码决议）",
     },
 }
 
