@@ -95,7 +95,6 @@ def _verify_package(files: list[tuple[Path, str]]) -> int:
         "client/voice_setup.py": "C-end voice verification",
         "安装全栈.bat": "Full stack install script",
         "启动全栈.bat": "Full stack launch script",
-        "打包说明.md": "Recipient README",
     }
     required_l5 = {
         "server_A/scripts/start_server.bat": "L5 Sidecar launcher (L5 auto-execute unavailable)",

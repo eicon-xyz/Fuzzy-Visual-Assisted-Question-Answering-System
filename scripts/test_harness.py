@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """HAJIMI 自动化测试统一入口（T5 基建，纯 stdlib）。
 
-层级（覆盖金字塔，见 调研报告 §四 2.4 与审查台账 E4）：
+层级（覆盖金字塔）：
   L0 静态门：py_compile 全仓 Python + bat 括号检查 + eval 任务集 schema 校验
   L1 单元层：server_A 纯逻辑/组件测试（Linux 秒级，mock UIA/browser）
   L2 契约层：server_A 路由/SSE 契约 + HAJIMI_UI 测试（35+6 基线）

@@ -171,5 +171,4 @@ cd HAJIMI_UI && python scripts\apply_l5_settings.py  # 写 OMNIPARSER_ENABLED=fa
 
 - [`README.md`](../README.md) — 项目总览  
 - [`L5-SSE-契约扩展.md`](L5-SSE-契约扩展.md) — L5 SSE 事件契约  
-- [`UI协作规范.md`](UI协作规范.md) — 改 UI 时的 layout/style 边界  
-- 根目录 `启动指南.md` / `项目结构速查.md` — 启动链与目录说明
+- [`UI协作规范.md`](UI协作规范.md) — 改 UI 时的 layout/style 边界
