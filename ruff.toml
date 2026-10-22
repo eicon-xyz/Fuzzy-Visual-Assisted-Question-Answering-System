@@ -18,6 +18,8 @@ extend-exclude = [
     ".git",
     "__pycache__",
     "node_modules",
+    # 本地临时工作区（不属于仓库内容，各 worktree 各自持有）
+    ".scratch",
     # 非代码物料
     "项目文档",
     "工作进度",
