@@ -6,7 +6,8 @@
 而不是落在工具入口上：
 
     click      UIA Invoke/Select/Toggle  ──失败──▶ 坐标点击（要 POINTER）
-    type       ValuePattern.SetValue     ──缺失──▶ 焦点+剪贴板（要 KEYBOARD+CLIPBOARD）
+    type       ValuePattern.SetValue     ──缺失──▶ WM_CHAR 投递（要 WINDOW_MESSAGE）
+                                         ──不可用──▶ 焦点+剪贴板（ACTIVATE+KEYBOARD+CLIPBOARD）
     launch_app subprocess.Popen（层 1/2）──失败──▶ Win+搜索（要 KEYBOARD+CLIPBOARD+ACTIVATE）
     observe    PrintWindow(hwnd)         ──全黑──▶ 整屏 mss（要 FULLSCREEN_GRAB）
 

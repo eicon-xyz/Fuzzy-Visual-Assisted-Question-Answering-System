@@ -393,6 +393,21 @@ class UIABridge:
         except Exception:
             return 0
 
+    @staticmethod
+    def _own_hwnd(control) -> int:
+        """控件**自身**的 HWND —— WM_CHAR 唯一合法的投递目标；不适用时返回 0。
+
+        投给顶层窗口的 WM_CHAR 会落到"当时有焦点的那个控件"上，等于依赖焦点，
+        正是要避开的路径。所以只在"自身有句柄且不等于顶层窗口"时启用。
+        """
+        try:
+            own = int(getattr(control, "NativeWindowHandle", 0) or 0)
+        except Exception:
+            return 0
+        if not own:
+            return 0
+        return 0 if own == UIABridge._hwnd_of(control) else own
+
     def target_window(self) -> Optional[dict]:
         """本次观察的目标窗口 {wid, hwnd, rect, title}。
 
@@ -1377,7 +1392,28 @@ class UIABridge:
                     return {"success": True, "via": "uia_setvalue", "element": element_id}
             except Exception:
                 pass
-        # 2) 焦点 + 剪贴板粘贴（富文本/无 ValuePattern 的输入框）
+        # 2) WM_CHAR 投递（控件自身 HWND）——W 档：不抢焦点、不改剪贴板。
+        #    对经典 Win32 控件（EDIT 等）有效；Chromium/XAML 会吞掉，此时
+        #    "投递成功"只是入队，是否真的输入由调用方的 expect/状态变化判定。
+        own = self._own_hwnd(ctrl)
+        if own:
+            from server.services.executor.hid import post_text as hid_post_text
+
+            posted = hid_post_text(self._permit, own, text)
+            if posted.ok:
+                return {
+                    "success": True,
+                    "via": "message",
+                    "element": element_id,
+                    "hwnd": own,
+                    "posted": True,
+                }
+            if posted.detail.get("posted", 0):
+                # 已经投递出去一部分：再走粘贴会重复输入，只能报失败
+                return {"success": False, "via": None, **posted.to_dict()}
+            # 一个字都没投递（无 pywin32 / 句柄失效 / 无 WINDOW_MESSAGE 许可）：
+            # 仍在"动手之前"，可以安全走第 3 步。
+        # 3) 焦点 + 剪贴板粘贴（富文本/无 ValuePattern 的输入框）
         #    这是 type 的**降级边界**：要抢焦点 + 改全局剪贴板，故需许可。
         #    先在动手前确认三域齐全，避免"抢完焦点才发现粘贴被拒"。
         from server.services.executor.hid import (

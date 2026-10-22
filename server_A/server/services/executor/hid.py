@@ -395,7 +395,9 @@ def post_text(
         return denied
     if not text:
         return HIDResult(
-            ok=True, actions=(ForegroundAction.WINDOW_MESSAGE,), detail={"via": "message"}
+            ok=True,
+            actions=(ForegroundAction.WINDOW_MESSAGE,),
+            detail={"via": "message", "posted": 0},
         )
     gui = _win32gui()
     if gui is None or not hwnd:  # pragma: no cover
@@ -405,21 +407,27 @@ def post_text(
             error_code="path_unavailable",
             error="win32gui unavailable or no hwnd",
             hint="该控件取不到窗口句柄，只能走「焦点+剪贴板」或 ValuePattern。",
+            detail={"posted": 0},
         )
+    sent = 0
     try:
         for ch in text:
             gui.PostMessage(hwnd, WM_CHAR, ord(ch), 1)
+            sent += 1
     except Exception as exc:
+        # posted 是"已经投递出去几个字"：调用方据此决定能否安全降级——
+        # 已投递一部分再粘贴 = 重复输入，所以只能报失败。
         return HIDResult(
             ok=False,
             actions=(ForegroundAction.WINDOW_MESSAGE,),
             error_code="path_unavailable",
-            error=f"PostMessage(WM_CHAR) failed: {exc}",
+            error=f"PostMessage(WM_CHAR) failed after {sent} char(s): {exc}",
+            detail={"posted": sent},
         )
     return HIDResult(
         ok=True,
         actions=(ForegroundAction.WINDOW_MESSAGE,),
-        detail={"via": "message", "hwnd": hwnd, "length": len(text)},
+        detail={"via": "message", "hwnd": hwnd, "length": len(text), "posted": sent},
     )
 
 

@@ -2,7 +2,7 @@
 
 这组测试对应设计稿 §2 的边界表：
     click  → 坐标/双击/右键       (uia_bridge._act_coord)
-    type   → SetFocus+剪贴板       (uia_bridge._act_type 降级分支)
+    type   → WM_CHAR 投递，再退到 SetFocus+剪贴板 (uia_bridge._act_type)
     activate → SetFocus            (uia_bridge.act_window)
     launch → Win+搜索              (launcher._launch_win_search)
     observe → 整屏抓取             (screen_capture.capture_fullscreen)
@@ -32,16 +32,20 @@ class _Rect:
 class _FakeControl:
     """够 _control_bbox / SetFocus / GetTopLevelControl 用的最小控件。"""
 
-    def __init__(self, name="记事本", ctype="WindowControl", rect=(100, 100, 500, 400)):
+    def __init__(
+        self, name="记事本", ctype="WindowControl", rect=(100, 100, 500, 400), hwnd=0
+    ):
         self.Name = name
         self.ControlTypeName = ctype
         self.BoundingRectangle = _Rect(*rect)
         self.IsEnabled = True
         self.IsOffscreen = False
+        self.NativeWindowHandle = hwnd
+        self._top = None
         self.log: list[str] = []
 
     def GetTopLevelControl(self):
-        return self
+        return self._top or self
 
     def SetFocus(self):
         self.log.append("setfocus")
@@ -124,8 +128,125 @@ def test_boundary_type_fallback_needs_three_scopes(bridge):
     assert ctrl.log == []
 
 
-# ── 边界 3：窗口 activate ──────────────────────────────────────────────────
+# ── 边界 2b：type 优先投递 WM_CHAR（W 档，不抢焦点、不改剪贴板）────────────
 
+
+def _edit_with_own_hwnd():
+    """输入框自身有 HWND，且与顶层窗口不同——WM_CHAR 可以定向投递。"""
+    top = _FakeControl("窗口", "WindowControl", hwnd=0x9000)
+    edit = _FakeControl("输入框", "EditControl", hwnd=0x1234)
+    edit._top = top
+    return edit
+
+
+def test_type_prefers_message_over_clipboard(bridge, monkeypatch):
+    ctrl = _edit_with_own_hwnd()
+    bridge._last_meta["e1"] = {"patterns": []}  # 无 value pattern
+    bridge._permit = _permit(set(ForegroundAction))
+    calls: list[tuple] = []
+
+    def fake_post_text(permit, hwnd, text):
+        calls.append((hwnd, text))
+        return hid.HIDResult(
+            ok=True,
+            actions=(ForegroundAction.WINDOW_MESSAGE,),
+            detail={"via": "message", "posted": len(text)},
+        )
+
+    monkeypatch.setattr(hid, "post_text", fake_post_text)
+    r = bridge._act_type(ctrl, "e1", "你好")
+    assert r["success"] is True
+    assert r["via"] == "message"
+    assert calls == [(0x1234, "你好")], "必须投给控件自身的 HWND"
+    assert ctrl.log == [], "W 档不得 SetFocus"
+
+
+def test_type_message_partial_delivery_does_not_paste(bridge, monkeypatch):
+    """已投递出去一部分再粘贴 = 重复输入，所以只能报失败。"""
+    ctrl = _edit_with_own_hwnd()
+    bridge._last_meta["e1"] = {"patterns": []}
+    bridge._permit = _permit(set(ForegroundAction))
+    monkeypatch.setattr(
+        hid,
+        "post_text",
+        lambda *a, **k: hid.HIDResult(
+            ok=False,
+            actions=(ForegroundAction.WINDOW_MESSAGE,),
+            error_code="path_unavailable",
+            error="PostMessage(WM_CHAR) failed after 2 char(s)",
+            detail={"posted": 2},
+        ),
+    )
+    r = bridge._act_type(ctrl, "e1", "你好世界")
+    assert r["success"] is False
+    assert r["posted"] == 2
+    assert ctrl.log == [], "未走粘贴，不得 SetFocus"
+
+
+def test_type_falls_back_to_paste_when_nothing_posted(bridge, monkeypatch):
+    """一个字都没投递（无 pywin32 / 句柄失效）→ 仍在动手之前，可走粘贴。"""
+    ctrl = _edit_with_own_hwnd()
+    bridge._last_meta["e1"] = {"patterns": []}
+    bridge._permit = _permit(set(ForegroundAction))
+    monkeypatch.setattr(
+        hid,
+        "post_text",
+        lambda *a, **k: hid.HIDResult(
+            ok=False,
+            actions=(ForegroundAction.WINDOW_MESSAGE,),
+            error_code="path_unavailable",
+            error="win32gui unavailable or no hwnd",
+            detail={"posted": 0},
+        ),
+    )
+    monkeypatch.setattr(
+        hid,
+        "set_focus",
+        lambda permit, control: hid.HIDResult(
+            ok=True, actions=(ForegroundAction.ACTIVATE,)
+        ),
+    )
+    monkeypatch.setattr(
+        hid,
+        "paste",
+        lambda permit, text: hid.HIDResult(
+            ok=True,
+            actions=(ForegroundAction.CLIPBOARD, ForegroundAction.KEYBOARD),
+        ),
+    )
+    r = bridge._act_type(ctrl, "e1", "你好")
+    assert r["success"] is True
+    assert r["via"] == "coord_clipboard"
+
+
+def test_type_skips_message_when_control_has_no_own_hwnd(bridge, monkeypatch):
+    """取不到自身 HWND（自绘/XAML）→ 不投递，直接走粘贴；顶层窗口不能代收。"""
+    ctrl = _FakeControl("输入框", "EditControl")  # hwnd=0
+    bridge._last_meta["e1"] = {"patterns": []}
+    bridge._permit = _permit(set(ForegroundAction))
+    posted: list[tuple] = []
+    monkeypatch.setattr(hid, "post_text", lambda *a, **k: posted.append(a))
+    monkeypatch.setattr(
+        hid,
+        "set_focus",
+        lambda permit, control: hid.HIDResult(
+            ok=True, actions=(ForegroundAction.ACTIVATE,)
+        ),
+    )
+    monkeypatch.setattr(
+        hid,
+        "paste",
+        lambda permit, text: hid.HIDResult(
+            ok=True,
+            actions=(ForegroundAction.CLIPBOARD, ForegroundAction.KEYBOARD),
+        ),
+    )
+    r = bridge._act_type(ctrl, "e1", "你好")
+    assert r["via"] == "coord_clipboard"
+    assert posted == []
+
+
+# ── 边界 3：窗口 activate ──────────────────────────────────────────────────
 
 def test_boundary_activate_refused_without_permit(bridge):
     ctrl = _FakeControl()
